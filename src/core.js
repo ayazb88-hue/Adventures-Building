@@ -43,6 +43,7 @@ const CONFIG = {
   buildings: {
     house:  { name: 'Haus', cost: { wood: 20 }, work: 240, beds: 2 },
     smithy: { name: 'Schmiede', cost: { wood: 30 }, work: 360, beds: 0 },
+    market: { name: 'Marktplatz', cost: { wood: 25 }, work: 240, beds: 0 },
     castle: { name: 'Burg', cost: { wood: 80, crystals: 6 }, work: 600, beds: 4, size: 3 },
   },
   farming: { growMinutes: 1440, harvestFood: 6, foodPerMeal: 40, plantMinutes: 40, harvestMinutes: 20 },
@@ -158,6 +159,7 @@ const TILE_DEFS = {
   rock:  { name: 'Fels',          walkable: false },
   field: { name: 'Feld',          walkable: false },
   smithy:{ name: 'Schmiede',      walkable: false },
+  market:{ name: 'Marktplatz',    walkable: false },
   castle:{ name: 'Burg',          walkable: false },
   ford:  { name: 'Furt',          walkable: true  },
   ruin:  { name: 'Ruine',         walkable: false },
@@ -335,18 +337,22 @@ class Settlement {
     this.campTile.town = this;
     this.id = opts.id || 0; this.name = opts.name || 'Siedlung'; this.capital = !!opts.capital;
     this.color = opts.color || BANNERS[this.id % BANNERS.length]; this.leader = opts.leader || ''; this.founded = opts.founded || 1;
-    this.stock = { wood: 0, crystals: 0, food: 0 };
+    this.stock = { wood: 0, crystals: 0, food: 0, coins: 0 };
+    this.trades = []; // letzte Handelsgeschäfte für die Anzeige
     this.buildings = [];
     this.site = null;
     this.foundedBy = '';
   }
   get houses() { return this.buildings.filter(b => b.type === 'house'); }
   get smithy() { return this.buildings.find(b => b.type === 'smithy'); }
+  get market() { return this.buildings.find(b => b.type === 'market'); }
   get castle() { return this.buildings.find(b => b.type === 'castle'); }
   get members() { return this.sim.npcs.filter(n => n.town === this); }
   get fields() { return this.sim.world.tiles.filter(t => t.type === 'field'); }
   canAfford(cost) { return Object.entries(cost).every(([k, v]) => (this.stock[k] || 0) >= v); }
   pay(cost) { for (const [k, v] of Object.entries(cost)) this.stock[k] -= v; }
+
+  addTrade(text) { this.trades.unshift(`T${this.sim.day} ${this.sim.clock} · ${text}`); if (this.trades.length > 6) this.trades.pop(); }
 
   /** Felder zählen (alle 15 Minuten, damit es schnell bleibt). */
   recount() {
@@ -366,6 +372,7 @@ class Settlement {
     if (this.site) return;
     // Schmiede, sobald es ein paar Häuser und Kristalle gibt – sonst Häuser
     let next = this.capital && !this.smithy && this.houses.length >= 3 && this.stock.crystals >= 1 ? 'smithy' : 'house';
+    if (next === 'house' && this.capital && this.smithy && !this.market && this.houses.length >= 8) next = 'market';
     if (this.capital && this.sim.kingdom && !this.castle && this.sim.minutes >= (this.nextCastleTry || 0)) next = 'castle';
     if (next === 'house') { // nur bauen, wenn Betten gebraucht werden
       const free = this.houses.reduce((a, h) => a + h.beds - h.residents.length, 0);

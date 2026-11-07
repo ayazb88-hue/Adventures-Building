@@ -369,6 +369,91 @@ function drawMonsterShape(c, m, s, now) {
   c.restore();
 }
 
+/** Marktplatz: drei Stände mit gestreiften Sonnendächern, Waren, Kisten und Fässern. */
+function drawMarketSprite(c, s) {
+  const ol = 'rgba(40,28,20,.5)', lw = Math.max(1, s * 0.013);
+  // Pflaster
+  c.fillStyle = '#b9ad98'; c.beginPath(); c.ellipse(0.05 * s, -0.12 * s, 0.75 * s, 0.24 * s, 0, 0, TAU); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.12)'; c.lineWidth = Math.max(1, s * 0.01);
+  for (let k = -3; k <= 3; k++) { c.beginPath(); c.moveTo(k * 0.2 * s, -0.32 * s); c.lineTo(k * 0.2 * s + 0.08 * s, 0.08 * s); c.stroke(); }
+  const stall = (x, y, cols, goods) => {
+    // Pfosten
+    c.fillStyle = '#6b4526'; for (const px of [-0.2, 0.2]) c.fillRect(x + px * s - 0.015 * s, y - 0.5 * s, 0.03 * s, 0.5 * s);
+    // Tisch (Vorderseite + Platte)
+    c.fillStyle = '#8a5a34'; c.fillRect(x - 0.24 * s, y - 0.22 * s, 0.48 * s, 0.22 * s);
+    c.fillStyle = '#a9744a'; c.beginPath(); c.moveTo(x - 0.24 * s, y - 0.22 * s); c.lineTo(x + 0.24 * s, y - 0.22 * s); c.lineTo(x + 0.3 * s, y - 0.3 * s); c.lineTo(x - 0.18 * s, y - 0.3 * s); c.fill();
+    c.strokeStyle = ol; c.lineWidth = lw; c.strokeRect(x - 0.24 * s, y - 0.22 * s, 0.48 * s, 0.22 * s);
+    // Waren
+    for (let k = 0; k < 5; k++) {
+      const gx = x - 0.17 * s + k * 0.085 * s, gy = y - 0.27 * s;
+      c.fillStyle = goods[k % goods.length];
+      if (goods === GOODS_BREAD) { c.beginPath(); c.ellipse(gx, gy, 0.04 * s, 0.025 * s, 0, 0, TAU); c.fill(); }
+      else if (goods === GOODS_CLOTH) { c.fillRect(gx - 0.03 * s, gy - 0.03 * s, 0.06 * s, 0.05 * s); }
+      else { c.beginPath(); c.arc(gx, gy, 0.028 * s, 0, TAU); c.fill(); c.fillStyle = 'rgba(255,255,255,.5)'; c.beginPath(); c.arc(gx - 0.008 * s, gy - 0.01 * s, 0.008 * s, 0, TAU); c.fill(); }
+    }
+    // Sonnendach mit Streifen und Zackenkante
+    const top = y - 0.62 * s, bot = y - 0.47 * s;
+    c.save(); c.beginPath(); c.moveTo(x - 0.3 * s, bot); c.lineTo(x - 0.22 * s, top); c.lineTo(x + 0.28 * s, top); c.lineTo(x + 0.34 * s, bot); c.closePath(); c.clip();
+    for (let k = 0; k < 8; k++) { c.fillStyle = cols[k % 2]; c.fillRect(x - 0.32 * s + k * 0.085 * s, top - 0.02 * s, 0.085 * s, 0.2 * s); }
+    c.restore();
+    c.fillStyle = cols[0];
+    for (let k = 0; k < 8; k++) { const ex = x - 0.3 * s + k * 0.08 * s; c.beginPath(); c.moveTo(ex, bot); c.lineTo(ex + 0.04 * s, bot + 0.05 * s); c.lineTo(ex + 0.08 * s, bot); c.fill(); }
+    c.strokeStyle = ol; c.lineWidth = lw; c.beginPath(); c.moveTo(x - 0.3 * s, bot); c.lineTo(x - 0.22 * s, top); c.lineTo(x + 0.28 * s, top); c.lineTo(x + 0.34 * s, bot); c.stroke();
+  };
+  stall(-0.38 * s, -0.2 * s, ['#d94b3d', '#f4efe2'], GOODS_FRUIT);
+  stall(0.45 * s, -0.24 * s, ['#3d7bd9', '#f4efe2'], GOODS_CLOTH);
+  stall(0.05 * s, 0.02 * s, ['#e0b03a', '#2f8f5b'], GOODS_BREAD);
+  // Fass und Kisten
+  c.fillStyle = '#7a5230'; c.beginPath(); c.ellipse(-0.72 * s, -0.08 * s, 0.07 * s, 0.1 * s, 0, 0, TAU); c.fill();
+  c.strokeStyle = '#3b2a1e'; c.lineWidth = lw; c.stroke(); c.beginPath(); c.moveTo(-0.79 * s, -0.1 * s); c.lineTo(-0.65 * s, -0.1 * s); c.stroke();
+  c.fillStyle = '#a07a4f'; c.fillRect(0.6 * s, -0.08 * s, 0.14 * s, 0.11 * s); c.strokeRect(0.6 * s, -0.08 * s, 0.14 * s, 0.11 * s);
+  c.fillRect(0.64 * s, -0.17 * s, 0.1 * s, 0.09 * s); c.strokeRect(0.64 * s, -0.17 * s, 0.1 * s, 0.09 * s);
+}
+const GOODS_FRUIT = ['#d63a3a', '#f0a030', '#7cc04a'], GOODS_BREAD = ['#d9a456', '#c08440'], GOODS_CLOTH = ['#7b3fb0', '#2e6fbf', '#c0392b', '#e8c45a'];
+
+/** Händlerkarren mit Esel (oder Planwagen des fahrenden Händlers). */
+function drawCart(c, cart, s, now, px, py) {
+  const merchant = cart.kind === 'merchant', U = s, wob = Math.sin(cart.phase * 6) * 0.01 * U;
+  c.save(); c.translate(px, py); c.scale(cart.facing, 1); c.lineCap = 'round';
+  c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(0, 0.02 * U, 0.55 * U, 0.1 * U, 0, 0, TAU); c.fill();
+  // Esel vorn
+  const ex = 0.38 * U, leg = Math.sin(cart.phase * 9) * 0.3;
+  c.strokeStyle = '#5e5348'; c.lineWidth = 0.035 * U;
+  for (const [lx, o] of [[-0.08, 0], [-0.04, Math.PI], [0.08, Math.PI], [0.12, 0]]) { const a = Math.sin(cart.phase * 9 + o) * 0.35; c.beginPath(); c.moveTo(ex + lx * U, -0.15 * U); c.lineTo(ex + lx * U + Math.sin(a) * 0.15 * U, 0); c.stroke(); }
+  c.fillStyle = '#8b7d6f'; c.beginPath(); c.ellipse(ex + 0.02 * U, -0.2 * U + wob, 0.15 * U, 0.07 * U, 0, 0, TAU); c.fill();
+  c.beginPath(); c.ellipse(ex + 0.19 * U, -0.3 * U + wob, 0.065 * U, 0.045 * U, -0.5, 0, TAU); c.fill();
+  c.beginPath(); c.moveTo(ex + 0.16 * U, -0.33 * U); c.lineTo(ex + 0.15 * U, -0.44 * U); c.lineTo(ex + 0.19 * U, -0.34 * U); c.fill();
+  c.fillStyle = '#e8e2d8'; c.beginPath(); c.ellipse(ex + 0.24 * U, -0.28 * U + wob, 0.025 * U, 0.02 * U, 0, 0, TAU); c.fill();
+  c.fillStyle = '#1d1410'; c.beginPath(); c.arc(ex + 0.2 * U, -0.32 * U + wob, Math.max(0.7, 0.01 * U), 0, TAU); c.fill();
+  // Deichsel
+  c.strokeStyle = '#6b4526'; c.lineWidth = 0.025 * U; c.beginPath(); c.moveTo(0.12 * U, -0.18 * U); c.lineTo(ex - 0.05 * U, -0.2 * U); c.stroke();
+  // Wagen
+  c.fillStyle = '#8a5a34'; c.fillRect(-0.36 * U, -0.3 * U + wob, 0.5 * U, 0.14 * U);
+  c.strokeStyle = 'rgba(40,28,20,.6)'; c.lineWidth = Math.max(1, 0.012 * U); c.strokeRect(-0.36 * U, -0.3 * U + wob, 0.5 * U, 0.14 * U);
+  if (merchant) { // Plane
+    c.fillStyle = '#7b3fb0'; c.beginPath(); c.moveTo(-0.37 * U, -0.3 * U + wob); c.quadraticCurveTo(-0.11 * U, -0.62 * U, 0.15 * U, -0.3 * U + wob); c.closePath(); c.fill();
+    c.strokeStyle = '#e8c45a'; c.lineWidth = Math.max(1, 0.015 * U); c.beginPath(); c.moveTo(-0.3 * U, -0.36 * U); c.quadraticCurveTo(-0.11 * U, -0.56 * U, 0.08 * U, -0.36 * U); c.stroke();
+  } else { // Ladung: Säcke und Kisten
+    if (cart.cargo && (cart.cargo.food || cart.cargo.wood)) {
+      c.fillStyle = '#d9c48f'; c.beginPath(); c.ellipse(-0.24 * U, -0.34 * U + wob, 0.08 * U, 0.06 * U, 0, 0, TAU); c.fill();
+      c.beginPath(); c.ellipse(-0.1 * U, -0.36 * U + wob, 0.08 * U, 0.065 * U, 0, 0, TAU); c.fill();
+      c.fillStyle = '#a07a4f'; c.fillRect(0.0 * U, -0.42 * U + wob, 0.11 * U, 0.11 * U);
+    }
+  }
+  // Rad mit Speichen
+  const wx = -0.12 * U, wy = -0.1 * U, wr = 0.1 * U;
+  c.fillStyle = '#5a3a22'; c.beginPath(); c.arc(wx, wy, wr, 0, TAU); c.fill();
+  c.strokeStyle = '#c99c66'; c.lineWidth = Math.max(1, 0.015 * U);
+  for (let k = 0; k < 4; k++) { const a = cart.phase * 4 + k * Math.PI / 4; c.beginPath(); c.moveTo(wx - Math.cos(a) * wr, wy - Math.sin(a) * wr); c.lineTo(wx + Math.cos(a) * wr, wy + Math.sin(a) * wr); c.stroke(); }
+  c.strokeStyle = '#3b2a1e'; c.lineWidth = Math.max(1, 0.02 * U); c.beginPath(); c.arc(wx, wy, wr, 0, TAU); c.stroke();
+  // Kutscher
+  const dx = 0.08 * U, dy = -0.42 * U + wob;
+  c.fillStyle = merchant ? '#5a2a7a' : '#3d7bd9'; c.fillRect(dx - 0.04 * U, dy, 0.08 * U, 0.12 * U);
+  c.fillStyle = '#f5d3b8'; c.beginPath(); c.arc(dx, dy - 0.05 * U, 0.045 * U, 0, TAU); c.fill();
+  c.fillStyle = merchant ? '#c0392b' : '#e3c66b'; c.beginPath(); c.ellipse(dx, dy - 0.08 * U, 0.07 * U, 0.02 * U, 0, 0, TAU); c.fill(); c.beginPath(); c.arc(dx, dy - 0.09 * U, 0.035 * U, Math.PI, 0); c.fill();
+  c.restore();
+}
+
 class Renderer {
   constructor(canvas, sim) {
     this.canvas = canvas;
@@ -536,6 +621,7 @@ class Renderer {
     S.bush = this.makeSprite(1.0, 0.95, 0.5, 0.85, drawBush);
     for (let v = 0; v < 2; v++) S['rock' + v] = this.makeSprite(1.0, 0.8, 0.5, 0.7, (c, s) => drawRock(c, s, v));
     for (let v = 0; v < 3; v++) S['ruin' + v] = this.makeSprite(1.0, 1.5, 0.45, 1.4, (c, s) => drawRuin(c, s, v));
+    S.market = this.makeSprite(1.8, 1.0, 0.85, 0.75, drawMarketSprite);
     S.smithy = this.makeSprite(1.5, 2.0, 0.75, 1.85, drawSmithySprite);
     for (let v = 0; v < ROOFS.length; v++) {
       S['house' + v] = this.makeSprite(1.5, 1.75, 0.58, 1.6, (c, s) => drawHouseSprite(c, s, v, false));
@@ -588,7 +674,7 @@ class Renderer {
 
   pathLevel(t) {
     if (!t) return 0;
-    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle') return 1;
+    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market') return 1;
     return t.type === 'grass' ? Math.min(1, t.traffic / 50) : 0;
   }
 
@@ -1101,7 +1187,7 @@ class Renderer {
     const r = this.canvas.getBoundingClientRect(), w = this.sim.world;
     const tx = Math.floor((clientX - r.left + this.camX) / this.ts), ty = Math.floor((clientY - r.top + this.camY) / this.ts);
     const here = w.tile(tx, ty), below = w.tile(tx, ty + 1);
-    const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy'].includes(t.type);
+    const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy', 'market'].includes(t.type);
     const pick = t => t && t.part ? t.part : t;
     for (let dy = 1; dy <= 3; dy++) { const t = w.tile(tx, ty + dy); if (t && t.type === 'castle' && (!here || here.type === 'grass')) return pick(t); }
     if (!tall(here) && tall(below)) return pick(below);
@@ -1117,7 +1203,7 @@ class Renderer {
       cv.width = w.w; cv.height = w.h;
       const ctx = cv.getContext('2d'), img = ctx.createImageData(w.w, w.h);
       const COL = { grass: [77, 122, 58], tree: [36, 80, 44], stump: [90, 110, 60], water: [47, 111, 159], ford: [90, 159, 192], bush: [60, 125, 63],
-        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
+        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
       w.tiles.forEach((t, i) => {
         let col = COL[t.type] || COL.grass;
         if (t.type === 'grass' && t.traffic > 25) col = [138, 115, 80];
@@ -1130,6 +1216,7 @@ class Renderer {
     mc.clearRect(0, 0, size, size);
     mc.drawImage(this.miniBase, 0, 0, w.w * k, w.h * k);
     for (const g of w.gates) { mc.fillStyle = `rgba(200,170,255,${0.6 + Math.sin(now / 300) * 0.4})`; mc.fillRect((g.x - 0.5) * k, (g.y - 0.5) * k, 2 * k, 2 * k); }
+    for (const cart of this.sim.carts) { mc.fillStyle = cart.kind === 'merchant' ? '#c792ea' : '#ffd166'; mc.fillRect(cart.x * k, cart.y * k, 1.8 * k, 1.8 * k); }
     for (const m of this.sim.monsters) { mc.fillStyle = '#ff3b3b'; mc.fillRect(m.x * k, m.y * k, 1.6 * k, 1.6 * k); }
     for (const n of this.sim.npcs) {
       if (n.inside) continue;
@@ -1354,6 +1441,11 @@ class Renderer {
       (rows.get(r) || rows.set(r, []).get(r)).push(e);
       drawn.push(e);
     }
+    for (const cart of sim.carts) {
+      if (cart.x < x0 - 2 || cart.x > x1 + 2 || cart.y < y0 - 1 || cart.y > y1) continue;
+      const fy = cart.prevY + (cart.y - cart.prevY) * alpha, r = clamp(Math.round(fy), y0, y1);
+      (rows.get(r) || rows.set(r, []).get(r)).push({ cart, fy, fx: cart.prevX + (cart.x - cart.prevX) * alpha });
+    }
     for (const m of sim.monsters) {
       if (m.x < x0 - 1 || m.x > x1 + 1 || m.y < y0 - 1 || m.y > y1) continue;
       const fy = m.prevY + (m.y - m.prevY) * alpha, r = clamp(Math.round(fy), y0, y1);
@@ -1473,6 +1565,7 @@ class Renderer {
           case 'ruin': { const sp = this.sprites['ruin' + Math.min(2, Math.floor(t.shade * 3))]; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.9) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
           case 'gate': this.drawGate(c, t, s, now); break;
           case 'field': this.drawCrops(c, t, s, now); break;
+          case 'market': { const sp = this.sprites.market; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.9) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
           case 'smithy': {
             const sp = this.sprites.smithy, bx = (x + 0.5) * s, by = (y + 0.95) * s;
             c.drawImage(sp.cv, bx - sp.ax * sk, by - sp.ay * sk, sp.w * sk, sp.h * sk);
@@ -1491,6 +1584,7 @@ class Renderer {
         list.sort((a, b) => a.fy - b.fy);
         for (const e of list) {
           if (e.animal) { this.drawAnimal(c, e.animal, s); continue; }
+          if (e.cart) { drawCart(c, e.cart, s, now, (e.fx + 0.5) * s, (e.fy + 0.85) * s); continue; }
           if (e.monster) {
             const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s;
             c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(mx, my, s * 0.3, s * 0.08, 0, 0, TAU); c.fill();

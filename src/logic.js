@@ -505,6 +505,28 @@ function finishGate(n, gate, sim) {
 }
 
 defineAction({
+  id: 'visitMarket', label: 'bummelt über den Markt', short: 'Markt', start: 'geht auf den Markt', icon: '🛍️',
+  score(n, sim) {
+    const m = n.town.market;
+    if (!m || sim.isNight || n.mood > 75 || sim.minutes - (n.lastMarket || -1e9) < 720) return 0;
+    const h = sim.hourFloat;
+    return 16 + (h >= 15 && h < 20 ? 12 : 0) + n.traits.gesellig * 6;
+  },
+  think: (n, sim) => pick(sim, ['Mal sehen, was es heute auf dem Markt gibt.', 'Auf dem Markt hört man immer die neuesten Geschichten.', 'Ich gönne mir einen Bummel über den Markt.']),
+  plan(n, sim) {
+    const m = n.town.market;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === m.tile, 5000);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t === 1) n.lastMarket = sim.minutes;
+      n.mood = Math.min(100, n.mood + 0.35); n.social = Math.min(100, n.social + 0.5);
+      if (s.t === 15 && n.hunger > 40 && n.town.stock.food > 0 && n.town.stock.coins >= 0) { n.town.stock.food--; n.hunger = Math.max(0, n.hunger - CONFIG.farming.foodPerMeal); sim.float(m.tile.x, m.tile.y, '🥨', '#fff'); }
+      if (s.t >= 35) return 'done';
+    }, { face: m.tile })];
+  },
+});
+
+defineAction({
   id: 'arrive', label: 'wandert zur Siedlung', short: 'Ankommen', start: 'wandert zur Siedlung', icon: '🧳',
   interruptible: false,
   score: () => 0, // wird nur beim Eintreffen direkt gestartet
@@ -896,6 +918,7 @@ class Simulation {
     this.npcs = [];
     this.logEntries = [];
     this.floats = [];   // schwebende Texte, nur Anzeige
+    this.carts = []; this.cartId = 0; // Händlerkarren (nicht gespeichert)
     this.monsters = []; this.monsterId = 0; this.guild = null; this.tomeFound = false; this.ruinsSearched = 0;
     this.listeners = {};
     if (save) this.applySave(save);
@@ -1044,6 +1067,85 @@ class Simulation {
     return best;
   }
 
+  /** Handel: Markttag, Karren zwischen den Orten, fahrender Händler. */
+  updateTrade() {
+    const cap = this.capital, market = cap.market, day = this.minutes % 1440;
+    if (market && day === 12 * 60) { // Markttag: Überschuss wird verkauft
+      const keepFood = cap.members.length * 3, sellFood = Math.max(0, Math.floor((cap.stock.food - keepFood) * 0.5)), sellWood = Math.max(0, Math.floor((cap.stock.wood - 100) * 0.3));
+      const coins = Math.floor(sellFood / 2) + Math.floor(sellWood / 4);
+      if (coins > 0) {
+        cap.stock.food -= sellFood; cap.stock.wood -= sellWood; cap.stock.coins += coins;
+        cap.addTrade(`Markttag: ${sellFood} Brot und ${sellWood} Holz für ${coins} 🪙`);
+        this.log(`🛍️ Markttag in ${cap.name}: Überschuss verkauft für ${coins} Münzen.`, null, true);
+      }
+    }
+    if (market && this.towns.length > 1 && this.minutes % 240 === 0 && this.carts.filter(c => c.kind === 'cart').length < this.towns.length - 1) {
+      const per = t => t.stock.food / Math.max(1, t.members.length);
+      const rich = this.towns.reduce((a, b) => per(b) > per(a) ? b : a), poor = this.towns.reduce((a, b) => per(b) < per(a) ? b : a);
+      if (rich !== poor && per(rich) - per(poor) > 1.5 && rich.stock.food > 20) {
+        const food = Math.min(18, Math.floor((rich.stock.food - 20) / 2)), wood = rich.stock.wood > 60 && poor.stock.wood < 25 ? 12 : 0;
+        if (food > 0 && this.sendCart('cart', rich, poor, { food, wood })) { rich.stock.food -= food; rich.stock.wood -= wood; }
+      }
+    }
+    if (market && day === 10 * 60 && !this.carts.some(c => c.kind === 'merchant')) {
+      const entry = this.findEntryTile(cap);
+      if (entry) {
+        const res = this.world.findAdjacent(entry.x, entry.y, t => t === market.tile, 8000);
+        if (res) {
+          this.carts.push({ id: ++this.cartId, kind: 'merchant', x: entry.x, y: entry.y, prevX: entry.x, prevY: entry.y, path: res.path, to: cap, state: 'go', facing: 1, phase: 0 });
+          this.log('🐪 Ein fahrender Händler nähert sich mit seltenen Waren!', null, true);
+        }
+      }
+    }
+    for (const cart of this.carts) this.moveCart(cart);
+    this.carts = this.carts.filter(c => !c.done);
+  }
+
+  sendCart(kind, from, to, cargo) {
+    const res = this.world.findAdjacent(from.camp.x, from.camp.y + 1, t => t === to.campTile, 9000);
+    if (!res) return false;
+    const st = { x: from.camp.x, y: from.camp.y + 1 };
+    this.carts.push({ id: ++this.cartId, kind, x: st.x, y: st.y, prevX: st.x, prevY: st.y, path: res.path, from, to, cargo, state: 'go', facing: 1, phase: 0 });
+    this.log(`🐴 Ein Händlerkarren bricht von ${from.name} nach ${to.name} auf (${cargo.food} Brot${cargo.wood ? ', ' + cargo.wood + ' Holz' : ''}).`, null, true);
+    return true;
+  }
+
+  moveCart(cart) {
+    cart.prevX = cart.x; cart.prevY = cart.y;
+    if (cart.wait > 0) { cart.wait--; return; }
+    let budget = 0.22;
+    while (budget > 0 && cart.path.length) {
+      const nx = cart.path[0], dx = nx.x - cart.x, dy = nx.y - cart.y, d = Math.hypot(dx, dy);
+      if (Math.abs(dx) > 0.01) cart.facing = dx > 0 ? 1 : -1;
+      if (d <= budget) { cart.x = nx.x; cart.y = nx.y; budget -= d; cart.path.shift(); } else { cart.x += dx / d * budget; cart.y += dy / d * budget; budget = 0; }
+      cart.phase += 0.22;
+    }
+    if (cart.path.length) return;
+    if (cart.state === 'go') {
+      if (cart.kind === 'cart') {
+        cart.to.stock.food += cart.cargo.food; cart.to.stock.wood += cart.cargo.wood; this.capital.stock.coins += 2;
+        cart.to.addTrade(`Karren aus ${cart.from.name}: +${cart.cargo.food} Brot${cart.cargo.wood ? ', +' + cart.cargo.wood + ' Holz' : ''}`);
+        this.log(`🐴 Der Händlerkarren erreicht ${cart.to.name}: +${cart.cargo.food} Brot${cart.cargo.wood ? ', +' + cart.cargo.wood + ' Holz' : ''}.`, null, true);
+        this.float(cart.x, cart.y, `+${cart.cargo.food} 🍞`, '#ffe08a');
+        cart.cargo = { food: 0, wood: 0 };
+        const back = this.world.findAdjacent(cart.x, cart.y, t => t === cart.from.campTile, 9000);
+        cart.path = back ? back.path : []; cart.state = 'back'; cart.wait = 30;
+        if (!back) cart.done = true;
+      } else { // fahrender Händler am Markt
+        const cap = this.capital, n = Math.min(4, Math.floor(cap.stock.coins / 25));
+        if (n > 0) {
+          cap.stock.coins -= n * 25; cap.stock.crystals += n;
+          cap.addTrade(`Fahrender Händler: ${n} Mana-Kristall${n > 1 ? 'e' : ''} für ${n * 25} 🪙`);
+          this.log(`🐪 Der fahrende Händler verkauft ${n} Mana-Kristall${n > 1 ? 'e' : ''} für ${n * 25} Münzen.`, null, true);
+          this.emit('system', `Handel: +${n} Mana-Kristall${n > 1 ? 'e' : ''}`);
+        } else this.log('🐪 Der fahrende Händler findet keine Kundschaft mit genug Münzen und zieht weiter.', null, true);
+        const out = this.findEntryTile(cap), back = out && this.world.findAdjacent(cart.x, cart.y, t => t.x === out.x && t.y === out.y, 9000);
+        cart.path = back ? back.path : []; cart.state = 'back'; cart.wait = 120;
+        if (!back) cart.done = true;
+      }
+    } else cart.done = true;
+  }
+
   updateMonsters() {
     const cfg = CONFIG.monsters, h = this.hourFloat;
     if (this.minutes % 1440 === 6 * 60 && this.monsters.length) {
@@ -1173,6 +1275,7 @@ class Simulation {
     if (this.minutes % 1440 === 7 * 60) this.payTribute();
     for (const npc of this.npcs) npc.update(this);
     this.updateMonsters();
+    this.updateTrade();
     if (!this.guild && this.minutes % 60 === 0) {
       const aw = this.npcs.filter(n => n.awakened).sort((a, b) => b.level - a.level);
       if (aw.length >= 2) {

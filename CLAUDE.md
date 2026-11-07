@@ -40,7 +40,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
 
 ## Fahrplan
 1. ✅ Siedler, Häuser, Tag/Nacht, Speichern, Erwachte, Risse, Ausrüstung, Schmiede, Felder, Monster, Gilde, Königreich mit Burg und Außenposten
-2. Handel und Markt (Mana-Kristalle, Brot, Holz zwischen den Orten; Händler-Karren auf den Wegen)
+2. ✅ Handel und Markt: Marktplatz, Markttag (Münzen), Händlerkarren zwischen den Orten, fahrender Händler mit Kristallen
 3. Stein und neue Gebäude (Steinbruch, Mauern, Wachtürme, Taverne, Tempel)
 4. Rivalisierende Königreiche / Banditen, Diplomatie, Belagerung
 5. Bosse aus Rissen höheren Rangs, Gruppen-Expeditionen der Gilde

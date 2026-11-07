@@ -97,6 +97,13 @@ function tileInfo(t) {
       return head('🌾', 'Getreidefeld', p >= 1 ? 'reif – bereit zur Ernte!' : `wächst … noch etwa ${Math.ceil((1 - p) * CONFIG.farming.growMinutes / 60)} Stunden`)
         + bar('Wachstum', p * 100, '#e6c45a') + `<div class="muted small">Eine Ernte bringt ${CONFIG.farming.harvestFood} Brot ins Lager.</div>`;
     }
+    case 'market': {
+      const tw = (t.building && t.building.town) || sim.capital, shoppers = sim.npcs.filter(n => n.task && n.task.actionId === 'visitMarket');
+      return head('🛍️', `Marktplatz von ${esc(tw.name)}`, 'Markttag ist jeden Mittag – Überschuss wird zu Münzen.')
+        + `<div class="sec"><h4>Kasse und Vorräte</h4><span class="score">🪙 ${tw.stock.coins} Münzen</span><span class="score">🍞 ${tw.stock.food}</span><span class="score">🪵 ${tw.stock.wood}</span><span class="score">💎 ${tw.stock.crystals}</span></div>`
+        + `<div class="sec"><h4>Gerade auf dem Markt</h4>${shoppers.length ? shoppers.map(npcLink).join('') : '<span class="muted">niemand</span>'}</div>`
+        + `<div class="sec"><h4>Letzte Geschäfte</h4>${tw.trades.length ? `<ul>${tw.trades.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<span class="muted">noch keine</span>'}</div>`;
+    }
     case 'smithy': {
       const b = t.building, smiths = sim.npcs.filter(n => n.forged).sort((a, b) => b.forged - a.forged);
       return head('⚒️', 'Schmiede', b.busy ? `${esc(b.busy.name)} schmiedet gerade …` : 'Das Feuer glimmt. Kristalle + Holz = Ausrüstung.')
@@ -180,7 +187,7 @@ function updateHud() {
   const st = sim.settlement, cost = CONFIG.buildings.house.cost.wood;
   const site = st.site ? ` · 🔨 Bau ${Math.floor(st.site.progress / st.site.work * 100)} %` : '';
   const mon = sim.monsters.length ? ` · <span style="color:#ff6b6b">👹 ${sim.monsters.length}</span>` : '';
-  $('stats').innerHTML = `🪵 <b>${st.stock.wood}</b>/${cost} · 🍞 <b>${st.stock.food}</b> · 💎 <b>${st.stock.crystals}</b> · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}${mon}`
+  $('stats').innerHTML = `🪵 <b>${st.stock.wood}</b>/${cost} · 🍞 <b>${st.stock.food}</b> · 💎 <b>${st.stock.crystals}</b> · 🪙 <b>${st.stock.coins || 0}</b> · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}${mon}`
     + `<div class="goal"><i style="width:${Math.min(100, st.stock.wood / cost * 100)}%"></i></div>`;
 }
 
