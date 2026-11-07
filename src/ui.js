@@ -4,6 +4,7 @@
 const $ = id => document.getElementById(id);
 const SAVE_KEY = 'siedlung-save-v4';
 const SOUND_KEY = 'siedlung-sound';
+const STYLE_KEY = 'siedlung-figuren';
 const ui = { speed: 1, selected: null, selTile: null, accum: 0, confirmNew: 0, sysQueue: [], sysUntil: 0 };
 const sound = new Sound();
 let sim, renderer;
@@ -288,6 +289,8 @@ document.querySelectorAll('#speed button').forEach(b => b.addEventListener('clic
 document.querySelectorAll('#zoomBtns [data-z]').forEach(b => b.addEventListener('click', () => renderer.setZoom(renderer.ts * Number(b.dataset.z))));
 $('homeBtn').addEventListener('click', () => { select(null); const c = sim.world.camp; renderer.centerOn(c.x + 0.5, c.y + 0.5); });
 $('soundBtn').addEventListener('click', () => setSound(!sound.on));
+const applyStyle = () => { renderer.pixelChars = store(STYLE_KEY) !== 'vektor'; $('styleBtn').textContent = renderer.pixelChars ? '🎨 Figuren: Pixel' : '🎨 Figuren: Gezeichnet'; };
+$('styleBtn').addEventListener('click', () => { store(STYLE_KEY, renderer.pixelChars ? 'vektor' : 'pixel'); applyStyle(); });
 $('newWorld').addEventListener('click', () => {
   const btn = $('newWorld');
   if (Date.now() - ui.confirmNew < 3000) { ui.confirmNew = 0; btn.textContent = '🌍 Neue Welt'; newWorld(Math.floor(Math.random() * 1e6)); return; }
@@ -308,6 +311,7 @@ else if (saved) {
   try { startSim(new Simulation(saved.seed, saved)); sim.log('💾 Spielstand geladen – willkommen zurück!', null, true); }
   catch (e) { newWorld(Math.floor(Math.random() * 1e6)); }
 } else newWorld(Math.floor(Math.random() * 1e6));
+applyStyle();
 requestAnimationFrame(frame);
 
 // Als App installierbar und offline nutzbar (nur auf der echten Webseite, z. B. GitHub Pages)

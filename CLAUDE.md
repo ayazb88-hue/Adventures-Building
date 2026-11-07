@@ -24,7 +24,8 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
   | `src/head.html` | HTML-Gerüst, CSS, Oberfläche |
   | `src/core.js` | `CONFIG`, Klassen, Fähigkeiten, Ausrüstung, Welt + Kartengenerierung, `Settlement` |
   | `src/logic.js` | Aktionen (Utility-KI), NPC, Simulation (Monster, Königreich, Speichern) |
-  | `src/render.js` | Grafik: Sprites, Figuren, Gebäude, Licht, Partikel, Minikarte |
+  | `src/render.js` | Grafik: Sprites, Gebäude, Licht, Partikel, Minikarte (gezeichnete Figuren als Alternative) |
+  | `src/pixel.js` | Pixel-Art-Figuren (Standard): Posen auf 40×40-Raster, Kopf-/Haar-Vorlagen, Umriss, Bild-Cache |
   | `src/sound.js` | Live erzeugter Klang |
   | `src/ui.js` | HUD, Log, Steckbriefe, Hauptschleife, Start |
 - Bauen: `python3 build.py --check` (baut `index.html` und prüft die Syntax).

@@ -864,6 +864,7 @@ class Renderer {
   }
 
   drawSettler(c, n, px, py, s, now, pose, phase = 0) {
+    if (this.pixelChars) return this.drawSettlerPixel(c, n, px, py, s, now, pose, phase);
     const skin = SKIN[n.id % SKIN.length], hair = HAIR[(n.id * 7) % HAIR.length], style = HAIR_STYLES[(n.id * 5 + 1) % HAIR_STYLES.length];
     const U = s * 0.8, ol = 'rgba(45,28,20,.6)', ow = Math.max(0.8, U * 0.013);
     const shirt = n.color, pants = n.awakened ? '#2c2a33' : ['#5a4632', '#4a5236', '#3d4a5c'][n.id % 3];
@@ -1505,7 +1506,7 @@ class Renderer {
       if (n.inside) continue;
       const fx = n.prevX + (n.x - n.prevX) * alpha, fy = n.prevY + (n.y - n.prevY) * alpha;
       const pose = this.pose(n);
-      const off = pose.moving ? 0 : (n.id % 3 - 1) * 0.16;
+      const off = pose.moving ? 0 : (n.id % 5 - 2) * 0.14; // Stehende etwas verteilen
       let an = this.anim.get(n.id);
       if (!an) { an = { x: fx, y: fy, dist: 0 }; this.anim.set(n.id, an); }
       const dd = Math.hypot(fx - an.x, fy - an.y);
