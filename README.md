@@ -14,7 +14,7 @@ Alles steckt in **`index.html`** (HTML + JavaScript + Canvas). Es gibt keine Abh
 
 Über GitHub Pages öffnen, dann im Browser **Teilen → Zum Home-Bildschirm** (iPhone) oder **⋮ → App installieren** (Android). Die App startet im Vollbild und läuft auch offline.
 
-**Bedienung:** Wischen verschiebt die Karte, zwei Finger zoomen, ein angetippter Siedler wird von der Kamera verfolgt.
+**Bedienung:** Wischen verschiebt die Karte, zwei Finger zoomen, ein angetippter Siedler wird verfolgt und zeigt seine Gedanken. 🔊 schaltet den Ton. Der Spielstand wird automatisch im Browser gespeichert.
 
 ## So funktioniert es
 
@@ -28,6 +28,9 @@ Alles steckt in **`index.html`** (HTML + JavaScript + Canvas). Es gibt keine Abh
   - sonst → Holz hacken
 - **Bauen:** Sobald 20 Holz im Lager sind, entsteht eine Baustelle und alle bauen gemeinsam ein Haus.
 - **Wachstum:** Ist ein Haus fertig, ziehen Siedler ohne Zuhause ein und ein neuer Siedler kommt in die Siedlung (höchstens 30).
+- **Denken:** Jeder Siedler hat Charakterzüge (fleißig, gesellig, neugierig …), Laune, ein Bedürfnis nach Gemeinschaft, Beziehungen, Erinnerungen und eigene Gedanken. Sie unterhalten sich, schließen Freundschaften und planen voraus (z. B. vor dem Schlafen noch essen).
+- **Wetter und Licht:** Sonnenstand mit Schatten, Wolken, Regen, Abendrot, Nacht mit Lagerfeuer- und Fensterlicht, Glühwürmchen.
+- **Klang:** Musik, Vögel, Grillen, Feuer, Regen und Axtschläge – live im Browser erzeugt.
 - **Nachwachsen:** Beeren wachsen nach, gefällte Bäume nach 2 Tagen auch.
 - **Tempo:** ⏸ / 1x / 2x / 5x. Bei 1x dauert ein Spieltag 6 Minuten.
 
