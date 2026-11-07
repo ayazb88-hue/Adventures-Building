@@ -26,7 +26,7 @@
   .wrap { max-width: 720px; margin: 0 auto; padding-block: 8px 16px;
     padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 
-  header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-bottom: 8px; }
+  header { padding-bottom: 8px; }
   .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   #clock { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
   #speed { display: flex; gap: 4px; }
@@ -47,6 +47,11 @@
   #log .event { color: var(--accent); font-weight: 600; }
 
   #mapWrap { display: flex; justify-content: center; }
+  #legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+  #legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+  #legend .hint { flex-basis: 100%; text-align: center; }
+  .goal { height: 6px; background: #0005; border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  .goal > i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
   canvas { display: block; border-radius: 10px; touch-action: manipulation; }
 
   #npcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
@@ -80,6 +85,14 @@
   </header>
 
   <div id="mapWrap"><canvas id="map"></canvas></div>
+  <div id="legend">
+    <span><i style="background:#2a5a33"></i>Wald → Holz</span>
+    <span><i style="background:#c03a6b"></i>Beeren → Essen</span>
+    <span><i style="background:#2f6fa8"></i>Wasser</span>
+    <span><i style="background:#ff8a2a"></i>Lager</span>
+    <span><i style="background:#9b3d2c"></i>Haus</span>
+    <span class="hint">Tippe einen Siedler an, um seinen Weg zu sehen.</span>
+  </div>
   <section id="npcs"></section>
 
   <footer>
@@ -351,6 +364,7 @@ class Settlement {
     this.buildings.push(b);
     this.site = null;
     this.sim.log(`🏠 ${def.name} Nr. ${this.houses.length} ist fertig!`, null, true);
+    this.sim.float(site.tile.x, site.tile.y, '🎉 Fertig!', '#f0b54a');
     this.sim.emit('buildingCompleted', b);
   }
 
@@ -403,6 +417,7 @@ defineAction({
       if (bush.type !== 'bush' || bush.berries <= 0) return 'done'; // leer → ggf. nächster Strauch
       bush.berries--; bush.timer = 0; sim.world.dirty = true;
       n.hunger = Math.max(0, n.hunger - CONFIG.resources.berryFood);
+      sim.float(bush.x, bush.y, '😋', '#fff');
       n.gainXp('gathering', 1);
       if (n.hunger <= 5) return 'done';
     })];
@@ -466,6 +481,7 @@ defineAction({
     return [move(res.path), act((n, sim) => {
       const amount = n.inventory.wood;
       sim.settlement.stock.wood += amount;
+      sim.float(sim.settlement.camp.x, sim.settlement.camp.y, `+${amount} 🪵`, '#f0b54a');
       n.inventory.wood = 0;
       sim.world.dirty = true;
       const need = CONFIG.buildings.house.cost.wood;
@@ -486,6 +502,7 @@ defineAction({
       if (tree.type !== 'tree' || tree.wood <= 0) return 'done';
       if (s.t % Math.max(1, Math.round(CONFIG.resources.chopMinutes / n.workRate('chop'))) !== 0) return;
       tree.wood--;
+      sim.float(tree.x, tree.y, '+1 🪵', '#f3d29b');
       n.inventory.wood++;
       n.gainXp('woodcutting', 1);
       if (tree.wood <= 0) sim.world.setType(tree, 'stump');
@@ -640,6 +657,7 @@ class Simulation {
     this.settlement = new Settlement(this, this.world.camp);
     this.npcs = [];
     this.logEntries = [];
+    this.floats = [];   // schwebende Texte, nur Anzeige
     this.listeners = {};
     CONFIG.startingNpcs.forEach(def => this.addNpc(def));
   }
@@ -662,6 +680,10 @@ class Simulation {
 
   on(evt, fn) { (this.listeners[evt] ||= []).push(fn); }
   emit(evt, data) { (this.listeners[evt] || []).forEach(fn => fn(data, this)); }
+
+  float(x, y, text, color = '#fff') {
+    if (this.floats.length < 40) this.floats.push({ x, y, text, color, born: performance.now() });
+  }
 
   log(text, npc = null, event = false) {
     const entry = { day: this.day, clock: this.clock, text, npc, event };
@@ -776,6 +798,7 @@ class Renderer {
 
   render(alpha, selected) {
     const { ctx, ts: s, sim } = this;
+    this.now = performance.now();
     if (sim.world.dirty) { this.drawBackground(); sim.world.dirty = false; }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.bg, 0, 0);
@@ -784,7 +807,15 @@ class Renderer {
     // Baufortschritt
     const site = sim.settlement.site;
     if (site) {
-      const x = site.tile.x * s, y = site.tile.y * s;
+      const x = site.tile.x * s, y = site.tile.y * s, p = Math.min(1, site.progress / site.work);
+      // Bauphasen: Fundament → Wände wachsen → Dach wächst
+      const wallH = s * 0.5 * Math.min(1, p / 0.6);
+      ctx.fillStyle = '#d2ab72'; ctx.fillRect(x + s * 0.14, y + s * 0.92 - wallH, s * 0.72, wallH);
+      if (p > 0.6) {
+        const rp = (p - 0.6) / 0.4;
+        ctx.fillStyle = '#9b3d2c'; ctx.beginPath();
+        ctx.moveTo(x + s * 0.06, y + s * 0.46); ctx.lineTo(x + s * 0.5, y + s * (0.46 - 0.38 * rp)); ctx.lineTo(x + s * 0.94, y + s * 0.46); ctx.fill();
+      }
       ctx.fillStyle = '#0008'; ctx.fillRect(x + 2, y + 2, s - 4, 4);
       ctx.fillStyle = '#f0b54a'; ctx.fillRect(x + 2, y + 2, (s - 4) * Math.min(1, site.progress / site.work), 4);
     }
@@ -808,9 +839,21 @@ class Renderer {
         ctx.fillText('z', (t.x + 0.75 + (n.id % 2) * 0.15) * s, (t.y + 0.1 - (n.id % 2) * 0.15) * s);
         continue;
       }
-      const px = (n.prevX + (n.x - n.prevX) * alpha + 0.5) * s;
-      const py = (n.prevY + (n.y - n.prevY) * alpha + 0.5) * s;
+      const step = n.task && n.task.steps[n.task.i];
+      const moving = step && step.kind === 'move' && step.path.length > 0;
+      const px = (n.prevX + (n.x - n.prevX) * alpha + 0.5 + (n.id % 2 ? -0.14 : 0.14)) * s; // leicht versetzt, damit sich niemand verdeckt
+      // Hüpfen beim Laufen, Wippen beim Arbeiten
+      const bob = moving ? Math.abs(Math.sin(this.now / 110 + n.id)) * s * 0.12
+        : (n.working ? Math.abs(Math.sin(this.now / 160 + n.id)) * s * 0.06 : 0);
+      const py = (n.prevY + (n.y - n.prevY) * alpha + 0.5) * s - bob;
       const r = s * 0.32;
+      // Ausgewählter NPC: Weg zum Ziel anzeigen
+      if (n === selected && moving) {
+        ctx.strokeStyle = n.color; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(px, py);
+        for (const q of step.path) ctx.lineTo((q.x + 0.5) * s, (q.y + 0.5) * s);
+        ctx.stroke(); ctx.setLineDash([]);
+      }
       if (n === selected) { ctx.strokeStyle = '#f0b54a'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(px, py, r + 4, 0, Math.PI * 2); ctx.stroke(); }
       ctx.fillStyle = '#0006'; ctx.beginPath(); ctx.ellipse(px, py + r * 0.9, r * 0.9, r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = n.color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
@@ -820,8 +863,30 @@ class Renderer {
       ctx.font = `600 ${Math.max(10, Math.round(s * 0.45))}px system-ui`;
       ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000a';
       ctx.strokeText(n.name, px, py - r - 4); ctx.fillStyle = '#fff'; ctx.fillText(n.name, px, py - r - 4);
+      // Sprechblase mit Symbol der aktuellen Tätigkeit
+      const a = n.action;
+      if (a && a.icon && !n.sleeping) {
+        const bx = px + r * 1.5, by = py - r * 1.7, br = Math.max(8, s * 0.36);
+        ctx.fillStyle = '#ffffffe6'; ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(bx - br * 0.6, by + br * 0.5); ctx.lineTo(px + r * 0.6, py - r * 0.6); ctx.lineTo(bx - br * 0.1, by + br * 0.9); ctx.fill();
+        ctx.font = `${Math.round(br * 1.15)}px system-ui`; ctx.textBaseline = 'middle';
+        ctx.fillText(a.icon, bx, by + 1); ctx.textBaseline = 'alphabetic';
+      }
       ctx.textAlign = 'start';
     }
+
+    // Schwebende Texte (+1 Holz, Haus fertig …)
+    ctx.textAlign = 'center';
+    ctx.font = `700 ${Math.max(11, Math.round(s * 0.55))}px system-ui`;
+    sim.floats = sim.floats.filter(f => this.now - f.born < 1400);
+    for (const f of sim.floats) {
+      const k = (this.now - f.born) / 1400;
+      const fx = (f.x + 0.5) * s, fy = (f.y + 0.2 - k * 1.2) * s;
+      ctx.globalAlpha = 1 - k * k;
+      ctx.lineWidth = 3; ctx.strokeStyle = '#000b'; ctx.strokeText(f.text, fx, fy);
+      ctx.fillStyle = f.color; ctx.fillText(f.text, fx, fy);
+    }
+    ctx.globalAlpha = 1; ctx.textAlign = 'start';
   }
 
   npcAt(clientX, clientY) {
@@ -891,7 +956,8 @@ function updateHud() {
   $('clock').innerHTML = `Tag ${sim.day} · ${sim.clock} <span>${phase}</span>`;
   const st = sim.settlement;
   const site = st.site ? ` · 🔨 Bau ${Math.floor(st.site.progress / st.site.work * 100)}%` : '';
-  $('stats').innerHTML = `🪵 Lager <b>${st.stock.wood}</b>/${CONFIG.buildings.house.cost.wood} · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}`;
+  $('stats').innerHTML = `🪵 Lager <b>${st.stock.wood}</b>/${CONFIG.buildings.house.cost.wood} · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}`
+    + `<div class="goal" title="Holz bis zum nächsten Haus"><i style="width:${Math.min(100, st.stock.wood / CONFIG.buildings.house.cost.wood * 100)}%"></i></div>`;
 }
 
 function select(n) { ui.selected = ui.selected === n ? null : n; updateCards(); }
