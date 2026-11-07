@@ -2,7 +2,7 @@
 
 Eine kleine 2D-Siedlungssimulation im Browser: NPCs leben auf einer Kachelkarte, kümmern sich selbst um Hunger und Schlaf, sammeln Holz und bauen daraus gemeinsam eine Siedlung.
 
-Alles steckt in **`index.html`** (HTML + JavaScript + Canvas). Es gibt keine Abhängigkeiten und keinen Build-Schritt. Die Seite läuft auch im Handy-Browser.
+Das Spiel ist **eine Datei `index.html`** (HTML + JavaScript + Canvas, keine Abhängigkeiten) und läuft auch im Handy-Browser. Sie wird aus den Teilen in `src/` gebaut: `python3 build.py --check`. Test: `node tools/simtest.js`. Vision, Stil und Regeln stehen in [`CLAUDE.md`](CLAUDE.md).
 
 ## Starten
 
@@ -48,7 +48,7 @@ Alles steckt in **`index.html`** (HTML + JavaScript + Canvas). Es gibt keine Abh
 
 ## Code-Aufbau (für Erweiterungen)
 
-| Abschnitt in `index.html` | Inhalt | Erweitern um … |
+| Abschnitt (Datei in `src/`) | Inhalt | Erweitern um … |
 |---|---|---|
 | 1 `CONFIG` | alle Spielwerte, Gebäude, Berufe, Start-NPCs | neue Gebäude (Markt, Schmiede), Berufe, mehr NPCs |
 | 3 `World` | Kacheln, Kartengenerierung, Wegfindung (BFS) | neue Kacheltypen (Stein, Erz, Felder) |
