@@ -31,6 +31,10 @@ Alles steckt in **`index.html`** (HTML + JavaScript + Canvas). Es gibt keine Abh
 - **Denken:** Jeder Siedler hat Charakterzüge (fleißig, gesellig, neugierig …), Laune, ein Bedürfnis nach Gemeinschaft, Beziehungen, Erinnerungen und eigene Gedanken. Sie unterhalten sich, schließen Freundschaften und planen voraus (z. B. vor dem Schlafen noch essen).
 - **Wetter und Licht:** Sonnenstand mit Schatten, Wolken, Regen, Abendrot, Nacht mit Lagerfeuer- und Fensterlicht, Glühwürmchen.
 - **Klang:** Musik, Vögel, Grillen, Feuer, Regen und Axtschläge – live im Browser erzeugt.
+- **Erwachte („Spieler“):** Wenige Siedler erwachen (der erste durch ein Licht vom Himmel in der ersten Nacht, später manche Neuankömmlinge). Sie haben Level, Erfahrungspunkte, Werte (Kraft, Geschick, Ausdauer, Charisma), ab Level 4 eine Klasse (Waldläufer, Baumeister, Hüter der Haine, Herold, versteckt: Torwandler), Fähigkeiten, Titel und jeden Tag eine eigene Aufgabe. Alle anderen sind einfache Arbeiter.
+- **Risse:** Leuchtende Tore in eine andere Welt. Erwachte ab Level 4 gehen auf Expedition und kehren mit Mana-Kristallen zurück – oder verwundet.
+- **Große Welt:** 80×80 Kacheln mit Fluss und Furten, Seen, Wäldern, Felsen, Ruinen und Wildtieren. Minikarte zum Springen; weit herausgezoomt sieht man das ganze Dorf wachsen.
+- **Alles antippbar:** Häuser (Bewohner, Baudatum, Erbauer), Lager, Baustelle, Bäume, Sträucher, Risse, Ruinen.
 - **Nachwachsen:** Beeren wachsen nach, gefällte Bäume nach 2 Tagen auch.
 - **Tempo:** ⏸ / 1x / 2x / 5x. Bei 1x dauert ein Spieltag 6 Minuten.
 
