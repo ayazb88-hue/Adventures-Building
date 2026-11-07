@@ -860,7 +860,9 @@ class Renderer {
     }
     let facing = n.facing || 1;
     if (!moving && step && step.face) { const dx = step.face.x - n.x; if (Math.abs(dx) > 0.1) facing = dx > 0 ? 1 : -1; }
-    return { moving, arms, facing, step, tool: step && step.tool };
+    // Ansicht: beim Laufen nach oben/unten Rücken/Gesicht, im Stand ohne Arbeit zum Betrachter
+    const view = moving ? (n.dirV || 'side') : (arms === 'none' || arms === 'carry' || arms === 'pray' ? 'down' : 'side');
+    return { moving, arms, facing, step, tool: step && step.tool, view };
   }
 
   drawSettler(c, n, px, py, s, now, pose, phase = 0) {

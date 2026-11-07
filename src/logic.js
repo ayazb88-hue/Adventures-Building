@@ -940,6 +940,7 @@ class NPC {
       if (!sim.world.walkable(next.x, next.y)) return 'fail'; // Weg verbaut → neu planen
       const dx = next.x - this.x, dy = next.y - this.y, d = Math.hypot(dx, dy);
       if (Math.abs(dx) > 0.01) this.facing = dx > 0 ? 1 : -1;
+      this.dirV = Math.abs(dy) > Math.abs(dx) ? (dy > 0 ? 'down' : 'up') : 'side';
       if (d <= budget) {
         this.x = next.x; this.y = next.y; budget -= d; step.path.shift();
         const t = sim.world.tile(next.x, next.y);
