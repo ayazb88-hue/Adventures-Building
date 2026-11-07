@@ -37,6 +37,9 @@ Alles steckt in **`index.html`** (HTML + JavaScript + Canvas). Es gibt keine Abh
 - **Gilde:** Ab zwei Erwachten gründen sie eine Gilde.
 - **Monster:** Ab Tag 3 kriechen nachts Monster aus den Rissen (Rissling, Schattenwolf, Aschegolem) und werden jede Nacht stärker. Erwachte kämpfen (Nah- und Fernkampf je nach Waffe), Arbeiter verstecken sich in den Häusern. Im Morgenlicht zerfallen die Monster.
 - **Felder und Berufe:** Arbeiter sind Holzfäller, Bauern oder Handwerker (erkennbar an Mütze, Strohhut, Stirnband). Bauern legen Felder an; das Getreide wächst einen Tag und wird zu Brot.
+- **Königreich:** Ist der stärkste Erwachte stark genug und die Siedlung groß, ruft er ein Königreich aus. In der Hauptstadt entsteht eine Burg (3×3 Felder), Erwachte ziehen mit Gefolge los und gründen Außenposten, die jeden Morgen Abgaben schicken. Gebiete und Ortsnamen sind auf der Karte zu sehen.
+- **Gebäude in Schrägansicht:** Häuser mit Seitenwand, zwei Dachflächen, Fachwerk, Fensterläden, Blumenkästen, Laterne; nahe der Ortsmitte zweistöckige Stadthäuser. Häuser werden nur gebaut, wenn Betten gebraucht werden.
+- **Figuren:** im Verhältnis kleiner als Gebäude, mit verjüngten Gliedmaßen, Gesicht in Schrägansicht, sechs Frisuren, Kleidung mit Kragen, Gürtel und Tasche.
 - **Risse:** Leuchtende Tore in eine andere Welt. Erwachte ab Level 4 gehen auf Expedition und kehren mit Mana-Kristallen zurück – oder verwundet.
 - **Große Welt:** 80×80 Kacheln mit Fluss und Furten, Seen, Wäldern, Felsen, Ruinen und Wildtieren. Minikarte zum Springen; weit herausgezoomt sieht man das ganze Dorf wachsen.
 - **Alles antippbar:** Häuser (Bewohner, Baudatum, Erbauer), Lager, Baustelle, Bäume, Sträucher, Risse, Ruinen.
