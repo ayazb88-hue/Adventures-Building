@@ -80,6 +80,10 @@
   .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 4px 0 6px; }
   .stats span { display: flex; flex-direction: column; align-items: center; padding: 4px 0; border-radius: 8px; background: #ffffff0d; }
   .stats small { color: var(--muted); font-size: 10px; } .stats b { font-size: 15px; }
+  .gear { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+  .slot { display: flex; flex-direction: column; padding: 5px 8px; border-radius: 8px; background: #ffffff0a; border: 1px solid #ffffff14; font-size: 12px; min-width: 0; }
+  .slot small { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+  .slot b { font-size: 12.5px; overflow-wrap: anywhere; }
   .quest { font-size: 13px; padding: 6px 8px; border-radius: 8px; background: #f0b54a1a; border: 1px solid #f0b54a55; }
   .quest.done { opacity: .7; text-decoration: line-through; }
   .hint { text-align: center; color: var(--muted); font-size: 12px; margin: 8px 0 0; }
@@ -198,10 +202,17 @@ const CONFIG = {
     bushDensity: 0.022,     // Anteil der Kacheln mit Beerensträuchern
   },
   buildings: {
-    house: { name: 'Haus', cost: { wood: 20 }, work: 240, beds: 2 },
+    house:  { name: 'Haus', cost: { wood: 20 }, work: 240, beds: 2 },
+    smithy: { name: 'Schmiede', cost: { wood: 30 }, work: 360, beds: 0 },
   },
+  farming: { growMinutes: 1440, harvestFood: 6, foodPerMeal: 40, plantMinutes: 40, harvestMinutes: 20 },
+  monsters: { fromDay: 3, maxAlive: 6, spawnChance: 0.2, growthPerDay: 0.15 },
+  // Berufe der Arbeiter: Gewichte verändern, welche Tätigkeit bevorzugt wird; hat = Kopfbedeckung
   professions: {
-    settler: { name: 'Siedler', weights: {} },
+    settler:    { name: 'Siedler', weights: {}, hat: null },
+    holzfaeller:{ name: 'Holzfäller', weights: { gatherWood: 1.5, plantField: 0.3, harvest: 0.6 }, hat: 'cap', share: 0.4 },
+    bauer:      { name: 'Bauer', weights: { plantField: 2, harvest: 2, gatherWood: 0.6 }, hat: 'straw', share: 0.35 },
+    handwerker: { name: 'Handwerker', weights: { build: 1.6, gatherWood: 1.1 }, hat: 'band', share: 0.25 },
   },
   population: {
     max: 60,
@@ -228,6 +239,8 @@ const CLASSES = {
   baumeister:  { name: 'Baumeister', icon: '🏛️', skill: 'building', color: '#f0b54a', desc: 'Baut schneller und reißt die Helfer mit.' },
   hueter:      { name: 'Hüter der Haine', icon: '🌿', skill: 'gathering', color: '#c792ea', desc: 'Lässt Sträucher schneller tragen und braucht selbst wenig.' },
   herold:      { name: 'Herold', icon: '📯', skill: 'social', color: '#6fb6ef', desc: 'Verbindet Menschen und lockt Neue an.' },
+  schmied:     { name: 'Schmied', icon: '⚒️', skill: 'forging', color: '#ff8a3d', desc: 'Formt Kristall und Stahl zu Ausrüstung – mit Glück sogar Legendäres.' },
+  sternenschmied: { name: 'Sternenschmied', icon: '🌟', skill: 'forging', color: '#ffd76a', hidden: true, legendary: true, desc: 'Legendäre Klasse aus einem vergessenen Buch. Was diese Hände schmieden, sprengt jedes Maß.' },
   torwandler:  { name: 'Torwandler', icon: '🌀', skill: 'gate', color: '#a98bff', hidden: true, desc: 'Versteckte Klasse. Durchschreitet die Risse ohne Furcht und kehrt mit Kristallen zurück.' },
 };
 const SKILLS = {
@@ -240,10 +253,28 @@ const SKILLS = {
   frohsinn:      { cls: 'herold', lvl: 5, name: 'Frohsinn', desc: 'Gespräche schenken doppelt Gemeinschaft.' },
   rufDerFerne:   { cls: 'herold', lvl: 8, name: 'Ruf der Ferne', desc: 'Lockt bei jedem neuen Haus einen zusätzlichen Siedler an.' },
   torsicht:      { cls: 'torwandler', lvl: 5, name: 'Torsicht', desc: 'Kehrt aus Rissen mit doppelter Beute zurück.' },
+  meisterschmied:   { cls: 'schmied', lvl: 5, name: 'Meisterschmied', desc: 'Jedes Schmiedestück gelingt mindestens eine Stufe besser.' },
+  legendaererFunke: { cls: 'schmied', lvl: 8, name: 'Legendärer Funke', desc: 'Dreifache Chance auf Legendäres und Mythisches.' },
+  sternenhammer: { cls: 'sternenschmied', lvl: 1, name: 'Sternenhammer', desc: 'Schmiedestücke gelingen zwei Stufen besser.' },
+  seelenschmied: { cls: 'sternenschmied', lvl: 5, name: 'Seelenschmied', desc: 'Wer ein Stück dieser Hände trägt, bleibt für immer treu.' },
   phasenschritt: { cls: 'torwandler', lvl: 8, name: 'Phasenschritt', desc: '+50 % Laufgeschwindigkeit.' },
 };
 const STAT_NAMES = { kraft: 'Kraft', geschick: 'Geschick', ausdauer: 'Ausdauer', charisma: 'Charisma' };
-const CLASS_STAT = { waldlaeufer: 'kraft', baumeister: 'kraft', hueter: 'ausdauer', herold: 'charisma', torwandler: 'geschick' };
+const CLASS_STAT = { waldlaeufer: 'kraft', baumeister: 'kraft', hueter: 'ausdauer', herold: 'charisma', torwandler: 'geschick', schmied: 'kraft', sternenschmied: 'geschick' };
+
+// Ausrüstung: fünf Seltenheitsstufen, sichtbar an den Figuren
+const RARITIES = [
+  { name: 'Gewöhnlich', color: '#c9c9c9', mult: 1, prefix: 'Eisen' },
+  { name: 'Selten', color: '#4fa3ff', mult: 1.6, prefix: 'Stahl' },
+  { name: 'Episch', color: '#b067ff', mult: 2.4, prefix: 'Runen' },
+  { name: 'Legendär', color: '#ffb020', mult: 3.6, prefix: 'Sternen' },
+  { name: 'Mythisch', color: '#ff4f6a', mult: 5, prefix: 'Weltenbrecher' },
+];
+const SLOTS = ['weapon', 'armor', 'helmet', 'boots', 'cape'];
+const SLOT_NAMES = { weapon: 'Waffe', armor: 'Rüstung', helmet: 'Helm', boots: 'Stiefel', cape: 'Umhang' };
+const WEAPONS = { waldlaeufer: ['bow', 'bogen'], baumeister: ['hammer', 'kriegshammer'], hueter: ['staff', 'stab'], herold: ['spear', 'speer'],
+  torwandler: ['blade', 'klinge'], schmied: ['hammer', 'schmiedehammer'], sternenschmied: ['hammer', 'sternenhammer'], none: ['sword', 'schwert'] };
+const EPITHETS = ['Morgenröte', 'Sturmherz', 'Aschenkrone', 'Mondsplitter', 'Ewige Glut', 'Himmelsbrecher', 'Letzter Schwur', 'Nachtwind'];
 const QUESTS = [
   { type: 'woodcutting', goal: 15, text: g => `Schlage ${g} Holz` },
   { type: 'building', goal: 90, text: g => `Arbeite ${g} Minuten am Bau` },
@@ -282,6 +313,8 @@ const TILE_DEFS = {
   site:  { name: 'Baustelle',     walkable: false },
   house: { name: 'Haus',          walkable: false },
   rock:  { name: 'Fels',          walkable: false },
+  field: { name: 'Feld',          walkable: false },
+  smithy:{ name: 'Schmiede',      walkable: false },
   ford:  { name: 'Furt',          walkable: true  },
   ruin:  { name: 'Ruine',         walkable: false },
   gate:  { name: 'Riss',          walkable: false },
@@ -350,6 +383,8 @@ class World {
     for (const t of this.tiles) {
       if (t.type === 'bush' && t.berries < r.bushMaxBerries) {
         if (++t.timer >= r.berryRegrowMinutes) { t.berries++; t.timer = 0; }
+      } else if (t.type === 'field') {
+        if (t.timer < this.cfg.farming.growMinutes) t.timer += 1;
       } else if (t.type === 'stump') {
         if (++t.timer >= r.treeRegrowMinutes) { this.setType(t, 'tree'); t.wood = r.treeWood; }
       }
@@ -452,17 +487,30 @@ class Settlement {
   constructor(sim, camp) {
     this.sim = sim;
     this.camp = camp;
-    this.stock = { wood: 0, crystals: 0 };
+    this.stock = { wood: 0, crystals: 0, food: 0 };
     this.buildings = [];
     this.site = null;
     this.foundedBy = '';
   }
   get houses() { return this.buildings.filter(b => b.type === 'house'); }
+  get smithy() { return this.buildings.find(b => b.type === 'smithy'); }
+  get fields() { return this.sim.world.tiles.filter(t => t.type === 'field'); }
   canAfford(cost) { return Object.entries(cost).every(([k, v]) => (this.stock[k] || 0) >= v); }
   pay(cost) { for (const [k, v] of Object.entries(cost)) this.stock[k] -= v; }
 
+  /** Felder zählen (alle 15 Minuten, damit es schnell bleibt). */
+  recount() {
+    let f = 0, r = 0;
+    for (const t of this.sim.world.tiles) if (t.type === 'field') { f++; if (t.timer >= CONFIG.farming.growMinutes && !t.harvester) r++; }
+    this.fieldCount = f; this.ripe = r;
+  }
+
   update() {
-    if (!this.site && this.canAfford(CONFIG.buildings.house.cost)) this.startConstruction('house');
+    if (this.fieldCount === undefined || this.sim.minutes % 15 === 0) this.recount();
+    if (this.site) return;
+    // Schmiede, sobald es ein paar Häuser und Kristalle gibt – sonst Häuser
+    const next = !this.smithy && this.houses.length >= 3 && this.stock.crystals >= 1 ? 'smithy' : 'house';
+    if (this.canAfford(CONFIG.buildings[next].cost)) this.startConstruction(next);
   }
 
   startConstruction(type) {
@@ -472,7 +520,7 @@ class Settlement {
     this.pay(def.cost);
     this.sim.world.setType(tile, 'site');
     this.site = { type, tile, progress: 0, work: def.work, startedDay: this.sim.day };
-    this.sim.log(`🪓 ${def.cost.wood} Holz beisammen – die Siedler bauen gemeinsam ein ${def.name}!`, null, true);
+    this.sim.log(type === 'smithy' ? '⚒️ Die Siedler beginnen mit dem Bau einer Schmiede!' : `🪓 ${def.cost.wood} Holz beisammen – die Siedler bauen gemeinsam ein ${def.name}!`, null, true);
     this.sim.emit('constructionStarted', this.site);
     return true;
   }
@@ -487,7 +535,8 @@ class Settlement {
     site.tile.building = b;
     this.buildings.push(b);
     this.site = null;
-    sim.log(`🏠 ${def.name} Nr. ${this.houses.length} ist fertig!`, null, true);
+    sim.log(site.type === 'smithy' ? '⚒️ Die Schmiede ist fertig! Jetzt kann aus Kristallen Ausrüstung entstehen.' : `🏠 ${def.name} Nr. ${this.houses.length} ist fertig!`, null, true);
+    if (site.type === 'smithy') sim.emit('system', 'Neues Gebäude: Schmiede');
     sim.float(site.tile.x, site.tile.y, '🎉 Fertig!', '#f0b54a');
     for (const n of builders) { n.remember(sim, `Hat Haus Nr. ${b.id} mitgebaut 🔨`); n.housesBuilt = (n.housesBuilt || 0) + 1; }
     sim.emit('buildingCompleted', b);
@@ -496,7 +545,10 @@ class Settlement {
   /** Freie Wiese nahe am Lager. Raster mit Abstand 2 hält Wege frei. */
   findBuildSpot() {
     const { world, npcs } = this.sim;
-    const c = this.camp, R = 24;
+    const c = this.camp, R = 30;
+    if (this.sim.minutes < (this.nextSpotTry || 0)) return null;
+    const reach = new Uint8Array(world.w * world.h);
+    world.bfs(c.x, c.y + 1, (x, y) => { reach[y * world.w + x] = 1; return null; });
     let best = null, bestD = Infinity;
     for (let y = c.y - R; y <= c.y + R; y++)
       for (let x = c.x - R; x <= c.x + R; x++) {
@@ -508,8 +560,9 @@ class Settlement {
         if (d >= bestD) continue;
         if (npcs.some(n => Math.round(n.x) === x && Math.round(n.y) === y)) continue;
         if (!DIRS.some(([ax, ay]) => world.walkable(x + ax, y + ay))) continue;
-        if (world.bfs(c.x, c.y + 1, (px, py) => Math.abs(px - x) + Math.abs(py - y) === 1)) { best = t; bestD = d; }
+        if (DIRS.some(([ax, ay]) => world.inBounds(x + ax, y + ay) && reach[(y + ay) * world.w + x + ax])) { best = t; bestD = d; }
       }
+    if (!best) this.nextSpotTry = this.sim.minutes + 120;
     return best;
   }
 }
@@ -542,6 +595,17 @@ defineAction({
     ? pick(sim, [`Mein Magen knurrt (Hunger ${Math.round(n.hunger)}). Zeit für Beeren.`, 'Erst essen, dann weiterarbeiten.', 'Ich brauche etwas zu essen, sonst schaffe ich nichts.'])
     : 'Ich esse lieber jetzt noch etwas, bevor ich schlafen gehe.',
   plan(n, sim) {
+    if (sim.settlement.stock.food > 0) { // Brot aus dem Vorrat am Lager
+      const camp = sim.world.findAdjacent(n.x, n.y, t => t.type === 'camp', 6000);
+      if (camp) return [move(camp.path), act((n, sim, s) => {
+        if (s.t % CONFIG.resources.eatMinutes !== 0) return;
+        if (sim.settlement.stock.food <= 0) return 'done';
+        sim.settlement.stock.food--;
+        n.hunger = Math.max(0, n.hunger - CONFIG.farming.foodPerMeal);
+        sim.float(sim.settlement.camp.x, sim.settlement.camp.y, '🍞', '#fff');
+        if (n.hunger <= 10) return 'done';
+      })];
+    }
     const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'bush' && t.berries > 0);
     if (!res) return null;
     const bush = res.target;
@@ -708,6 +772,247 @@ defineAction({
     }, { face: partner })];
   },
   onEnd(n) { n.partner = null; },
+});
+
+/* ---- Landwirtschaft ---------------------------------------------------- */
+/** Felder liegen auf demselben Raster wie Häuser (jede 2. Kachel) – so bleiben die Gassen dazwischen immer frei. */
+function findFieldSpot(sim) {
+  const w = sim.world, c = w.camp;
+  let best = null, bd = Infinity;
+  for (let y = c.y - 24; y <= c.y + 24; y += 2) for (let x = c.x - 24; x <= c.x + 24; x += 2) {
+    const t = w.tile(x, y);
+    if (!t || t.type !== 'grass') continue;
+    const d = Math.hypot(x - c.x, y - c.y);
+    if (d < 7 || d >= bd || (t.reserved && sim.minutes - t.reserved < 120)) continue;
+    if (DIRS.some(([dx, dy]) => w.walkable(x + dx, y + dy))) { best = t; bd = d; }
+  }
+  return best;
+}
+
+defineAction({
+  id: 'plantField', label: 'bestellt ein Feld', short: 'Feld', start: 'legt ein neues Feld an', icon: '🌱',
+  score(n, sim) {
+    const st = sim.settlement;
+    if (st.fieldCount >= Math.max(2, Math.ceil(sim.npcs.length * 0.45)) || sim.isNight) return 0;
+    return 33;
+  },
+  think: n => n.profession === 'bauer' ? 'Ein neues Feld – damit im Winter niemand hungert.' : 'Die Beeren reichen bald nicht mehr. Wir brauchen Felder.',
+  plan(n, sim) {
+    const spot = findFieldSpot(sim);
+    if (!spot) return null;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === spot, 6000);
+    if (!res) return null;
+    spot.reserved = sim.minutes;
+    return [move(res.path), act((n, sim, s) => {
+      if (spot.type !== 'grass') return 'done';
+      if (s.t < CONFIG.farming.plantMinutes) return;
+      if (sim.npcs.some(o => Math.round(o.x) === spot.x && Math.round(o.y) === spot.y)) return 'done';
+      sim.world.setType(spot, 'field'); spot.timer = 0; sim.settlement.fieldCount++;
+      n.gainXp('farming', 1);
+      sim.log('🌱 hat ein neues Feld angelegt.', n);
+      return 'done';
+    }, { work: true, face: spot, tool: 'hoe' })];
+  },
+});
+
+defineAction({
+  id: 'harvest', label: 'erntet', short: 'Ernten', start: 'geht ernten', icon: '🌾',
+  score: (n, sim) => sim.settlement.ripe > 0 && !sim.isNight ? 40 : 0,
+  think: () => 'Das Korn ist reif! Zeit für die Ernte.',
+  plan(n, sim) {
+    const grow = CONFIG.farming.growMinutes;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'field' && t.timer >= grow && !t.harvester, 6000);
+    if (!res) return null;
+    const f = res.target;
+    f.harvester = n;
+    return [move(res.path), act((n, sim, s) => {
+      if (f.type !== 'field') return 'done';
+      if (s.t < CONFIG.farming.harvestMinutes) return;
+      const food = CONFIG.farming.harvestFood;
+      sim.settlement.stock.food += food; f.timer = 0; sim.settlement.ripe = Math.max(0, sim.settlement.ripe - 1);
+      sim.float(f.x, f.y, `+${food} 🍞`, '#ffe08a');
+      n.gainXp('farming', 2);
+      return 'done';
+    }, { work: true, face: f, tool: 'sickle' })];
+  },
+  onEnd(n, sim) { for (const t of sim.world.tiles) if (t.harvester === n) t.harvester = null; },
+});
+
+/* ---- Schmiede und Ausrüstung ------------------------------------------- */
+const gearPower = (n, slots = SLOTS) => slots.reduce((a, s) => a + (n.gear[s] ? n.gear[s].power : 0), 0);
+
+function pickGearTarget(sim) {
+  const aw = sim.npcs.filter(o => o.awakened).sort((a, b) => gearPower(a) - gearPower(b));
+  for (const o of aw) { const slot = SLOTS.find(s => !o.gear[s] && (s !== 'cape' || o.level >= 5)); if (slot) return { npc: o, slot }; }
+  if (!aw.length) return null;
+  const o = aw[0];
+  return { npc: o, slot: SLOTS.slice(0, 4).sort((a, b) => (o.gear[a] ? o.gear[a].power : 0) - (o.gear[b] ? o.gear[b].power : 0))[0] };
+}
+
+function rollRarity(n, sim) {
+  const w = [60, 28, 9, 2.6, 0.4];
+  if (n.cls === 'schmied' || n.cls === 'sternenschmied') { w[0] -= 15; w[1] += 5; w[2] += 7; w[3] += 2.5; w[4] += 0.5; }
+  if (n.hasSkill('legendaererFunke')) { w[3] *= 2; w[4] *= 2; }
+  let r = sim.rng() * w.reduce((a, b) => a + b), tier = 0;
+  while (tier < 4 && r > w[tier]) { r -= w[tier]; tier++; }
+  if (n.hasSkill('meisterschmied') && sim.rng() < 0.35) tier++;
+  if (n.hasSkill('sternenhammer')) tier += sim.rng() < 0.25 ? 2 : 1;
+  return Math.min(4, tier);
+}
+
+function makeItem(slot, rarity, owner, smith, sim) {
+  const R = RARITIES[rarity];
+  let base = { armor: 'rüstung', helmet: 'helm', boots: 'stiefel', cape: 'umhang' }[slot], kind = slot;
+  if (slot === 'weapon') { const wp = WEAPONS[owner.cls] || WEAPONS.none; kind = wp[0]; base = wp[1]; }
+  let name = R.prefix + base;
+  if (rarity >= 3) name += ` „${EPITHETS[Math.floor(sim.rng() * EPITHETS.length)]}“`;
+  const power = Math.round((3 + smith.level * 0.6) * R.mult * (slot === 'weapon' ? 1.4 : slot === 'cape' ? 0.6 : 1));
+  return { slot, kind, rarity, name, power, smith: smith.name };
+}
+
+function forgeItem(n, sim) {
+  const target = pickGearTarget(sim);
+  if (!target) return;
+  const rarity = rollRarity(n, sim), item = makeItem(target.slot, rarity, target.npc, n, sim);
+  const R = RARITIES[rarity], o = target.npc, old = o.gear[target.slot];
+  n.forged = (n.forged || 0) + 1;
+  n.gainXp('forging', 1 + rarity);
+  if (!old || item.power > old.power) {
+    o.gear[target.slot] = item;
+    sim.log(`⚒️ schmiedet ${item.name} (${R.name}) für ${o === n ? 'sich selbst' : o.name}!`, n, true);
+    if (o !== n) {
+      changeRelation(n, o, n.hasSkill('seelenschmied') ? 60 : 20, sim);
+      o.remember(sim, `Hat von ${n.name} ${item.name} bekommen 🎁`);
+      if (n.hasSkill('seelenschmied')) o.loyalTo = n.id;
+    }
+  } else sim.log(`⚒️ schmiedet ${item.name} (${R.name}) – schwächer als das Alte, es wandert ins Lager.`, n);
+  sim.emit('system', rarity >= 3 ? `${R.name.toUpperCase()}ER GEGENSTAND! ${item.name}` : `Geschmiedet: ${item.name} (${R.name})`);
+  if (rarity >= 3) { sim.emit('legendary', { n, item }); n.addTitle(sim, rarity === 4 ? 'Mythenschmied' : 'Legendenschmied'); }
+  const t = sim.settlement.smithy.tile;
+  sim.float(t.x, t.y, `${R.name}!`, R.color);
+}
+
+defineAction({
+  id: 'forge', label: 'schmiedet', short: 'Schmieden', start: 'geht zur Schmiede', icon: '⚒️',
+  score(n, sim) {
+    const st = sim.settlement, sm = st.smithy;
+    if (!n.awakened || n.level < 2 || !sm || st.stock.crystals < 2 || st.stock.wood < 3 || sim.isNight) return 0;
+    if (sm.busy && sm.busy !== n) return 0;
+    if (!pickGearTarget(sim)) return 0;
+    return n.cls === 'schmied' || n.cls === 'sternenschmied' ? 58 : 34;
+  },
+  think: n => n.cls === 'sternenschmied' ? 'Das Feuer ruft. Heute schmiede ich etwas, das man nie vergisst.' : 'Mit den Kristallen schmiede ich Ausrüstung für unsere Kämpfer.',
+  plan(n, sim) {
+    const smithy = sim.settlement.smithy;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === smithy.tile);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => {
+      const st = sim.settlement;
+      if (s.t === 1) {
+        if ((smithy.busy && smithy.busy !== n) || st.stock.crystals < 2 || st.stock.wood < 3) return 'done';
+        smithy.busy = n; st.stock.crystals -= 2; st.stock.wood -= 3;
+      }
+      if (s.t < 60) return;
+      forgeItem(n, sim);
+      return 'done';
+    }, { work: true, face: smithy.tile, tool: 'hammer' })];
+  },
+  onEnd(n, sim) { const sm = sim.settlement.smithy; if (sm && sm.busy === n) sm.busy = null; },
+});
+
+/* ---- Ruinen: das vergessene Schmiedebuch ------------------------------- */
+defineAction({
+  id: 'searchRuin', label: 'durchsucht Ruinen', short: 'Ruinen', start: 'macht sich zu den Ruinen auf', icon: '🏛️',
+  interruptible: false,
+  score(n, sim) {
+    if (!n.awakened || n.level < 2 || sim.isNight || sim.hourFloat > 15 || n.energy < 60 || n.hunger > 45) return 0;
+    if (sim.minutes - n.lastRuin < 1440 * 2) return 0;
+    return 30 + n.traits.neugier * 22;
+  },
+  think: () => 'In den alten Ruinen soll etwas verborgen liegen …',
+  plan(n, sim) {
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'ruin' && !t.searched, 8000);
+    if (!res) return null;
+    const ruin = res.target;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t === 1) n.lastRuin = sim.minutes;
+      if (s.t < 90) return;
+      ruin.searched = true;
+      sim.ruinsSearched = (sim.ruinsSearched || 0) + 1;
+      if (!sim.tomeFound && sim.rng() < 0.2 + sim.ruinsSearched * 0.12) { sim.tomeFound = true; n.becomeStarSmith(sim); }
+      else if (sim.rng() < 0.45) { const c = 1 + Math.floor(sim.rng() * 2); sim.settlement.stock.crystals += c; sim.log(`🏛️ findet in den Ruinen ${c} alte Mana-Kristalle.`, n); }
+      else sim.log('🏛️ findet in den Ruinen nur Staub und alte Scherben.', n);
+      return 'done';
+    }, { work: true, face: ruin, tool: 'hoe' })];
+  },
+});
+
+/* ---- Monster und Kampf ------------------------------------------------- */
+const MONSTERS = {
+  rissling:     { name: 'Rissling', hp: 40, atk: 5, speed: 0.22, tier: 1, xp: 25 },
+  schattenwolf: { name: 'Schattenwolf', hp: 75, atk: 8, speed: 0.32, tier: 2, xp: 50 },
+  aschegolem:   { name: 'Aschegolem', hp: 180, atk: 14, speed: 0.13, tier: 3, xp: 110 },
+};
+function nearestMonster(n, sim, r) {
+  let best = null, bd = r;
+  for (const m of sim.monsters) { const d = Math.hypot(m.x - n.x, m.y - n.y); if (d < bd) { bd = d; best = m; } }
+  return best;
+}
+function killMonster(m, n, sim) {
+  const M = MONSTERS[m.kind];
+  m.hp = 0;
+  const drop = M.tier === 3 ? 2 : sim.rng() < 0.4 ? 1 : 0;
+  sim.settlement.stock.crystals += drop;
+  sim.log(`⚔️ besiegt einen ${M.name}! (+${M.xp} EP${drop ? `, +${drop} 💎` : ''})`, n, true);
+  sim.emit('system', `${M.name} besiegt!`);
+  sim.emit('monsterKilled', m);
+  n.kills = (n.kills || 0) + 1;
+  n.addXp(sim, M.xp);
+  n.remember(sim, `Hat einen ${M.name} besiegt ⚔️`);
+  if (n.kills >= 5) n.addTitle(sim, 'Wächter des Dorfes');
+}
+
+defineAction({
+  id: 'fight', label: 'kämpft', short: 'Kämpfen', start: 'stellt sich dem Monster', icon: '⚔️',
+  score: (n, sim) => n.awakened && n.hp > n.maxHp * 0.35 && nearestMonster(n, sim, 14) ? 96 : 0,
+  urgent: (n, sim) => n.awakened && n.hp > n.maxHp * 0.35 && !!nearestMonster(n, sim, 10),
+  think: (n, sim) => { const m = nearestMonster(n, sim, 14); return m ? `Ein ${MONSTERS[m.kind].name}! Ich beschütze das Dorf.` : 'Ich halte Wache.'; },
+  plan(n, sim) {
+    const m = nearestMonster(n, sim, 14);
+    if (!m) return null;
+    const mt = sim.world.tile(Math.round(m.x), Math.round(m.y));
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === mt, 3000);
+    n.foe = m;
+    return [move(res ? res.path.slice(0, 8) : []), act((n, sim, s) => {
+      if (m.hp <= 0 || Math.hypot(m.x - n.x, m.y - n.y) > 1.7) return 'done';
+      if (Math.abs(m.x - n.x) > 0.1) n.facing = m.x > n.x ? 1 : -1;
+      if (s.t % 2) return;
+      const dmg = Math.round(n.attack * (0.8 + sim.rng() * 0.4));
+      m.hp -= dmg; m.hitAt = performance.now();
+      sim.float(m.x, m.y - 0.3, `-${dmg}`, '#ffd166');
+      sim.emit('hit', m);
+      if (m.hp <= 0) { killMonster(m, n, sim); return 'done'; }
+    }, { face: m, fight: true })];
+  },
+  onEnd(n) { n.foe = null; },
+});
+
+defineAction({
+  id: 'flee', label: 'versteckt sich', short: 'Verstecken', start: 'flieht vor einem Monster', icon: '😱',
+  interruptible: false,
+  score: (n, sim) => !n.awakened && nearestMonster(n, sim, 7) ? 94 : 0,
+  urgent: (n, sim) => !n.awakened && !!nearestMonster(n, sim, 5),
+  think: () => 'Ein Monster! Schnell ins Haus!',
+  plan(n, sim) {
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'house', 4000);
+    if (!res) return null;
+    const house = res.target.building;
+    return [move(res.path), act((n, sim, s) => {
+      n.inside = house; n.hiding = true;
+      if (s.t > 20 && !nearestMonster(n, sim, 9)) return 'done';
+    })];
+  },
+  onEnd(n) { n.inside = null; n.hiding = false; },
 });
 
 defineAction({
@@ -888,6 +1193,7 @@ class NPC {
     this.awakened = false; this.level = 0; this.xp = 0; this.stats = null; this.cls = null;
     this.unlocked = []; this.titles = []; this.quest = null; this.questsDone = 0;
     this.lastGate = -1e9; this.gatesCleared = 0; this.housesBuilt = 0;
+    this.hp = 100; this.gear = {}; this.kills = 0; this.forged = 0; this.lastRuin = -1e9; this.loyalTo = null; this.hiding = false; this.foe = null;
     this.facing = 1;
     this.arrivedAt = 0;
     this.sleeping = false; this.inside = null; this.bed = null; this.working = false;
@@ -904,6 +1210,20 @@ class NPC {
 
   // --- Erweiterungspunkte -------------------------------------------
   hasSkill(id) { return this.unlocked.includes(id); }
+  get maxHp() { return 100 + (this.awakened ? this.level * 8 + this.stats.ausdauer * 3 : 0); }
+  get attack() { return this.awakened ? 6 + this.level * 2 + this.stats.kraft + (this.gear.weapon ? this.gear.weapon.power : 0) : 2; }
+  get defense() { return gearPower(this, ['armor', 'helmet', 'boots', 'cape']); }
+  becomeStarSmith(sim) {
+    this.cls = 'sternenschmied'; this.level = 1; this.xp = 0;
+    this.unlocked = [];
+    sim.log('📖 findet in den Ruinen ein vergessenes Schmiedebuch … und erhält die legendäre Klasse „Sternenschmied“! Doch die Macht fordert ihren Preis: zurück auf Level 1.', this, true);
+    sim.emit('system', 'LEGENDÄRE KLASSE ERHALTEN: Sternenschmied');
+    sim.emit('system', `${this.name}: Level auf 1 zurückgesetzt.`);
+    sim.emit('awaken', this);
+    this.remember(sim, 'Fand das vergessene Schmiedebuch 📖');
+    this.addTitle(sim, 'Erbe der Sternenschmiede');
+    for (const [id, sk] of Object.entries(SKILLS)) if (sk.cls === 'sternenschmied' && sk.lvl <= this.level) this.unlocked.push(id);
+  }
   get speed() {
     let v = CONFIG.npc.moveSpeed;
     if (this.awakened) v *= 1 + this.stats.geschick * 0.015;
@@ -958,7 +1278,7 @@ class NPC {
     // versteckte Klasse: nur sehr neugierige Seelen spüren den Ruf der Risse
     if (this.traits.neugier > 0.72 && sim.rng() < 0.5 && !sim.npcs.some(o => o.cls === 'torwandler')) cls = 'torwandler';
     else {
-      const s = this.skills, w = { waldlaeufer: (s.woodcutting || 0), baumeister: (s.building || 0) * 0.08, hueter: (s.gathering || 0) * 1.2, herold: (s.social || 0) * 4 };
+      const s = this.skills, w = { schmied: (s.forging || 0) * 6, waldlaeufer: (s.woodcutting || 0), baumeister: (s.building || 0) * 0.08, hueter: (s.gathering || 0) * 1.2, herold: (s.social || 0) * 4 };
       cls = Object.entries(w).sort((a, b) => b[1] - a[1])[0][0];
     }
     this.cls = cls;
@@ -1047,12 +1367,14 @@ class NPC {
     const target = clamp(100 - this.hunger * 0.45 - (100 - this.energy) * 0.25 - (100 - this.social) * 0.3
       + (this.home ? 8 : -8) - (sim.weather === 'regen' ? 8 : 0), 0, 100);
     this.mood += (target - this.mood) * 0.02;
+    this.hp = Math.min(this.maxHp, this.hp + (this.sleeping ? 0.5 : 0.12));
     if (this.hunger >= 100 && !this.starving) { this.starving = true; sim.log('hat schrecklichen Hunger!', this); this.remember(sim, 'Hatte schrecklichen Hunger 😣'); }
     if (this.hunger < 90) this.starving = false;
   }
 
   decide(sim) {
     const ranked = Object.values(ACTIONS)
+      .filter(a => !(this.cool && this.cool[a.id] > sim.minutes))
       .map(a => ({ a, s: a.score(this, sim) * this.weight(a.id) }))
       .filter(e => e.s > 0)
       .sort((p, q) => q.s - p.s);
@@ -1062,7 +1384,7 @@ class NPC {
 
   tryStart(action, sim) {
     const steps = action.plan(this, sim);
-    if (!steps) return false;
+    if (!steps) { (this.cool ||= {})[action.id] = sim.minutes + 20; return false; }
     this.startTask(action, steps, sim);
     return true;
   }
@@ -1116,6 +1438,7 @@ class NPC {
     const a = this.action;
     if (!a) return 'überlegt …';
     if (this.inside && this.inside.gate) return `kämpft im ${this.inside.tile.gate.name} …`;
+    if (a.id === 'fight' && this.foe) return `kämpft gegen einen ${MONSTERS[this.foe.kind].name}`;
     const step = this.task.steps[this.task.i];
     if (step && step.kind === 'move' && a.id !== 'wander') return a.describe ? a.describe(this) : a.start;
     if (a.id === 'socialize' && this.partner) return `unterhält sich mit ${this.partner.name}`;
@@ -1140,6 +1463,7 @@ class Simulation {
     this.npcs = [];
     this.logEntries = [];
     this.floats = [];   // schwebende Texte, nur Anzeige
+    this.monsters = []; this.monsterId = 0; this.guild = null; this.tomeFound = false; this.ruinsSearched = 0;
     this.listeners = {};
     if (save) this.applySave(save);
     else CONFIG.startingNpcs.forEach(def => this.addNpc(def));
@@ -1189,6 +1513,7 @@ class Simulation {
     const color = `hsl(${Math.round((this.npcs.length * 137.5) % 360)}, 62%, 58%)`;
     const npc = this.addNpc({ name, color }, entry);
     npc.hunger = 20 + this.rng() * 20; npc.energy = 70 + this.rng() * 20;
+    npc.profession = this.pickProfession();
     npc.arrivedAt = this.minutes;
     npc.remember(this, 'Ist in die Siedlung gekommen 🧳');
     const house = this.settlement.houses.find(h => h.residents.length < h.beds);
@@ -1199,6 +1524,89 @@ class Simulation {
     npc.tryStart(ACTIONS.arrive, this);
     if (this.npcs.filter(n => n.awakened).length < CONFIG.awakening.max && this.rng() < CONFIG.awakening.chanceNewcomer)
       npc.awaken(this, 'kommt bereits erwacht in die Siedlung – ein seltsames Leuchten umgibt die Gestalt.');
+  }
+
+  /** Arbeitern einen Beruf geben, damit die Mischung stimmt. */
+  get monsterScale() { return 1 + Math.max(0, this.day - CONFIG.monsters.fromDay) * CONFIG.monsters.growthPerDay; }
+
+  pickProfession() {
+    const P = CONFIG.professions, counts = {};
+    for (const n of this.npcs) counts[n.profession] = (counts[n.profession] || 0) + 1;
+    let best = 'holzfaeller', gapBest = -Infinity;
+    for (const k of ['holzfaeller', 'bauer', 'handwerker']) {
+      const gap = P[k].share - (counts[k] || 0) / this.npcs.length;
+      if (gap > gapBest) { gapBest = gap; best = k; }
+    }
+    return best;
+  }
+
+  updateMonsters() {
+    const cfg = CONFIG.monsters, h = this.hourFloat;
+    if (this.minutes % 1440 === 6 * 60 && this.monsters.length) {
+      this.log('☀️ Die Rissmonster zerfallen im Morgenlicht zu Asche.', null, true);
+      this.monsters = [];
+    }
+    if (this.day >= cfg.fromDay && (h >= 22 || h < 4) && this.minutes % 60 === 0) {
+      for (const g of this.world.gates) {
+        const maxAlive = Math.min(16, cfg.maxAlive + Math.floor(this.day / 2));
+        if (this.monsters.length >= maxAlive || this.rng() > cfg.spawnChance * g.gate.tier) continue;
+        const kind = ['', 'rissling', 'schattenwolf', 'aschegolem'][g.gate.tier], M = MONSTERS[kind];
+        const spot = this.world.bfs(g.x, g.y + 1, (x, y) => this.world.walkable(x, y), 60);
+        if (!spot) continue;
+        this.monsters.push({ id: ++this.monsterId, kind, x: spot.stand.x, y: spot.stand.y, prevX: spot.stand.x, prevY: spot.stand.y,
+          hp: Math.round(M.hp * this.monsterScale), maxHp: Math.round(M.hp * this.monsterScale), path: [], repath: 0, facing: 1, cd: 0 });
+        this.log(`👹 Aus dem ${g.gate.name} kriecht ein ${M.name}!`, null, true);
+        this.emit('system', `Warnung: Ein ${M.name} nähert sich!`);
+      }
+    }
+    for (const m of this.monsters) this.updateMonster(m);
+    this.monsters = this.monsters.filter(m => m.hp > 0);
+  }
+
+  updateMonster(m) {
+    const M = MONSTERS[m.kind];
+    m.prevX = m.x; m.prevY = m.y;
+    let target = null, bd = 9;
+    for (const n of this.npcs) {
+      if (n.inside) continue;
+      const d = Math.hypot(n.x - m.x, n.y - m.y);
+      if (d < bd) { bd = d; target = n; }
+    }
+    if (target && bd < 1.4) {
+      if (Math.abs(target.x - m.x) > 0.1) m.facing = target.x > m.x ? 1 : -1;
+      if (++m.cd >= 3) {
+        m.cd = 0; m.attackAt = performance.now();
+        const dmg = Math.max(1, Math.round(M.atk * this.monsterScale * (0.8 + this.rng() * 0.4) * (1 - target.defense / (target.defense + 60))));
+        target.hp -= dmg;
+        this.float(target.x, target.y - 0.4, `-${dmg}`, '#ff6b6b');
+        this.emit('hit', target);
+        if (target.hp <= 0) this.knockOut(target, m);
+      }
+      return;
+    }
+    if (--m.repath <= 0 || !m.path.length) {
+      m.repath = 12;
+      const c = this.world.camp;
+      const goal = target ? this.world.tile(Math.round(target.x), Math.round(target.y)) : this.world.tile(c.x, c.y);
+      const res = this.world.findAdjacent(m.x, m.y, t => t === goal, 3000);
+      m.path = res ? res.path : [];
+    }
+    let budget = M.speed;
+    while (budget > 0 && m.path.length) {
+      const nx = m.path[0], dx = nx.x - m.x, dy = nx.y - m.y, d = Math.hypot(dx, dy);
+      if (Math.abs(dx) > 0.01) m.facing = dx > 0 ? 1 : -1;
+      if (d <= budget) { m.x = nx.x; m.y = nx.y; budget -= d; m.path.shift(); }
+      else { m.x += dx / d * budget; m.y += dy / d * budget; budget = 0; }
+    }
+  }
+
+  knockOut(n, m) {
+    if (n.task) n.endTask(this);
+    const c = this.world.camp, spot = this.world.bfs(c.x, c.y + 1, (x, y) => this.world.walkable(x, y) ? true : null);
+    if (spot) { n.x = n.prevX = spot.stand.x; n.y = n.prevY = spot.stand.y; }
+    n.hp = Math.round(n.maxHp * 0.3); n.energy = Math.min(n.energy, 15); n.mood = Math.max(0, n.mood - 20);
+    this.log(`💫 wurde von einem ${MONSTERS[m.kind].name} niedergestreckt und ans Lagerfeuer gebracht.`, n, true);
+    n.remember(this, `Wurde von einem ${MONSTERS[m.kind].name} verwundet 💫`);
   }
 
   /** Zufälliges begehbares Randfeld mit Weg zum Lager. */
@@ -1254,13 +1662,24 @@ class Simulation {
     this.world.update(this);
     this.settlement.update(this);
     for (const npc of this.npcs) npc.update(this);
+    this.updateMonsters();
+    if (!this.guild && this.minutes % 60 === 0) {
+      const aw = this.npcs.filter(n => n.awakened).sort((a, b) => b.level - a.level);
+      if (aw.length >= 2) {
+        this.guild = { name: pick(this, ['Gilde der Ersten Flamme', 'Orden des Morgenrots', 'Bund der Sternenfunken', 'Wacht am Riss']), founded: this.day, leader: aw[0].name };
+        this.log(`🛡️ ${aw.map(n => n.name).join(', ')} gründen die „${this.guild.name}“! Anführung: ${aw[0].name}.`, null, true);
+        this.emit('system', `Gilde gegründet: ${this.guild.name}`);
+      }
+    }
   }
 
   // --- Speichern / Laden ---------------------------------------------
   serialize() {
     const st = this.settlement;
     return {
-      v: 2, seed: this.seed, minutes: this.minutes, weather: this.weather, firstAwakening: this.firstAwakening,
+      v: 3, guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
+      searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
+      seed: this.seed, minutes: this.minutes, weather: this.weather, firstAwakening: this.firstAwakening,
       gates: this.world.gates.map(g => [g.gate.cleared, g.gate.failed]),
       tiles: this.world.tiles.map(t => [TILE_TYPES.indexOf(t.type), t.wood, t.berries, t.timer, t.traffic]),
       stock: st.stock,
@@ -1273,6 +1692,7 @@ class Simulation {
         home: n.home ? n.home.id : null, profession: n.profession, facing: n.facing, arrivedAt: n.arrivedAt,
         awakened: n.awakened, level: n.level, xp: n.xp, stats: n.stats, cls: n.cls, unlocked: n.unlocked, titles: n.titles,
         quest: n.quest, questsDone: n.questsDone, lastGate: n.lastGate, gatesCleared: n.gatesCleared, housesBuilt: n.housesBuilt,
+        hp: n.hp, gear: n.gear, kills: n.kills, forged: n.forged, lastRuin: n.lastRuin, loyalTo: n.loyalTo,
       })),
       log: this.logEntries.slice(0, 30).map(e => ({ day: e.day, clock: e.clock, text: e.text, event: e.event, npc: e.npc ? e.npc.id : null })),
     };
@@ -1305,11 +1725,15 @@ class Simulation {
         awakened: !!s.awakened, level: s.level || 0, xp: s.xp || 0, stats: s.stats || null, cls: s.cls || null, unlocked: s.unlocked || [],
         titles: s.titles || [], quest: s.quest || null, questsDone: s.questsDone || 0, lastGate: s.lastGate ?? -1e9,
         gatesCleared: s.gatesCleared || 0, housesBuilt: s.housesBuilt || 0, sim: this,
+        hp: s.hp ?? 100, gear: s.gear || {}, kills: s.kills || 0, forged: s.forged || 0, lastRuin: s.lastRuin ?? -1e9, loyalTo: s.loyalTo ?? null,
       });
       if (s.home != null) { const h = st.buildings.find(b => b.id === s.home); if (h) this.moveIn(n, h, true); }
       this.npcs.push(n);
     }
     this.logEntries = (d.log || []).map(e => ({ ...e, npc: this.npcs.find(n => n.id === e.npc) || null }));
+    this.guild = d.guild || null; this.tomeFound = !!d.tomeFound; this.ruinsSearched = d.ruinsSearched || 0;
+    (d.searched || []).forEach(i => { if (w.tiles[i]) w.tiles[i].searched = true; });
+    st.recount();
     (d.gates || []).forEach((g, i) => { if (w.gates[i]) { w.gates[i].gate.cleared = g[0]; w.gates[i].gate.failed = g[1]; } });
     w.dirty = true;
   }
@@ -1470,6 +1894,139 @@ function drawRuin(c, s, v) {
   if (v === 1) { c.fillStyle = '#b8b2a5'; c.beginPath(); c.ellipse(0.32 * s, -0.06 * s, 0.2 * s, 0.07 * s, 0.2, 0, TAU); c.fill(); }
 }
 
+const METAL = ['#a3a9ae', '#7fb0e6', '#a87ce0', '#f0c35a', '#f06a7e'];
+
+function drawSmithySprite(c, s) {
+  const L = -0.55 * s, R = 0.55 * s, top = -0.62 * s;
+  // Steinmauer
+  const wg = c.createLinearGradient(0, top, 0, 0); wg.addColorStop(0, '#9c968c'); wg.addColorStop(1, '#6f6a62');
+  c.fillStyle = wg; c.fillRect(L, top, R - L, -top);
+  c.strokeStyle = 'rgba(30,28,25,.35)'; c.lineWidth = Math.max(1, s * 0.012);
+  for (let r = 0, y = -0.1 * s; y > top; y -= 0.1 * s, r++) {
+    c.beginPath(); c.moveTo(L, y); c.lineTo(R, y); c.stroke();
+    for (let x = L + (r % 2) * 0.08 * s; x < R; x += 0.16 * s) { c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + 0.1 * s); c.stroke(); }
+  }
+  // offene Esse (Torbogen)
+  c.fillStyle = '#1d1512'; c.beginPath(); c.moveTo(-0.22 * s, 0); c.lineTo(-0.22 * s, -0.3 * s); c.arc(0, -0.3 * s, 0.22 * s, Math.PI, 0); c.lineTo(0.22 * s, 0); c.fill();
+  c.strokeStyle = '#4e4840'; c.lineWidth = s * 0.04; c.beginPath(); c.arc(0, -0.3 * s, 0.24 * s, Math.PI, 0); c.stroke();
+  // Dach (Schiefer)
+  c.save(); c.beginPath(); c.moveTo(L - 0.06 * s, top + 0.04 * s); c.lineTo(-0.1 * s, -1.08 * s); c.lineTo(R + 0.06 * s, top + 0.04 * s); c.closePath();
+  const rg = c.createLinearGradient(0, -1.08 * s, 0, top); rg.addColorStop(0, '#5d6670'); rg.addColorStop(1, '#3a4048');
+  c.fillStyle = rg; c.fill(); c.clip();
+  c.strokeStyle = 'rgba(0,0,0,.3)'; c.lineWidth = Math.max(1, s * 0.015);
+  for (let y = top; y > -1.1 * s; y -= 0.07 * s) { c.beginPath(); c.moveTo(L - s, y); c.lineTo(R + s, y); c.stroke(); }
+  c.restore();
+  // großer Schornstein
+  c.fillStyle = '#7a746b'; c.fillRect(-0.48 * s, -1.25 * s, 0.2 * s, 0.7 * s);
+  c.fillStyle = '#5c574f'; c.fillRect(-0.51 * s, -1.29 * s, 0.26 * s, 0.07 * s);
+  // Amboss draußen
+  c.fillStyle = '#2f3338'; c.beginPath(); c.moveTo(0.3 * s, -0.12 * s); c.lineTo(0.62 * s, -0.12 * s); c.lineTo(0.55 * s, -0.06 * s); c.lineTo(0.37 * s, -0.06 * s); c.fill();
+  c.fillRect(0.42 * s, -0.06 * s, 0.08 * s, 0.06 * s);
+  c.fillStyle = '#5a6068'; c.fillRect(0.3 * s, -0.135 * s, 0.3 * s, 0.02 * s);
+  // Schild mit Hammer
+  c.fillStyle = '#6b4526'; c.fillRect(-0.5 * s, -0.5 * s, 0.2 * s, 0.14 * s);
+  c.strokeStyle = '#e0c48a'; c.lineWidth = Math.max(1, s * 0.02);
+  c.beginPath(); c.moveTo(-0.44 * s, -0.38 * s); c.lineTo(-0.36 * s, -0.47 * s); c.stroke(); c.fillStyle = '#e0c48a'; c.fillRect(-0.4 * s, -0.49 * s, 0.07 * s, 0.035 * s);
+}
+
+/** Waffe entlang der lokalen y-Achse zeichnen (Griff bei 0). */
+function drawWeapon(c, kind, rarity, U, len, ow, accent) {
+  const mc = METAL[rarity], rc = RARITIES[rarity].color;
+  c.lineCap = 'round';
+  const shaft = (w, col, from, to) => { c.strokeStyle = col; c.lineWidth = w; c.beginPath(); c.moveTo(0, from); c.lineTo(0, to); c.stroke(); };
+  switch (kind) {
+    case 'sword': case 'blade': {
+      shaft(0.035 * U, '#5a3a22', -0.02 * U, 0.08 * U);
+      c.fillStyle = rc; c.fillRect(-0.06 * U, 0.075 * U, 0.12 * U, 0.025 * U);
+      const g = c.createLinearGradient(-0.03 * U, 0, 0.03 * U, 0); g.addColorStop(0, '#ffffff'); g.addColorStop(0.5, mc); g.addColorStop(1, '#55595e');
+      c.fillStyle = g; c.beginPath(); c.moveTo(-0.025 * U, 0.1 * U);
+      if (kind === 'blade') c.quadraticCurveTo(-0.05 * U, len * 0.6, 0.01 * U, len); else c.lineTo(-0.022 * U, len - 0.05 * U);
+      c.lineTo(0, len); c.lineTo(0.025 * U, 0.1 * U); c.closePath(); c.fill();
+      c.strokeStyle = 'rgba(0,0,0,.35)'; c.lineWidth = ow; c.stroke();
+      if (rarity >= 2) { c.strokeStyle = rc; c.globalAlpha = 0.8; c.lineWidth = Math.max(1, 0.012 * U); c.beginPath(); c.moveTo(0, 0.13 * U); c.lineTo(0, len - 0.08 * U); c.stroke(); c.globalAlpha = 1; }
+      break;
+    }
+    case 'hammer': {
+      shaft(0.03 * U, '#6b4526', 0, len);
+      const g = c.createLinearGradient(-0.08 * U, 0, 0.08 * U, 0); g.addColorStop(0, '#fff'); g.addColorStop(0.4, mc); g.addColorStop(1, '#44484d');
+      c.fillStyle = g; c.fillRect(-0.085 * U, len - 0.07 * U, 0.17 * U, 0.1 * U);
+      c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = ow; c.strokeRect(-0.085 * U, len - 0.07 * U, 0.17 * U, 0.1 * U);
+      if (rarity >= 2) { c.fillStyle = rc; c.fillRect(-0.085 * U, len - 0.03 * U, 0.17 * U, 0.018 * U); }
+      break;
+    }
+    case 'staff': {
+      shaft(0.03 * U, '#7a5230', 0, len);
+      const g = c.createRadialGradient(0, len, 0, 0, len, 0.07 * U); g.addColorStop(0, '#fff'); g.addColorStop(0.5, rc); g.addColorStop(1, rc + '00');
+      c.fillStyle = g; c.beginPath(); c.arc(0, len, 0.07 * U, 0, TAU); c.fill();
+      c.strokeStyle = '#4e7a3a'; c.lineWidth = 0.02 * U; c.beginPath(); c.arc(0, len - 0.04 * U, 0.04 * U, 0.2, Math.PI - 0.2); c.stroke();
+      break;
+    }
+    case 'spear': {
+      shaft(0.025 * U, '#7a5230', -0.05 * U, len);
+      c.fillStyle = mc; c.beginPath(); c.moveTo(-0.03 * U, len); c.lineTo(0, len + 0.1 * U); c.lineTo(0.03 * U, len); c.closePath(); c.fill();
+      c.fillStyle = accent; c.beginPath(); c.moveTo(0.01 * U, len - 0.04 * U); c.lineTo(0.1 * U, len - 0.08 * U); c.lineTo(0.01 * U, len - 0.14 * U); c.fill();
+      break;
+    }
+    case 'bow': {
+      c.strokeStyle = '#6b4526'; c.lineWidth = 0.03 * U;
+      c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(0.14 * U, len / 2, 0, len); c.stroke();
+      c.strokeStyle = 'rgba(240,240,240,.8)'; c.lineWidth = Math.max(1, 0.008 * U); c.beginPath(); c.moveTo(0, 0); c.lineTo(0, len); c.stroke();
+      if (rarity >= 2) { c.fillStyle = rc; c.beginPath(); c.arc(0.07 * U, len / 2, 0.02 * U, 0, TAU); c.fill(); }
+      break;
+    }
+  }
+}
+
+function drawMonsterShape(c, m, s, now) {
+  const M = MONSTERS[m.kind], t = now / 1000 + m.id;
+  const moving = Math.hypot(m.x - m.prevX, m.y - m.prevY) > 0.001, ph = t * (m.kind === 'aschegolem' ? 4 : 10);
+  const attack = m.attackAt && now - m.attackAt < 300 ? Math.sin((now - m.attackAt) / 300 * Math.PI) : 0;
+  const flash = m.hitAt && now - m.hitAt < 140;
+  c.save(); c.scale(m.facing, 1); c.lineCap = 'round';
+  if (m.kind === 'rissling') {
+    const hop = moving ? Math.abs(Math.sin(ph)) * 0.08 * s : 0, U = s * 0.8;
+    c.translate(attack * 0.1 * s, -hop);
+    c.fillStyle = '#3a2350'; c.beginPath(); c.moveTo(-0.15 * U, -0.25 * U); c.quadraticCurveTo(-0.38 * U, -0.2 * U, -0.32 * U, -0.42 * U); c.lineWidth = 0.03 * U; c.strokeStyle = '#3a2350'; c.stroke();
+    const g = c.createRadialGradient(-0.03 * U, -0.32 * U, 0, 0, -0.25 * U, 0.2 * U); g.addColorStop(0, '#8a5ac0'); g.addColorStop(1, '#3a2350');
+    c.fillStyle = g; c.beginPath(); c.ellipse(0, -0.24 * U, 0.15 * U, 0.17 * U, 0, 0, TAU); c.fill();
+    c.fillStyle = '#2a1838'; for (const hx of [-0.07, 0.07]) { c.beginPath(); c.moveTo(hx * U, -0.38 * U); c.lineTo((hx + 0.03) * U, -0.52 * U); c.lineTo((hx + 0.06) * U, -0.37 * U); c.fill(); }
+    c.fillStyle = '#ffe14a'; for (const ex of [0.02, 0.09]) { c.beginPath(); c.arc(ex * U, -0.3 * U, 0.025 * U, 0, TAU); c.fill(); }
+    c.strokeStyle = '#2a1838'; c.lineWidth = 0.04 * U; c.beginPath(); c.moveTo(0.1 * U, -0.2 * U); c.lineTo((0.2 + attack * 0.1) * U, -0.25 * U); c.stroke();
+    c.beginPath(); c.moveTo(-0.05 * U, -0.08 * U); c.lineTo(-0.07 * U, 0); c.moveTo(0.05 * U, -0.08 * U); c.lineTo(0.07 * U, 0); c.stroke();
+  } else if (m.kind === 'schattenwolf') {
+    const U = s;
+    for (const [lx, o] of [[-0.18, 0], [-0.12, Math.PI], [0.12, Math.PI], [0.18, 0]]) {
+      const a = moving ? Math.sin(ph + o) * 0.5 : 0;
+      c.strokeStyle = '#151820'; c.lineWidth = 0.05 * U; c.beginPath(); c.moveTo(lx * U, -0.2 * U); c.lineTo(lx * U + Math.sin(a) * 0.2 * U, 0); c.stroke();
+    }
+    const g = c.createLinearGradient(0, -0.38 * U, 0, -0.15 * U); g.addColorStop(0, '#3b4458'); g.addColorStop(1, '#12151c');
+    c.fillStyle = g; c.beginPath(); c.ellipse(0, -0.26 * U, 0.26 * U, 0.12 * U, 0, 0, TAU); c.fill();
+    c.beginPath(); c.moveTo(-0.24 * U, -0.3 * U); c.quadraticCurveTo(-0.42 * U, -0.38 * U, -0.4 * U, -0.22 * U); c.lineWidth = 0.06 * U; c.strokeStyle = '#1b1f29'; c.stroke();
+    const hx = (0.26 + attack * 0.1) * U;
+    c.fillStyle = '#1e2330'; c.beginPath(); c.ellipse(hx, -0.36 * U, 0.11 * U, 0.08 * U, -0.2, 0, TAU); c.fill();
+    c.beginPath(); c.moveTo(hx + 0.05 * U, -0.38 * U); c.lineTo(hx + 0.2 * U, -0.33 * U); c.lineTo(hx + 0.05 * U, -0.3 * U); c.fill();
+    c.beginPath(); c.moveTo(hx - 0.05 * U, -0.42 * U); c.lineTo(hx - 0.02 * U, -0.54 * U); c.lineTo(hx + 0.03 * U, -0.43 * U); c.fill();
+    c.fillStyle = '#ff3b3b'; c.beginPath(); c.arc(hx + 0.05 * U, -0.38 * U, 0.02 * U, 0, TAU); c.fill();
+    if (attack > 0.3) { c.fillStyle = '#eee'; c.beginPath(); c.moveTo(hx + 0.12 * U, -0.32 * U); c.lineTo(hx + 0.14 * U, -0.29 * U); c.lineTo(hx + 0.16 * U, -0.32 * U); c.fill(); }
+  } else {
+    const U = s * 1.3, stomp = moving ? Math.abs(Math.sin(ph)) * 0.03 * U : 0;
+    c.translate(0, -stomp);
+    const g = c.createLinearGradient(-0.3 * U, 0, 0.3 * U, 0); g.addColorStop(0, '#6a625a'); g.addColorStop(1, '#2e2a27');
+    c.fillStyle = '#2e2a27'; c.fillRect(-0.16 * U, -0.18 * U, 0.1 * U, 0.18 * U); c.fillRect(0.06 * U, -0.18 * U, 0.1 * U, 0.18 * U);
+    c.fillStyle = g; c.beginPath(); c.moveTo(-0.24 * U, -0.18 * U); c.lineTo(-0.28 * U, -0.55 * U); c.lineTo(0, -0.66 * U); c.lineTo(0.28 * U, -0.55 * U); c.lineTo(0.24 * U, -0.18 * U); c.closePath(); c.fill();
+    c.fillStyle = '#4a443e'; c.beginPath(); c.arc(0.04 * U, -0.72 * U, 0.12 * U, 0, TAU); c.fill();
+    const arm = attack * 1.2;
+    c.save(); c.translate(0.26 * U, -0.52 * U); c.rotate(-0.3 - arm); c.fillStyle = '#3e3833'; c.fillRect(-0.05 * U, 0, 0.1 * U, 0.38 * U); c.restore();
+    c.fillStyle = '#3e3833'; c.fillRect(-0.34 * U, -0.52 * U, 0.1 * U, 0.36 * U);
+    const glowA = 0.6 + Math.sin(t * 4) * 0.3;
+    c.strokeStyle = `rgba(255,120,30,${glowA})`; c.lineWidth = Math.max(1, 0.02 * U);
+    c.beginPath(); c.moveTo(-0.1 * U, -0.6 * U); c.lineTo(0.02 * U, -0.45 * U); c.lineTo(-0.05 * U, -0.3 * U); c.moveTo(0.12 * U, -0.55 * U); c.lineTo(0.08 * U, -0.38 * U); c.stroke();
+    c.fillStyle = `rgba(255,150,40,${glowA})`; c.beginPath(); c.arc(0.09 * U, -0.73 * U, 0.025 * U, 0, TAU); c.fill();
+  }
+  if (flash) { c.globalAlpha = 0.55; c.fillStyle = '#fff'; c.beginPath(); c.ellipse(0, -0.3 * s, 0.3 * s, 0.25 * s, 0, 0, TAU); c.fill(); c.globalAlpha = 1; }
+  c.restore();
+}
+
 class Renderer {
   constructor(canvas, sim) {
     this.canvas = canvas;
@@ -1538,7 +2095,7 @@ class Renderer {
     g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,.4)');
     vc.fillStyle = g; vc.fillRect(0, 0, W, H);
     this.spriteTs = 0; this.chunks.clear();
-    this.setZoom(this.ts || clamp(Math.floor(this.viewW / 10), 28, 56));
+    this.setZoom(this.ts || clamp(Math.floor(this.viewW / 8), 34, 64));
   }
 
   setZoom(z, fx = this.viewW / 2, fy = this.viewH / 2) {
@@ -1637,6 +2194,7 @@ class Renderer {
     S.bush = this.makeSprite(1.0, 0.95, 0.5, 0.85, drawBush);
     for (let v = 0; v < 2; v++) S['rock' + v] = this.makeSprite(1.0, 0.8, 0.5, 0.7, (c, s) => drawRock(c, s, v));
     for (let v = 0; v < 3; v++) S['ruin' + v] = this.makeSprite(1.0, 1.5, 0.45, 1.4, (c, s) => drawRuin(c, s, v));
+    S.smithy = this.makeSprite(1.5, 2.0, 0.75, 1.85, drawSmithySprite);
     for (let v = 0; v < ROOFS.length; v++) S['house' + v] = this.makeSprite(1.4, 1.95, 0.7, 1.8, (c, s) => drawHouseSprite(c, s, v));
     this.sprites = S; this.spriteTs = this.ts;
   }
@@ -1684,7 +2242,7 @@ class Renderer {
 
   pathLevel(t) {
     if (!t) return 0;
-    if (t.type === 'camp' || t.type === 'house' || t.type === 'site') return 1;
+    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy') return 1;
     return t.type === 'grass' ? Math.min(1, t.traffic / 50) : 0;
   }
 
@@ -1693,7 +2251,14 @@ class Renderer {
     const world = this.sim.world, x = t.x * s, y = t.y * s, i = t.y * world.w + t.x;
     const e = 0.75; // leicht überlappen, damit keine Kanten sichtbar werden
     c.save(); c.beginPath(); c.rect(x - e, y - e, s + 2 * e, s + 2 * e); c.clip();
-    if (t.type === 'ford') { // flaches Wasser mit Trittsteinen
+    if (t.type === 'field') { // gepflügte Erde mit Furchen
+      const g = c.createLinearGradient(x, y, x, y + s); g.addColorStop(0, '#7a5a3a'); g.addColorStop(1, '#5e4329');
+      c.fillStyle = 'hsl(100, 40%, 35%)'; c.fillRect(x - e, y - e, s + 2 * e, s + 2 * e);
+      c.fillStyle = g; c.fillRect(x + s * 0.05, y + s * 0.08, s * 0.9, s * 0.86);
+      c.strokeStyle = 'rgba(40,25,12,.45)'; c.lineWidth = Math.max(1, s * 0.025);
+      for (let k = 0; k < 4; k++) { const yy = y + s * (0.22 + k * 0.2); c.beginPath(); c.moveTo(x + s * 0.09, yy); c.lineTo(x + s * 0.91, yy); c.stroke(); }
+      c.strokeStyle = '#8a6a42'; c.lineWidth = Math.max(1, s * 0.03); c.strokeRect(x + s * 0.05, y + s * 0.08, s * 0.9, s * 0.86);
+    } else if (t.type === 'ford') { // flaches Wasser mit Trittsteinen
       c.fillStyle = 'hsl(195, 45%, 52%)'; c.fillRect(x - e, y - e, s + 2 * e, s + 2 * e);
       c.fillStyle = '#9b958a';
       for (const [fx, fy] of [[0.25, 0.3], [0.62, 0.45], [0.35, 0.72], [0.75, 0.8]]) { c.beginPath(); c.ellipse(x + fx * s, y + fy * s, s * 0.1, s * 0.07, 0, 0, TAU); c.fill(); }
@@ -1789,10 +2354,13 @@ class Renderer {
       else if (a.id === 'build') arms = 'build';
       else if (a.id === 'eat') arms = 'eat';
       else if (a.id === 'socialize') arms = 'talk';
+      else if (a.id === 'forge') arms = 'build';
+      else if (a.id === 'plantField' || a.id === 'harvest' || a.id === 'searchRuin') arms = 'chop';
+      else if (a.id === 'fight') arms = 'fight';
     }
     let facing = n.facing || 1;
     if (!moving && step && step.face) { const dx = step.face.x - n.x; if (Math.abs(dx) > 0.1) facing = dx > 0 ? 1 : -1; }
-    return { moving, arms, facing, step };
+    return { moving, arms, facing, step, tool: step && step.tool };
   }
 
   drawSettler(c, n, px, py, s, now, pose, phase = 0) {
@@ -1813,6 +2381,8 @@ class Renderer {
     const chopT = (t / 1.15) % 1, hamT = (t / 0.6) % 1;
     if (pose.arms === 'chop') lean = chopT < 0.55 ? -0.1 * ease(chopT / 0.55) : chopT < 0.68 ? lerp(-0.1, 0.2, (chopT - 0.55) / 0.13) : lerp(0.2, 0, ease((chopT - 0.68) / 0.32));
     if (pose.arms === 'build') lean = 0.12;
+    const fightT = (t / 0.75) % 1, gear = n.gear || {}, wpn = gear.weapon;
+    if (pose.arms === 'fight' && (!wpn || !['bow', 'staff', 'spear'].includes(wpn.kind))) lean = fightT < 0.45 ? -0.08 : fightT < 0.6 ? 0.22 : 0.1;
     if (pose.arms === 'carry') lean += 0.05;
 
     c.save();
@@ -1853,7 +2423,10 @@ class Renderer {
       c.beginPath(); c.moveTo(hip.x, hip.y); c.lineTo(k.x, k.y); c.lineTo(f.x, f.y); c.stroke();
       c.strokeStyle = col; c.lineWidth = 0.075 * U;
       c.beginPath(); c.moveTo(hip.x, hip.y); c.lineTo(k.x, k.y); c.lineTo(f.x, f.y); c.stroke();
-      c.fillStyle = '#2a1d14'; c.beginPath(); c.ellipse(f.x + 0.03 * U, f.y - 0.01 * U, 0.055 * U, 0.028 * U, 0, 0, TAU); c.fill();
+      if (gear.boots) { // Stiefel mit Schaft
+        c.strokeStyle = METAL[gear.boots.rarity]; c.lineWidth = 0.085 * U; c.beginPath(); c.moveTo(k.x + (f.x - k.x) * 0.45, k.y + (f.y - k.y) * 0.45); c.lineTo(f.x, f.y - 0.01 * U); c.stroke();
+        c.fillStyle = shadeHex(gear.boots.rarity >= 3 ? '#b8862a' : '#3a2c22', 0); c.beginPath(); c.ellipse(f.x + 0.035 * U, f.y - 0.012 * U, 0.065 * U, 0.032 * U, 0, 0, TAU); c.fill();
+      } else { c.fillStyle = '#2a1d14'; c.beginPath(); c.ellipse(f.x + 0.03 * U, f.y - 0.01 * U, 0.055 * U, 0.028 * U, 0, 0, TAU); c.fill(); }
     };
     const drawArm = (arm, col, back) => {
       c.strokeStyle = outline; c.lineWidth = 0.065 * U + ow * 2;
@@ -1873,8 +2446,39 @@ class Renderer {
       else if (chopT < 0.8) { ua = 0.75; bend = 0.05; }
       else { const k = ease((chopT - 0.8) / 0.2); ua = lerp(0.75, 0.5, k); bend = lerp(0.05, 0.3, k); }
       front = fk(ua, bend);
-      const dir = ua + bend; tool = { kind: 'axe', x: front.h.x, y: front.h.y, a: dir };
+      const dir = ua + bend; tool = { kind: pose.tool || 'axe', x: front.h.x, y: front.h.y, a: dir };
       back = ik({ x: front.h.x - Math.sin(dir) * 0.06 * U, y: front.h.y - Math.cos(dir) * 0.06 * U });
+    } else if (pose.arms === 'fight') {
+      const kind = wpn ? wpn.kind : 'sword', foe = n.foe;
+      if (kind === 'bow' || kind === 'staff') { // Fernkampf: zielen und loslassen
+        front = ik({ x: shoulder.x + 0.23 * U, y: shoulder.y - 0.02 * U });
+        back = ik({ x: shoulder.x + (kind === 'bow' ? 0.04 + (fightT < 0.7 ? 0 : 0.08) : 0.12) * U, y: shoulder.y + 0.02 * U });
+        tool = { kind: 'weapon', x: front.h.x, y: front.h.y, a: kind === 'bow' ? Math.PI : Math.PI * 0.85, held: kind };
+        if (foe && fightT > 0.7) { // Pfeil / Zauberkugel fliegt
+          const k = (fightT - 0.7) / 0.3, tx = (foe.x - n.x) * s * pose.facing, ty = (foe.y - n.y) * s - 0.3 * s;
+          const ax = lerp(front.h.x, tx, k), ay = lerp(front.h.y, ty, k);
+          if (kind === 'bow') { c.save(); c.strokeStyle = '#e8e2d0'; c.lineWidth = Math.max(1, 0.015 * U); c.beginPath(); c.moveTo(ax - 0.12 * U, ay); c.lineTo(ax, ay); c.stroke(); c.restore(); this.trail = { ax, ay }; }
+          else { const g = c.createRadialGradient(ax, ay, 0, ax, ay, 0.08 * U); g.addColorStop(0, '#fff'); g.addColorStop(0.5, RARITIES[wpn.rarity].color); g.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = g; c.beginPath(); c.arc(ax, ay, 0.08 * U, 0, TAU); c.fill(); }
+        }
+      } else if (kind === 'spear') { // Stoß
+        const k = fightT < 0.5 ? ease(fightT / 0.5) * 0.3 : fightT < 0.65 ? 0.3 + (fightT - 0.5) / 0.15 * 0.7 : 1 - (fightT - 0.65) / 0.35;
+        front = ik({ x: shoulder.x + (0.08 + 0.14 * k) * U, y: shoulder.y + 0.06 * U });
+        back = ik({ x: shoulder.x + (0.0 + 0.1 * k) * U, y: shoulder.y + 0.1 * U });
+        tool = { kind: 'weapon', x: back.h.x, y: back.h.y, a: Math.PI / 2 + 0.05, held: kind };
+      } else { // Hieb mit Schwert, Klinge oder Hammer
+        let ua, bend;
+        if (fightT < 0.45) { const k = ease(fightT / 0.45); ua = lerp(0.6, 2.9, k); bend = lerp(0.3, 0.6, k); }
+        else if (fightT < 0.6) { const k = (fightT - 0.45) / 0.15; ua = lerp(2.9, 0.9, k * k); bend = lerp(0.6, 0.1, k); }
+        else { const k = ease((fightT - 0.6) / 0.4); ua = lerp(0.9, 0.6, k); bend = lerp(0.1, 0.3, k); }
+        front = fk(ua, bend);
+        tool = { kind: 'weapon', x: front.h.x, y: front.h.y, a: ua + bend, held: kind };
+        back = fk(0.4, 0.6);
+        if (fightT > 0.45 && fightT < 0.66) { // Schlagbogen
+          const k = (fightT - 0.45) / 0.21, col = wpn ? RARITIES[wpn.rarity].color : '#ffffff';
+          c.save(); c.strokeStyle = col; c.globalAlpha = 1 - k; c.lineWidth = 0.05 * U;
+          c.beginPath(); c.arc(shoulder.x, shoulder.y, 0.42 * U, -1.9 + k * 1.2, -0.2 + k * 1.2); c.stroke(); c.restore();
+        }
+      }
     } else if (pose.arms === 'build') { // Hammer: kurze, schnelle Schläge aus dem Ellbogen
       const k = hamT < 0.6 ? ease(hamT / 0.6) : hamT < 0.72 ? 1 - (hamT - 0.6) / 0.12 : 0;
       front = fk(1.0, lerp(0.15, 1.9, k));
@@ -1897,6 +2501,24 @@ class Renderer {
     }
 
     // Zeichenreihenfolge: hinterer Arm, Beine, Rumpf, Kopf, Holz, vorderer Arm, Werkzeug
+    const topR = SLOTS.reduce((m, sl) => Math.max(m, gear[sl] ? gear[sl].rarity : -1), -1);
+    if (topR >= 3) { // legendärer Schimmer
+      const gc = RARITIES[topR].color, g = c.createRadialGradient(0, -0.4 * U, 0, 0, -0.4 * U, 0.6 * U);
+      g.addColorStop(0, gc + '55'); g.addColorStop(1, gc + '00'); c.fillStyle = g; c.fillRect(-0.6 * U, -1.05 * U, 1.2 * U, 1.1 * U);
+    }
+    if (gear.cape) { // Umhang weht nach hinten
+      const flap = walking ? 0.06 + Math.sin(phase * 0.5) * 0.03 : Math.sin(t * 1.4) * 0.015;
+      const cc = n.cls ? CLASSES[n.cls].color : '#8a2e3a';
+      c.beginPath(); c.moveTo(shoulder.x - 0.09 * U, shoulder.y);
+      c.quadraticCurveTo(-0.2 * U, -0.25 * U, (-0.2 - flap * 2) * U, -0.03 * U);
+      c.lineTo((0.02 - flap) * U, -0.05 * U); c.lineTo(shoulder.x + 0.07 * U, shoulder.y); c.closePath();
+      c.fillStyle = cc; c.fill(); c.fillStyle = 'rgba(0,0,0,.35)'; c.fill();
+      c.strokeStyle = RARITIES[gear.cape.rarity].color; c.lineWidth = Math.max(1, 0.02 * U); c.stroke();
+    }
+    if (wpn && pose.arms !== 'fight') { // Waffe auf dem Rücken
+      c.save(); c.translate(shoulder.x + 0.09 * U, shoulder.y - 0.1 * U); c.rotate(wpn.kind === 'bow' ? 0.35 : 0.55);
+      drawWeapon(c, wpn.kind, wpn.rarity, U, 0.46 * U, ow, n.color); c.restore();
+    }
     drawArm(back, n.color, true);
     drawLeg(phase + Math.PI, '#33281f');
     drawLeg(phase, '#463729');
@@ -1908,6 +2530,17 @@ class Renderer {
     c.strokeStyle = outline; c.lineWidth = ow; c.stroke();
     c.fillStyle = '#5a3a22'; c.fillRect(-0.13 * U, -0.03 * U, 0.26 * U, 0.035 * U);
     c.fillStyle = '#e0b85a'; c.fillRect(-0.02 * U, -0.035 * U, 0.04 * U, 0.045 * U);
+    if (gear.armor) { // Brustpanzer
+      const r = gear.armor.rarity, mc = METAL[r];
+      const ag = c.createLinearGradient(-0.13 * U, 0, 0.13 * U, 0); ag.addColorStop(0, '#ffffff'); ag.addColorStop(0.35, mc); ag.addColorStop(1, shadeHex(mc, -70));
+      c.beginPath(); c.moveTo(-0.11 * U, -0.225 * U); c.lineTo(0.11 * U, -0.225 * U); c.lineTo(0.135 * U, -0.03 * U); c.quadraticCurveTo(0, 0.02 * U, -0.135 * U, -0.03 * U); c.closePath();
+      c.fillStyle = ag; c.fill(); c.strokeStyle = outline; c.lineWidth = ow; c.stroke();
+      c.strokeStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.moveTo(0, -0.21 * U); c.lineTo(0, -0.02 * U); c.stroke();
+      if (r >= 2) { c.strokeStyle = RARITIES[r].color; c.lineWidth = Math.max(1, 0.015 * U); c.beginPath(); c.moveTo(-0.06 * U, -0.17 * U); c.lineTo(0, -0.11 * U); c.lineTo(0.06 * U, -0.17 * U); c.stroke(); }
+      c.fillStyle = 'rgba(255,255,255,.7)'; for (const rx of [-0.08, 0.08]) { c.beginPath(); c.arc(rx * U, -0.19 * U, Math.max(0.6, 0.012 * U), 0, TAU); c.fill(); }
+    } else if (!n.awakened && (n.profession === 'bauer' || n.profession === 'handwerker')) { // Schürze
+      c.fillStyle = n.profession === 'bauer' ? '#d8c8a0' : '#6b4a2c'; c.fillRect(-0.09 * U, -0.1 * U, 0.18 * U, 0.17 * U);
+    }
     c.restore();
     // Kopf
     const hx = head.x, hy = head.y + (pose.arms === 'talk' ? Math.sin(t * 5) * 0.008 * U : 0);
@@ -1915,6 +2548,30 @@ class Renderer {
     c.strokeStyle = outline; c.lineWidth = ow; c.stroke();
     c.fillStyle = hair; c.beginPath(); c.arc(hx - 0.01 * U, hy - 0.02 * U, 0.12 * U, Math.PI * 1.0, Math.PI * 2.05); c.fill();
     c.beginPath(); c.arc(hx - 0.075 * U, hy, 0.07 * U, 0, TAU); c.fill();
+    const hat = !n.awakened && CONFIG.professions[n.profession] ? CONFIG.professions[n.profession].hat : null;
+    if (gear.helmet) {
+      const r = gear.helmet.rarity, mc = METAL[r];
+      const hg = c.createLinearGradient(hx - 0.13 * U, 0, hx + 0.13 * U, 0); hg.addColorStop(0, '#fff'); hg.addColorStop(0.35, mc); hg.addColorStop(1, shadeHex(mc, -70));
+      c.fillStyle = hg; c.beginPath(); c.arc(hx - 0.005 * U, hy - 0.01 * U, 0.13 * U, Math.PI * 0.95, Math.PI * 2.05); c.closePath(); c.fill();
+      c.strokeStyle = outline; c.lineWidth = ow; c.stroke();
+      c.fillStyle = shadeHex(mc, -40); c.fillRect(hx - 0.135 * U, hy - 0.025 * U, 0.27 * U, 0.035 * U);
+      if (r >= 1) { c.fillStyle = shadeHex(mc, -20); c.fillRect(hx + 0.085 * U, hy - 0.02 * U, 0.025 * U, 0.08 * U); }
+      if (r >= 2) { // Kamm / Federbusch
+        c.fillStyle = r >= 3 ? RARITIES[r].color : '#b03a3a';
+        c.beginPath(); c.moveTo(hx - 0.02 * U, hy - 0.13 * U); c.quadraticCurveTo(hx - 0.2 * U, hy - 0.26 * U, hx - 0.26 * U, hy - 0.08 * U); c.quadraticCurveTo(hx - 0.12 * U, hy - 0.16 * U, hx + 0.03 * U, hy - 0.12 * U); c.fill();
+      }
+      if (r >= 3) { c.fillStyle = '#ffe9a8'; for (const sx of [-1, 1]) { c.beginPath(); c.moveTo(hx + sx * 0.12 * U, hy - 0.05 * U); c.lineTo(hx + sx * 0.22 * U, hy - 0.16 * U); c.lineTo(hx + sx * 0.13 * U, hy - 0.11 * U); c.fill(); } }
+      if (r === 4) { const g = c.createRadialGradient(hx + 0.05 * U, hy - 0.09 * U, 0, hx + 0.05 * U, hy - 0.09 * U, 0.05 * U); g.addColorStop(0, '#fff'); g.addColorStop(1, '#ff4f6a00'); c.fillStyle = g; c.beginPath(); c.arc(hx + 0.05 * U, hy - 0.09 * U, 0.05 * U, 0, TAU); c.fill(); }
+    } else if (hat === 'straw') {
+      c.fillStyle = '#e3c66b'; c.beginPath(); c.ellipse(hx, hy - 0.07 * U, 0.2 * U, 0.05 * U, 0, 0, TAU); c.fill();
+      c.beginPath(); c.arc(hx, hy - 0.08 * U, 0.1 * U, Math.PI, 0); c.fill();
+      c.strokeStyle = '#b0402f'; c.lineWidth = 0.02 * U; c.beginPath(); c.moveTo(hx - 0.1 * U, hy - 0.09 * U); c.lineTo(hx + 0.1 * U, hy - 0.09 * U); c.stroke();
+    } else if (hat === 'cap') {
+      c.fillStyle = '#b8342c'; c.beginPath(); c.arc(hx - 0.005 * U, hy - 0.03 * U, 0.12 * U, Math.PI * 1.05, Math.PI * 1.95); c.closePath(); c.fill();
+      c.fillStyle = '#e9e2d4'; c.beginPath(); c.arc(hx - 0.01 * U, hy - 0.16 * U, 0.03 * U, 0, TAU); c.fill();
+    } else if (hat === 'band') {
+      c.fillStyle = '#3f6fb0'; c.fillRect(hx - 0.115 * U, hy - 0.06 * U, 0.23 * U, 0.03 * U);
+    }
     const blink = (now + n.id * 913) % 3900 < 120;
     c.fillStyle = '#2a1d14';
     if (blink) c.fillRect(hx + 0.055 * U, hy - 0.003 * U, 0.035 * U, Math.max(1, 0.008 * U));
@@ -1930,13 +2587,22 @@ class Renderer {
       }
     }
     drawArm(front, n.color, false);
+    if (gear.armor && gear.armor.rarity >= 1) { // Schulterplatte
+      const mc = METAL[gear.armor.rarity];
+      c.fillStyle = mc; c.beginPath(); c.ellipse(shoulder.x + 0.01 * U, shoulder.y + 0.01 * U, 0.075 * U, 0.05 * U, -0.3, 0, TAU); c.fill();
+      c.strokeStyle = outline; c.lineWidth = ow; c.stroke();
+      if (gear.armor.rarity >= 3) { c.fillStyle = RARITIES[gear.armor.rarity].color; c.beginPath(); c.moveTo(shoulder.x - 0.02 * U, shoulder.y - 0.03 * U); c.lineTo(shoulder.x + 0.02 * U, shoulder.y - 0.12 * U); c.lineTo(shoulder.x + 0.05 * U, shoulder.y - 0.03 * U); c.fill(); }
+    }
     if (pose.arms === 'eat') { c.fillStyle = '#b8325f'; c.beginPath(); c.arc(front.h.x + 0.02 * U, front.h.y - 0.02 * U, 0.032 * U, 0, TAU); c.fill(); }
     if (tool) {
       c.save(); c.translate(tool.x, tool.y); c.rotate(-tool.a);
       c.strokeStyle = '#8a6239'; c.lineWidth = 0.034 * U;
-      c.beginPath(); c.moveTo(0, -0.07 * U); c.lineTo(0, 0.24 * U); c.stroke();
+      if (!tool.held) { c.beginPath(); c.moveTo(0, -0.07 * U); c.lineTo(0, 0.24 * U); c.stroke(); }
       c.fillStyle = '#aab3bb'; c.strokeStyle = outline; c.lineWidth = ow;
-      if (tool.kind === 'axe') { c.beginPath(); c.moveTo(0, 0.13 * U); c.lineTo(0.13 * U, 0.09 * U); c.quadraticCurveTo(0.16 * U, 0.18 * U, 0.13 * U, 0.27 * U); c.lineTo(0, 0.23 * U); c.closePath(); c.fill(); c.stroke(); }
+      if (tool.held) { if (tool.held === 'bow') c.translate(0, -0.21 * U); drawWeapon(c, tool.held, wpn ? wpn.rarity : 0, U, 0.42 * U, ow, n.color); }
+      else if (tool.kind === 'hoe') { c.fillStyle = '#8a8f96'; c.beginPath(); c.moveTo(0, 0.2 * U); c.lineTo(0.12 * U, 0.24 * U); c.lineTo(0.11 * U, 0.27 * U); c.lineTo(0, 0.24 * U); c.fill(); }
+      else if (tool.kind === 'sickle') { c.strokeStyle = '#c9ced4'; c.lineWidth = 0.025 * U; c.beginPath(); c.arc(0.06 * U, 0.2 * U, 0.08 * U, -2.6, 0.3); c.stroke(); }
+      else if (tool.kind === 'axe') { c.beginPath(); c.moveTo(0, 0.13 * U); c.lineTo(0.13 * U, 0.09 * U); c.quadraticCurveTo(0.16 * U, 0.18 * U, 0.13 * U, 0.27 * U); c.lineTo(0, 0.23 * U); c.closePath(); c.fill(); c.stroke(); }
       else { c.fillRect(-0.05 * U, 0.18 * U, 0.14 * U, 0.07 * U); c.strokeRect(-0.05 * U, 0.18 * U, 0.14 * U, 0.07 * U); }
       c.restore();
     }
@@ -2013,6 +2679,23 @@ class Renderer {
   /** Lichtsäule bei Level-Aufstieg oder Erwachen. */
   burst(n, kind) { this.effects.push({ n, kind, born: performance.now() }); }
 
+  /** Getreide auf dem Feld: keimt, wächst, wird golden. */
+  drawCrops(c, t, s, now) {
+    const p = Math.min(1, t.timer / CONFIG.farming.growMinutes);
+    if (p < 0.12) return;
+    const stage = p < 0.45 ? 1 : p < 1 ? 2 : 3, h = [0, 0.14, 0.3, 0.4][stage] * s, ripe = stage === 3;
+    c.lineCap = 'round';
+    for (let row = 0; row < 4; row++) for (let col = 0; col < 5; col++) {
+      const px = (t.x + 0.16 + col * 0.17) * s, py = (t.y + 0.28 + row * 0.2) * s;
+      const sway = Math.sin(now / 700 + px * 0.05 + row) * 0.05 * s * (stage / 3);
+      c.strokeStyle = ripe ? '#c9a94a' : stage === 2 ? '#6fae45' : '#8fd06a';
+      c.lineWidth = Math.max(1, s * 0.022);
+      c.beginPath(); c.moveTo(px, py); c.quadraticCurveTo(px + sway * 0.5, py - h * 0.6, px + sway, py - h); c.stroke();
+      if (stage >= 2) { c.beginPath(); c.moveTo(px, py - h * 0.4); c.lineTo(px + s * 0.05, py - h * 0.55); c.stroke(); }
+      if (ripe) { c.fillStyle = '#f2d27a'; c.beginPath(); c.ellipse(px + sway, py - h - s * 0.03, s * 0.022, s * 0.05, sway / s, 0, TAU); c.fill(); }
+    }
+  }
+
   drawGate(c, t, s, now) {
     const cx = (t.x + 0.5) * s, cy = (t.y + 0.5) * s, g = t.gate;
     const col = ['', '120,200,255', '190,130,255', '255,95,130'][g.tier];
@@ -2037,7 +2720,7 @@ class Renderer {
     const r = this.canvas.getBoundingClientRect(), w = this.sim.world;
     const tx = Math.floor((clientX - r.left + this.camX) / this.ts), ty = Math.floor((clientY - r.top + this.camY) / this.ts);
     const here = w.tile(tx, ty), below = w.tile(tx, ty + 1);
-    const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate'].includes(t.type);
+    const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy'].includes(t.type);
     if (!tall(here) && tall(below)) return below;
     return here;
   }
@@ -2051,7 +2734,7 @@ class Renderer {
       cv.width = w.w; cv.height = w.h;
       const ctx = cv.getContext('2d'), img = ctx.createImageData(w.w, w.h);
       const COL = { grass: [77, 122, 58], tree: [36, 80, 44], stump: [90, 110, 60], water: [47, 111, 159], ford: [90, 159, 192], bush: [60, 125, 63],
-        rock: [138, 134, 125], ruin: [184, 178, 165], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
+        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
       w.tiles.forEach((t, i) => {
         let col = COL[t.type] || COL.grass;
         if (t.type === 'grass' && t.traffic > 25) col = [138, 115, 80];
@@ -2064,6 +2747,7 @@ class Renderer {
     mc.clearRect(0, 0, size, size);
     mc.drawImage(this.miniBase, 0, 0, w.w * k, w.h * k);
     for (const g of w.gates) { mc.fillStyle = `rgba(200,170,255,${0.6 + Math.sin(now / 300) * 0.4})`; mc.fillRect((g.x - 0.5) * k, (g.y - 0.5) * k, 2 * k, 2 * k); }
+    for (const m of this.sim.monsters) { mc.fillStyle = '#ff3b3b'; mc.fillRect(m.x * k, m.y * k, 1.6 * k, 1.6 * k); }
     for (const n of this.sim.npcs) {
       if (n.inside) continue;
       mc.fillStyle = n.awakened ? (n.cls ? CLASSES[n.cls].color : '#8fd3ff') : '#fff';
@@ -2110,7 +2794,7 @@ class Renderer {
   drawSite(c, t, s, now, site) {
     const p = Math.min(1, site.progress / site.work), bx = (t.x + 0.5) * s, by = (t.y + 0.95) * s;
     c.fillStyle = 'rgba(150,118,78,.9)'; c.beginPath(); c.ellipse(bx, by - s * 0.05, s * 0.55, s * 0.18, 0, 0, TAU); c.fill();
-    const sp = this.sprites['house' + (this.sim.settlement.buildings.length + 1) % ROOFS.length];
+    const sp = site.type === 'smithy' ? this.sprites.smithy : this.sprites['house' + (this.sim.settlement.buildings.length + 1) % ROOFS.length];
     const visTop = by + (sp.h - sp.ay) - sp.h * (0.05 + p * 0.95);
     c.save(); c.beginPath(); c.rect(bx - sp.ax, visTop, sp.w, by + sp.h); c.clip();
     c.drawImage(sp.cv, bx - sp.ax, by - sp.ay, sp.w, sp.h); c.restore();
@@ -2185,6 +2869,8 @@ class Renderer {
       this.emit('spark', cp.x + 0.58 + rand(-0.1, 0.1), cp.y + 0.45, { vx: rand(-0.15, 0.15), vy: -rand(0.5, 1.1), life: rand(0.6, 1.4), size: 0.022 });
     for (const e of drawn) {
       const { n, pose } = e, f = pose.step && pose.step.face;
+      const topR = n.gear ? SLOTS.reduce((m, sl) => Math.max(m, n.gear[sl] ? n.gear[sl].rarity : -1), -1) : -1;
+      if (topR >= 3 && chance(4)) { const v = parseInt(RARITIES[topR].color.slice(1), 16); this.emit('spark', n.x + 0.5 + rand(-0.25, 0.25), n.y + rand(0.1, 0.8), { vy: -rand(0.2, 0.5), life: rand(0.6, 1.2), size: 0.022, rgb: `${v >> 16},${(v >> 8) & 255},${v & 255}` }); }
       if (n.awakened && chance(2.5)) { const col = n.cls ? CLASSES[n.cls].color : '#8fd3ff', v = parseInt(col.slice(1), 16); this.emit('spark', n.x + 0.5 + rand(-0.2, 0.2), n.y + 0.8, { vy: -rand(0.3, 0.6), life: rand(0.8, 1.4), size: 0.02, rgb: `${v >> 16},${(v >> 8) & 255},${v & 255}` }); }
       if (pose.arms === 'chop' && f && chance(2.5))
         for (let k = 0; k < 3; k++) this.emit('chip', f.x + 0.5, f.y + 0.55, { vx: rand(-1, 1), vy: -rand(0.8, 1.6), g: 5, life: 0.6, size: 0.05 });
@@ -2271,6 +2957,11 @@ class Renderer {
       (rows.get(r) || rows.set(r, []).get(r)).push(e);
       drawn.push(e);
     }
+    for (const m of sim.monsters) {
+      if (m.x < x0 - 1 || m.x > x1 + 1 || m.y < y0 - 1 || m.y > y1) continue;
+      const fy = m.prevY + (m.y - m.prevY) * alpha, r = clamp(Math.round(fy), y0, y1);
+      (rows.get(r) || rows.set(r, []).get(r)).push({ monster: m, fy, fx: m.prevX + (m.x - m.prevX) * alpha });
+    }
     if (s >= 10) for (const a of this.animals) {
       if (a.x < x0 - 1 || a.x > x1 + 1 || a.y < y0 - 1 || a.y > y1) continue;
       const r = clamp(Math.round(a.y), y0, y1);
@@ -2290,6 +2981,7 @@ class Renderer {
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const t = sim.world.tile(x, y);
         if (t.type === 'tree') { const [bx, by] = this.treeBase(t, s); shadow(this.treeSprite(t), bx, by); }
+        else if (t.type === 'smithy') shadow(this.sprites.smithy, (x + 0.5) * s, (y + 0.95) * s);
         else if (t.type === 'house') shadow(this.sprites['house' + t.building.id % ROOFS.length], (x + 0.5) * s, (y + 0.95) * s);
         else if (t.type === 'bush') shadow(this.sprites.bush, (x + 0.5) * s, (y + 0.86) * s);
         else if (t.type === 'rock') shadow(this.sprites['rock' + (t.shade < 0.5 ? 0 : 1)], (x + 0.5) * s, (y + 0.85) * s);
@@ -2355,6 +3047,18 @@ class Renderer {
           case 'rock': { const sp = this.sprites['rock' + (t.shade < 0.5 ? 0 : 1)]; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.85) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
           case 'ruin': { const sp = this.sprites['ruin' + Math.min(2, Math.floor(t.shade * 3))]; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.9) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
           case 'gate': this.drawGate(c, t, s, now); break;
+          case 'field': this.drawCrops(c, t, s, now); break;
+          case 'smithy': {
+            const sp = this.sprites.smithy, bx = (x + 0.5) * s, by = (y + 0.95) * s;
+            c.drawImage(sp.cv, bx - sp.ax * sk, by - sp.ay * sk, sp.w * sk, sp.h * sk);
+            const busy = t.building && t.building.busy, fl = 0.6 + Math.sin(now / 90) * 0.15 + (busy ? 0.3 : 0);
+            const g = c.createRadialGradient(bx, by - 0.2 * s, 0, bx, by - 0.2 * s, 0.25 * s);
+            g.addColorStop(0, `rgba(255,190,90,${fl})`); g.addColorStop(1, 'rgba(255,90,20,0)');
+            c.fillStyle = g; c.beginPath(); c.arc(bx, by - 0.25 * s, 0.22 * s, Math.PI, 0); c.lineTo(bx + 0.22 * s, by); c.lineTo(bx - 0.22 * s, by); c.fill();
+            if (busy && Math.random() < 0.4) this.emit('spark', x + 0.5 + 0.45 + rand(-0.1, 0.1), y + 0.82, { vx: rand(-0.8, 0.8), vy: -rand(0.5, 1.4), g: 3, life: rand(0.3, 0.7), size: 0.02 });
+            if (Math.random() < 0.08) this.emit('dust', x + 0.5 - 0.38, y + 0.95 - 1.3, { vy: -0.35, vx: 0.08, life: 2.5, size: 0.14 });
+            break;
+          }
         }
       }
       const list = rows.get(y);
@@ -2362,6 +3066,15 @@ class Renderer {
         list.sort((a, b) => a.fy - b.fy);
         for (const e of list) {
           if (e.animal) { this.drawAnimal(c, e.animal, s); continue; }
+          if (e.monster) {
+            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s;
+            c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(mx, my, s * 0.3, s * 0.08, 0, 0, TAU); c.fill();
+            c.save(); c.translate(mx, my); drawMonsterShape(c, m, s, now); c.restore();
+            const bw = s * 0.7, by = my - s * (m.kind === 'aschegolem' ? 1.15 : 0.75);
+            c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(mx - bw / 2, by, bw, Math.max(3, s * 0.07));
+            c.fillStyle = '#e04848'; c.fillRect(mx - bw / 2, by, bw * Math.max(0, m.hp / m.maxHp), Math.max(3, s * 0.07));
+            continue;
+          }
           if (e.n === selected) { c.strokeStyle = '#f0b54a'; c.lineWidth = 2; c.beginPath(); c.ellipse(e.px, e.py + s * 0.38, s * 0.26, s * 0.09, 0, 0, TAU); c.stroke(); }
           this.drawSettler(c, e.n, e.px, e.py, s, now, e.pose, e.phase);
         }
@@ -2378,7 +3091,7 @@ class Renderer {
       c.save(); c.globalCompositeOperation = 'lighter';
       for (const f of this.effects) {
         const k = (now - f.born) / 2200, n = f.n, bx = (n.x + 0.5) * s, by = (n.y + 0.88) * s;
-        const col = f.kind === 'awaken' ? '120,200,255' : '255,215,120', a = (1 - k) * (k < 0.1 ? k * 10 : 1);
+        const col = f.kind === 'awaken' ? '120,200,255' : f.kind === 'legendary' ? '255,170,40' : '255,215,120', a = (1 - k) * (k < 0.1 ? k * 10 : 1);
         const g = c.createLinearGradient(0, by - 5 * s, 0, by);
         g.addColorStop(0, `rgba(${col},0)`); g.addColorStop(1, `rgba(${col},${0.7 * a})`);
         c.fillStyle = g; c.fillRect(bx - s * 0.35 * (1 - k * 0.5), by - 5 * s, s * 0.7 * (1 - k * 0.5), 5 * s);
@@ -2445,6 +3158,8 @@ class Renderer {
       hole(fx, fy, s * 4.2 * fl, 0.95);
       for (const b of sim.settlement.houses) if (b.residents.length) hole((b.tile.x + 0.5) * s, (b.tile.y + 0.6) * s, s * 1.8, 0.65);
       for (const g of sim.world.gates) hole((g.x + 0.5) * s, (g.y + 0.3) * s, s * 2.6, 0.85);
+      const sm = sim.settlement.smithy; if (sm) hole((sm.tile.x + 0.5) * s, (sm.tile.y + 0.7) * s, s * 2, 0.8);
+      for (const m of sim.monsters) hole((m.x + 0.5) * s, (m.y + 0.5) * s, s * 0.8, 0.4);
       for (const e of drawn) if (e.n.awakened) hole(e.px, e.py, s * 0.9, 0.5);
       screen(); c.drawImage(this.lightCv, 0, 0); world();
       // warmes Licht
@@ -2688,7 +3403,7 @@ class Sound {
  * 9) OBERFLÄCHE: HUD, Log, Siedlerliste, Steckbrief, Speichern, Ton
  * ===================================================================== */
 const $ = id => document.getElementById(id);
-const SAVE_KEY = 'siedlung-save-v2';
+const SAVE_KEY = 'siedlung-save-v3';
 const SOUND_KEY = 'siedlung-sound';
 const ui = { speed: 1, selected: null, selTile: null, accum: 0, confirmNew: 0, sysQueue: [], sysUntil: 0 };
 const sound = new Sound();
@@ -2727,7 +3442,7 @@ function updateRoster() {
 const bar = (label, v, color) =>
   `<div><div class="lbl"><span>${label}</span><span>${Math.round(v)}</span></div><div class="bar"><i style="width:${v}%;background:${color}"></i></div></div>`;
 const relLabel = v => v >= 50 ? 'Freund' : v >= 20 ? 'gut bekannt' : v >= 0 ? 'kennt sich' : 'mag nicht';
-const SKILL_NAMES = { woodcutting: 'Holzfällen', building: 'Bauen', gathering: 'Sammeln', social: 'Gespräche', gate: 'Risse' };
+const SKILL_NAMES = { woodcutting: 'Holzfällen', building: 'Bauen', gathering: 'Sammeln', social: 'Gespräche', gate: 'Risse', farming: 'Ackerbau', forging: 'Schmieden' };
 const npcLink = n => `<button class="link" data-npc="${n.id}"><span class="dot" style="background:${n.color}"></span>${esc(n.name)}${n.awakened ? ` <small>Lv ${n.level}</small>` : ''}</button>`;
 const LORE = {
   ruin: ['Uralte Säulen, überwuchert von Efeu.', 'Niemand weiß, wer hier einst lebte – nur dass sie verschwanden, als die Risse kamen.'],
@@ -2756,7 +3471,8 @@ function tileInfo(t) {
     }
     case 'camp':
       return head('🔥', 'Lagerfeuer & Lager', `Herz der Siedlung · ${sim.npcs.length} Siedler · ${st.houses.length} Häuser`)
-        + `<div class="sec"><h4>Vorräte</h4><span class="score">🪵 Holz ${st.stock.wood}</span><span class="score">💎 Mana-Kristalle ${st.stock.crystals}</span></div>`
+        + `<div class="sec"><h4>Vorräte</h4><span class="score">🪵 Holz ${st.stock.wood}</span><span class="score">🍞 Brot ${st.stock.food}</span><span class="score">💎 Mana-Kristalle ${st.stock.crystals}</span></div>`
+        + (sim.guild ? `<div class="sec"><h4>Gilde</h4>🛡️ <b>${esc(sim.guild.name)}</b> <span class="muted">· gegründet an Tag ${sim.guild.founded} · Anführung: ${esc(sim.guild.leader)}</span></div>` : '')
         + `<div class="sec"><h4>Erwachte</h4>${sim.npcs.filter(n => n.awakened).map(npcLink).join('') || '<span class="muted">noch niemand … aber nachts fällt manchmal ein seltsames Licht.</span>'}</div>`;
     case 'tree': return head(t.shade < 0.3 ? '🌲' : '🌳', t.shade < 0.3 ? 'Tanne' : 'Laubbaum', `${t.wood} von ${R.treeWood} Holz übrig`) + bar('Holz', t.wood / R.treeWood * 100, '#c99c66');
     case 'stump': return head('🪵', 'Baumstumpf', `wächst nach: noch etwa ${Math.ceil((R.treeRegrowMinutes - t.timer) / 60)} Stunden`) + bar('Nachwachsen', t.timer / R.treeRegrowMinutes * 100, 'var(--energy)');
@@ -2767,6 +3483,17 @@ function tileInfo(t) {
         + `<div class="thought">Ein Spalt zwischen den Welten. Dahinter regt sich etwas … Nur Erwachte ab Level ${CONFIG.gates.minLevel + (g.tier - 1) * 3} wagen sich hinein.</div>`
         + `<div class="sec"><h4>Expeditionen</h4><span class="score">💎 bezwungen ${g.cleared}×</span><span class="score">🩸 geflohen ${g.failed}×</span></div>`;
     }
+    case 'field': {
+      const p = Math.min(1, t.timer / CONFIG.farming.growMinutes);
+      return head('🌾', 'Getreidefeld', p >= 1 ? 'reif – bereit zur Ernte!' : `wächst … noch etwa ${Math.ceil((1 - p) * CONFIG.farming.growMinutes / 60)} Stunden`)
+        + bar('Wachstum', p * 100, '#e6c45a') + `<div class="muted small">Eine Ernte bringt ${CONFIG.farming.harvestFood} Brot ins Lager.</div>`;
+    }
+    case 'smithy': {
+      const b = t.building, smiths = sim.npcs.filter(n => n.forged).sort((a, b) => b.forged - a.forged);
+      return head('⚒️', 'Schmiede', b.busy ? `${esc(b.busy.name)} schmiedet gerade …` : 'Das Feuer glimmt. Kristalle + Holz = Ausrüstung.')
+        + `<div class="sec"><h4>Vorräte</h4><span class="score">💎 ${st.stock.crystals} Kristalle</span><span class="score">🪵 ${st.stock.wood} Holz</span></div>`
+        + `<div class="sec"><h4>Schmiede</h4>${smiths.length ? smiths.map(n => npcLink(n) + ` ${n.forged}×`).join('') : '<span class="muted">noch nichts geschmiedet</span>'}</div>`;
+    }
     case 'grass':
       return t.traffic > 20 ? head('👣', 'Trampelpfad', `${t.traffic} Schritte – hier laufen die Siedler oft entlang`) : head('🌾', 'Wiese', 'Freies Land – vielleicht steht hier bald ein Haus.');
     default: { const L = LORE[t.type] || ['', '']; return head({ ruin: '🏛️', rock: '🪨', water: '💧', ford: '🪨' }[t.type] || '❔', TILE_DEFS[t.type].name, L[0]) + (L[1] ? `<div class="thought">${L[1]}</div>` : ''); }
@@ -2775,13 +3502,17 @@ function tileInfo(t) {
 
 /** Statusfenster der Erwachten. */
 function statusWindow(n) {
-  if (!n.awakened) return `<div class="sec"><h4>Status</h4><span class="muted">Arbeiter – nicht erwacht. Lebt einfach sein Leben.</span></div>`;
+  if (!n.awakened) return `<div class="sec"><h4>Status</h4>${bar('Leben', n.hp / n.maxHp * 100, '#e04848')}<span class="muted">${CONFIG.professions[n.profession].name} – nicht erwacht. Lebt einfach sein Leben.</span></div>`;
   const c = n.cls ? CLASSES[n.cls] : null, need = xpForLevel(n.level), q = n.quest;
   return `<div class="status">
     <div class="st-head"><span>[ STATUS ]</span><span>Level ${n.level}</span></div>
     <div class="st-row"><b>${c ? `${c.icon} ${c.name}` : 'Klasse: noch keine (ab Level ' + CONFIG.levels.classLevel + ')'}</b></div>
     ${c ? `<div class="muted small">${c.desc}</div>` : ''}
+    ${sim.guild ? `<div class="muted small">🛡️ ${esc(sim.guild.name)}</div>` : ''}
+    <div class="lbl"><span>Leben</span><span>${Math.round(n.hp)} / ${n.maxHp}</span></div><div class="bar"><i style="width:${n.hp / n.maxHp * 100}%;background:#e04848"></i></div>
     <div class="lbl"><span>EP</span><span>${Math.floor(n.xp)} / ${need}</span></div><div class="bar"><i style="width:${n.xp / need * 100}%;background:#8fd3ff"></i></div>
+    <div class="stats"><span><small>Angriff</small><b>${n.attack}</b></span><span><small>Abwehr</small><b>${n.defense}</b></span><span><small>Siege</small><b>${n.kills}</b></span><span><small>Geschmiedet</small><b>${n.forged}</b></span></div>
+    <div class="gear">${SLOTS.map(sl => { const it = n.gear[sl]; return `<div class="slot"><small>${SLOT_NAMES[sl]}</small>${it ? `<b style="color:${RARITIES[it.rarity].color}">${esc(it.name)}</b><span class="muted">${RARITIES[it.rarity].name} · +${it.power}${it.smith ? ' · von ' + esc(it.smith) : ''}</span>` : '<span class="muted">leer</span>'}</div>`; }).join('')}</div>
     <div class="stats">${Object.entries(n.stats).map(([k, v]) => `<span><small>${STAT_NAMES[k]}</small><b>${v}</b></span>`).join('')}</div>
     ${q ? `<div class="quest ${q.done ? 'done' : ''}">📜 Tägliche Aufgabe: ${esc(q.text)} ${q.done ? '✔' : `(${Math.floor(q.prog)}/${q.goal})`}</div>` : ''}
     <div class="sec"><h4>Fähigkeiten</h4>${n.unlocked.length ? n.unlocked.map(id => `<span class="score" title="${esc(SKILLS[id].desc)}">✨ ${SKILLS[id].name}</span>`).join('') : '<span class="muted">noch keine</span>'}</div>
@@ -2838,7 +3569,8 @@ function updateHud() {
   $('clock').textContent = `Tag ${sim.day} · ${sim.clock} ${icon}`;
   const st = sim.settlement, cost = CONFIG.buildings.house.cost.wood;
   const site = st.site ? ` · 🔨 Bau ${Math.floor(st.site.progress / st.site.work * 100)} %` : '';
-  $('stats').innerHTML = `🪵 Lager <b>${st.stock.wood}</b>/${cost} · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}`
+  const mon = sim.monsters.length ? ` · <span style="color:#ff6b6b">👹 ${sim.monsters.length}</span>` : '';
+  $('stats').innerHTML = `🪵 <b>${st.stock.wood}</b>/${cost} · 🍞 <b>${st.stock.food}</b> · 💎 <b>${st.stock.crystals}</b> · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}${mon}`
     + `<div class="goal"><i style="width:${Math.min(100, st.stock.wood / cost * 100)}%"></i></div>`;
 }
 
@@ -2867,7 +3599,7 @@ function saveGame() {
 }
 
 function loadGame() {
-  try { const raw = store(SAVE_KEY); const d = raw && JSON.parse(raw); return d && d.v === 2 ? d : null; } catch (e) { return null; }
+  try { const raw = store(SAVE_KEY); const d = raw && JSON.parse(raw); return d && d.v === 3 ? d : null; } catch (e) { return null; }
 }
 
 function startSim(s) {
@@ -2875,6 +3607,7 @@ function startSim(s) {
   sim.on('log', e => { renderLog(); if (e.event && /fertig|kommt neu|Freunde/.test(e.text)) sound.chime(); });
   sim.on('system', msg => { if (ui.sysQueue.length < 6) ui.sysQueue.push(msg); });
   sim.on('levelup', n => { renderer.burst(n, 'levelup'); sound.levelUp(); buildRoster(); });
+  sim.on('legendary', ({ n }) => { renderer.burst(n, 'legendary'); sound.levelUp(); setTimeout(() => sound.levelUp(), 250); });
   sim.on('awaken', n => { renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
   sim.on('npcAdded', buildRoster);
   sim.on('chop', t => {

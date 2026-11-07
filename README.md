@@ -32,6 +32,11 @@ Alles steckt in **`index.html`** (HTML + JavaScript + Canvas). Es gibt keine Abh
 - **Wetter und Licht:** Sonnenstand mit Schatten, Wolken, Regen, Abendrot, Nacht mit Lagerfeuer- und Fensterlicht, Glühwürmchen.
 - **Klang:** Musik, Vögel, Grillen, Feuer, Regen und Axtschläge – live im Browser erzeugt.
 - **Erwachte („Spieler“):** Wenige Siedler erwachen (der erste durch ein Licht vom Himmel in der ersten Nacht, später manche Neuankömmlinge). Sie haben Level, Erfahrungspunkte, Werte (Kraft, Geschick, Ausdauer, Charisma), ab Level 4 eine Klasse (Waldläufer, Baumeister, Hüter der Haine, Herold, versteckt: Torwandler), Fähigkeiten, Titel und jeden Tag eine eigene Aufgabe. Alle anderen sind einfache Arbeiter.
+- **Ausrüstung:** Waffe, Rüstung, Helm, Stiefel, Umhang in fünf Seltenheiten (Gewöhnlich, Selten, Episch, Legendär, Mythisch) – sichtbar an den Figuren, Legendäres schimmert. Geschmiedet in der **Schmiede** aus Mana-Kristallen und Holz; wer beschenkt wird, wird dem Schmied treu.
+- **Sternenschmied:** In einer Ruine liegt ein vergessenes Schmiedebuch. Wer es findet, erhält die legendäre Klasse – und fällt auf Level 1 zurück.
+- **Gilde:** Ab zwei Erwachten gründen sie eine Gilde.
+- **Monster:** Ab Tag 3 kriechen nachts Monster aus den Rissen (Rissling, Schattenwolf, Aschegolem) und werden jede Nacht stärker. Erwachte kämpfen (Nah- und Fernkampf je nach Waffe), Arbeiter verstecken sich in den Häusern. Im Morgenlicht zerfallen die Monster.
+- **Felder und Berufe:** Arbeiter sind Holzfäller, Bauern oder Handwerker (erkennbar an Mütze, Strohhut, Stirnband). Bauern legen Felder an; das Getreide wächst einen Tag und wird zu Brot.
 - **Risse:** Leuchtende Tore in eine andere Welt. Erwachte ab Level 4 gehen auf Expedition und kehren mit Mana-Kristallen zurück – oder verwundet.
 - **Große Welt:** 80×80 Kacheln mit Fluss und Furten, Seen, Wäldern, Felsen, Ruinen und Wildtieren. Minikarte zum Springen; weit herausgezoomt sieht man das ganze Dorf wachsen.
 - **Alles antippbar:** Häuser (Bewohner, Baudatum, Erbauer), Lager, Baustelle, Bäume, Sträucher, Risse, Ruinen.
