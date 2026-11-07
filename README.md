@@ -10,6 +10,12 @@ Alles steckt in **`index.html`** (HTML + JavaScript + Canvas). Es gibt keine Abh
 - lokal: `index.html` im Browser öffnen.
 - `?seed=42` an die URL hängen, um immer dieselbe Welt zu bekommen.
 
+## Als App aufs Handy
+
+Über GitHub Pages öffnen, dann im Browser **Teilen → Zum Home-Bildschirm** (iPhone) oder **⋮ → App installieren** (Android). Die App startet im Vollbild und läuft auch offline.
+
+**Bedienung:** Wischen verschiebt die Karte, zwei Finger zoomen, ein angetippter Siedler wird von der Kamera verfolgt.
+
 ## So funktioniert es
 
 - **Karte:** Wiese, Wald, Wasser, Beerensträucher, in der Mitte das Lager (Lagerfeuer).
@@ -20,9 +26,10 @@ Alles steckt in **`index.html`** (HTML + JavaScript + Canvas). Es gibt keine Abh
   - Baustelle offen → mitbauen
   - 5 Holz getragen → zum Lager bringen
   - sonst → Holz hacken
-- **Bauen:** Sobald 20 Holz im Lager sind, entsteht eine Baustelle und beide bauen gemeinsam ein Haus.
+- **Bauen:** Sobald 20 Holz im Lager sind, entsteht eine Baustelle und alle bauen gemeinsam ein Haus.
+- **Wachstum:** Ist ein Haus fertig, ziehen Siedler ohne Zuhause ein und ein neuer Siedler kommt in die Siedlung (höchstens 30).
 - **Nachwachsen:** Beeren wachsen nach, gefällte Bäume nach 2 Tagen auch.
-- **Tempo:** ⏸ / 1x / 2x / 5x. Bei 1x dauert ein Spieltag etwa 2,4 Minuten.
+- **Tempo:** ⏸ / 1x / 2x / 5x. Bei 1x dauert ein Spieltag 6 Minuten.
 
 ## Code-Aufbau (für Erweiterungen)
 

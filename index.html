@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#16201a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Siedlung">
 <title>Siedlung</title>
 <style>
   :root {
@@ -46,7 +53,9 @@
   #log .who { font-weight: 700; }
   #log .event { color: var(--accent); font-weight: 600; }
 
-  #mapWrap { display: flex; justify-content: center; }
+  #mapWrap { position: relative; display: flex; justify-content: center; border-radius: 10px; overflow: hidden; }
+  #zoomBtns { position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
+  #zoomBtns button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--border); background: #1f2b23dd; color: var(--text); font: 600 20px system-ui; cursor: pointer; }
   #legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--muted); }
   #legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
   #legend .hint { flex-basis: 100%; text-align: center; }
@@ -84,14 +93,21 @@
     <ol id="log" aria-live="polite"></ol>
   </header>
 
-  <div id="mapWrap"><canvas id="map"></canvas></div>
+  <div id="mapWrap">
+    <canvas id="map"></canvas>
+    <div id="zoomBtns">
+      <button data-z="1.25" aria-label="Hineinzoomen">+</button>
+      <button data-z="0.8" aria-label="Herauszoomen">−</button>
+      <button id="homeBtn" aria-label="Zum Lager">⌂</button>
+    </div>
+  </div>
   <div id="legend">
     <span><i style="background:#2a5a33"></i>Wald → Holz</span>
     <span><i style="background:#c03a6b"></i>Beeren → Essen</span>
     <span><i style="background:#2f6fa8"></i>Wasser</span>
     <span><i style="background:#ff8a2a"></i>Lager</span>
     <span><i style="background:#9b3d2c"></i>Haus</span>
-    <span class="hint">Tippe einen Siedler an, um seinen Weg zu sehen.</span>
+    <span class="hint">Wischen = Karte verschieben · zwei Finger = zoomen · Siedler antippen = ihm folgen</span>
   </div>
   <section id="npcs"></section>
 
@@ -112,7 +128,7 @@
 const CONFIG = {
   map: { width: 24, height: 32 },
   time: {
-    minutesPerSecond: 10,   // bei 1x: 1 echte Sekunde = 10 Spielminuten (1 Tag ≈ 2,4 Minuten)
+    minutesPerSecond: 4,    // bei 1x: 1 echte Sekunde = 4 Spielminuten (1 Tag = 6 Minuten)
     startHour: 6,
     nightStart: 22,
     nightEnd: 6,
@@ -153,6 +169,11 @@ const CONFIG = {
   professions: {
     settler: { name: 'Siedler', weights: {} },
     // lumberjack: { name: 'Holzfäller', weights: { gatherWood: 1.6 } },
+  },
+  population: {
+    max: 30,                // Obergrenze, damit es auf dem Handy flüssig bleibt
+    names: ['Lina', 'Bjarn', 'Selma', 'Oskar', 'Ylva', 'Ruben', 'Nele', 'Kasimir', 'Ida', 'Jorin', 'Frieda', 'Emil',
+      'Hanna', 'Levin', 'Talia', 'Arvid', 'Mila', 'Finn', 'Runa', 'Theo', 'Greta', 'Ansgar', 'Lotta', 'Malte', 'Svea', 'Jonte', 'Wilma', 'Henrik'],
   },
   startingNpcs: [
     { name: 'Mira',  color: '#f0a04b' },
@@ -269,7 +290,7 @@ function generateMap(world, rng) {
   const ri = (a, b) => a + Math.floor(rng() * (b - a + 1));
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++)
-      world.tiles.push({ x, y, type: 'grass', wood: 0, berries: 0, timer: 0, shade: rng(), building: null });
+      world.tiles.push({ x, y, type: 'grass', wood: 0, berries: 0, timer: 0, shade: rng(), building: null, traffic: 0 });
 
   const blob = (cx, cy, radius, type, density = 1) => {
     const R = Math.ceil(radius + 1);
@@ -359,7 +380,7 @@ class Settlement {
     const site = this.site;
     const def = CONFIG.buildings[site.type];
     this.sim.world.setType(site.tile, site.type);
-    const b = { id: this.buildings.length + 1, type: site.type, tile: site.tile, beds: def.beds || 0, sleepers: new Set() };
+    const b = { id: this.buildings.length + 1, type: site.type, tile: site.tile, beds: def.beds || 0, sleepers: new Set(), residents: [] };
     site.tile.building = b;
     this.buildings.push(b);
     this.site = null;
@@ -420,7 +441,7 @@ defineAction({
       sim.float(bush.x, bush.y, '😋', '#fff');
       n.gainXp('gathering', 1);
       if (n.hunger <= 5) return 'done';
-    })];
+    }, { face: bush })];
   },
 });
 
@@ -434,7 +455,8 @@ defineAction({
   },
   urgent: n => n.energy <= CONFIG.npc.criticalEnergy,
   plan(n, sim) {
-    const house = sim.settlement.houses.find(h => h.sleepers.size < h.beds);
+    const free = h => h.sleepers.size < h.beds;
+    const house = n.home && free(n.home) ? n.home : sim.settlement.houses.find(free);
     const steps = [];
     if (house) {
       const res = sim.world.findAdjacent(n.x, n.y, t => t === house.tile);
@@ -468,7 +490,7 @@ defineAction({
       site.progress += n.workRate('build');
       n.gainXp('building', 1);
       if (site.progress >= site.work) { sim.settlement.completeSite(); return 'done'; }
-    }, { work: true })];
+    }, { work: true, face: site.tile })];
   },
 });
 
@@ -500,6 +522,7 @@ defineAction({
     const tree = res.target;
     return [move(res.path), act((n, sim, s) => {
       if (tree.type !== 'tree' || tree.wood <= 0) return 'done';
+      tree.hitAt = performance.now(); // nur für die Wackel-Animation
       if (s.t % Math.max(1, Math.round(CONFIG.resources.chopMinutes / n.workRate('chop'))) !== 0) return;
       tree.wood--;
       sim.float(tree.x, tree.y, '+1 🪵', '#f3d29b');
@@ -507,7 +530,17 @@ defineAction({
       n.gainXp('woodcutting', 1);
       if (tree.wood <= 0) sim.world.setType(tree, 'stump');
       if (n.inventory.wood >= CONFIG.npc.carryCapacity || tree.type !== 'tree') return 'done';
-    }, { work: true })];
+    }, { work: true, face: tree })];
+  },
+});
+
+defineAction({
+  id: 'arrive', label: 'wandert zur Siedlung', start: 'wandert zur Siedlung', icon: '🧳',
+  interruptible: false,
+  score: () => 0, // wird nur beim Eintreffen direkt gestartet
+  plan(n, sim) {
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'camp');
+    return res ? [move(res.path)] : null;
   },
 });
 
@@ -542,6 +575,7 @@ class NPC {
     this.energy = CONFIG.npc.startEnergy;
     this.inventory = { wood: 0 };  // später: food, coins, weapon ...
     this.profession = 'settler';
+    this.home = null;              // eigenes Haus
     this.skills = {};              // Erfahrung je Tätigkeit → Grundlage fürs Level-System
     this.task = null;
     this.lastLogged = null;
@@ -624,7 +658,11 @@ class NPC {
       const next = step.path[0];
       if (!sim.world.walkable(next.x, next.y)) return 'fail'; // Weg verbaut → neu planen
       const dx = next.x - this.x, dy = next.y - this.y, d = Math.hypot(dx, dy);
-      if (d <= budget) { this.x = next.x; this.y = next.y; budget -= d; step.path.shift(); }
+      if (Math.abs(dx) > 0.01) this.facing = dx > 0 ? 1 : -1;
+      if (d <= budget) {
+        this.x = next.x; this.y = next.y; budget -= d; step.path.shift();
+        const t = sim.world.tile(next.x, next.y); if (t.traffic < 400) t.traffic++; // Trampelpfade
+      }
       else { this.x += dx / d * budget; this.y += dy / d * budget; budget = 0; }
     }
     return step.path.length ? undefined : 'done';
@@ -660,6 +698,44 @@ class Simulation {
     this.floats = [];   // schwebende Texte, nur Anzeige
     this.listeners = {};
     CONFIG.startingNpcs.forEach(def => this.addNpc(def));
+    this.on('buildingCompleted', b => this.onHouseBuilt(b));
+  }
+
+  /** Neues Haus: Siedler ohne Zuhause ziehen ein, danach kommt ein Neuer dazu. */
+  onHouseBuilt(house) {
+    if (house.type !== 'house') return;
+    for (const n of this.npcs) if (!n.home && house.residents.length < house.beds) this.moveIn(n, house);
+    if (this.npcs.length < CONFIG.population.max) this.spawnNewcomer();
+  }
+
+  moveIn(n, house) { house.residents.push(n); n.home = house; }
+
+  spawnNewcomer() {
+    const entry = this.findEntryTile();
+    if (!entry) return;
+    const used = new Set(this.npcs.map(n => n.name));
+    const name = CONFIG.population.names.find(x => !used.has(x)) || `Siedler ${this.npcs.length + 1}`;
+    const color = `hsl(${Math.round((this.npcs.length * 137.5) % 360)}, 70%, 64%)`;
+    const npc = this.addNpc({ name, color }, entry);
+    npc.hunger = 20 + this.rng() * 20; npc.energy = 70 + this.rng() * 20;
+    const house = this.settlement.houses.find(h => h.residents.length < h.beds);
+    if (house) this.moveIn(npc, house);
+    this.log(`🧳 kommt neu in die Siedlung${house ? ` und zieht in Haus Nr. ${house.id} ein` : ''}!`, npc, true);
+    this.float(entry.x, entry.y, '👋 Neu!', '#fff');
+    npc.lastLogged = 'arrive';
+    npc.tryStart(ACTIONS.arrive, this);
+  }
+
+  /** Zufälliges begehbares Randfeld mit Weg zum Lager. */
+  findEntryTile() {
+    const { w, h, camp: c } = this.world;
+    const edges = [];
+    for (let x = 0; x < w; x++) edges.push([x, 0], [x, h - 1]);
+    for (let y = 1; y < h - 1; y++) edges.push([0, y], [w - 1, y]);
+    for (let i = edges.length - 1; i > 0; i--) { const j = Math.floor(this.rng() * (i + 1)); [edges[i], edges[j]] = [edges[j], edges[i]]; }
+    for (const [x, y] of edges)
+      if (this.world.walkable(x, y) && this.world.bfs(x, y, (px, py) => Math.abs(px - c.x) + Math.abs(py - c.y) === 1)) return { x, y };
+    return null;
   }
 
   get day() { return Math.floor(this.minutes / 1440) + 1; }
@@ -667,9 +743,9 @@ class Simulation {
   get isNight() { const h = this.hourFloat; return h >= CONFIG.time.nightStart || h < CONFIG.time.nightEnd; }
   get clock() { const m = this.minutes % 1440; return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`; }
 
-  addNpc(def) {
+  addNpc(def, pos = null) {
     const c = this.world.camp;
-    const spot = this.world.bfs(c.x, c.y + 1, (x, y) =>
+    const spot = pos ? { stand: pos } : this.world.bfs(c.x, c.y + 1, (x, y) =>
       Math.abs(x - c.x) + Math.abs(y - c.y) >= 1 && !this.npcs.some(n => n.x === x && n.y === y) ? true : null);
     const x = spot ? spot.stand.x : c.x, y = spot ? spot.stand.y : c.y + 1;
     const npc = new NPC(this.npcs.length + 1, def, x, y);
@@ -704,200 +780,497 @@ class Simulation {
 
 /* =====================================================================
  * 8) DARSTELLUNG (Canvas)
+ * Leichte Schrägansicht: Boden zuerst, dann Reihe für Reihe von oben nach
+ * unten Objekte und Siedler, damit Vorderes Hinteres verdeckt.
+ * Kamera: ziehen = verschieben, zwei Finger / Mausrad = zoomen.
  * ===================================================================== */
+const SKIN = ['#f1c7a0', '#e0ac7e', '#c68a5c', '#8d5a3b', '#f5d3b8'];
+const HAIR = ['#3b2a1e', '#8a4b22', '#d9b25f', '#1d1d1d', '#b5532a', '#6b6b6b'];
+const ROOFS = ['#9b3d2c', '#7a4a2a', '#5b6470', '#8a3f52'];
+const TAU = Math.PI * 2;
+
 class Renderer {
   constructor(canvas, sim) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.bg = document.createElement('canvas');
+    this.camX = 0; this.camY = 0; this.ts = 0;
+    this.follow = null;   // Siedler, dem die Kamera folgt
+    this.onTap = null;
+    this.attachInput();
     this.setSim(sim);
   }
-  setSim(sim) { this.sim = sim; this.resize(); }
+
+  setSim(sim) {
+    this.sim = sim; this.follow = null; this.ts = 0;
+    this.resize();
+    this.centerOn(sim.world.camp.x + 0.5, sim.world.camp.y + 0.5);
+  }
 
   resize() {
-    const { w, h } = this.sim.world;
     const wrap = this.canvas.parentElement;
-    const maxW = wrap.clientWidth || window.innerWidth;
-    const maxH = Math.max(240, window.innerHeight * 0.62);
-    this.ts = Math.max(8, Math.floor(Math.min(maxW / w, maxH / h)));
-    this.cssW = this.ts * w; this.cssH = this.ts * h;
-    this.dpr = Math.min(window.devicePixelRatio || 1, 3);
-    for (const c of [this.canvas, this.bg]) { c.width = Math.round(this.cssW * this.dpr); c.height = Math.round(this.cssH * this.dpr); }
-    this.canvas.style.width = this.cssW + 'px';
-    this.canvas.style.height = this.cssH + 'px';
-    this.sim.world.dirty = true;
+    this.viewW = Math.floor(wrap.clientWidth || window.innerWidth);
+    this.viewH = Math.floor(clamp(window.innerHeight * 0.6, 260, this.viewW * 1.4));
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    this.canvas.width = Math.round(this.viewW * this.dpr);
+    this.canvas.height = Math.round(this.viewH * this.dpr);
+    this.canvas.style.width = this.viewW + 'px';
+    this.canvas.style.height = this.viewH + 'px';
+    this.setZoom(this.ts || clamp(Math.floor(this.viewW / 11), 24, 52));
   }
 
-  drawBackground() {
-    const c = this.bg.getContext('2d');
-    c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    for (const t of this.sim.world.tiles) this.drawTile(c, t);
+  setZoom(z, fx = this.viewW / 2, fy = this.viewH / 2) {
+    const { w, h } = this.sim.world;
+    const minZ = Math.min(this.viewW / w, this.viewH / h);
+    const old = this.ts || z;
+    const wx = (this.camX + fx) / old, wy = (this.camY + fy) / old; // Kachel unter dem Finger bleibt stehen
+    this.ts = clamp(z, minZ, 72);
+    this.camX = wx * this.ts - fx; this.camY = wy * this.ts - fy;
+    this.clampCam();
   }
 
-  drawTile(c, t) {
-    const s = this.ts, x = t.x * s, y = t.y * s, cx = x + s / 2, cy = y + s / 2;
-    const grass = `hsl(${95 + t.shade * 12}, 38%, ${30 + t.shade * 6}%)`;
-    if (t.type === 'water') {
-      c.fillStyle = `hsl(208, 55%, ${36 + t.shade * 5}%)`; c.fillRect(x, y, s, s);
-      c.strokeStyle = '#ffffff33'; c.lineWidth = 1;
-      c.beginPath(); c.moveTo(x + s * 0.2, y + s * (0.35 + t.shade * 0.3)); c.lineTo(x + s * 0.55, y + s * (0.35 + t.shade * 0.3)); c.stroke();
-      return;
-    }
-    c.fillStyle = grass; c.fillRect(x, y, s, s);
-    switch (t.type) {
-      case 'tree':
-        c.fillStyle = '#5b3b22'; c.fillRect(cx - s * 0.07, cy, s * 0.14, s * 0.4);
-        c.fillStyle = `hsl(130, 45%, ${18 + t.shade * 8}%)`;
-        c.beginPath(); c.arc(cx, cy - s * 0.05, s * 0.4, 0, Math.PI * 2); c.fill();
-        c.fillStyle = '#ffffff14';
-        c.beginPath(); c.arc(cx - s * 0.12, cy - s * 0.17, s * 0.16, 0, Math.PI * 2); c.fill();
-        break;
-      case 'stump':
-        c.fillStyle = '#6b4a2c'; c.beginPath(); c.arc(cx, cy + s * 0.1, s * 0.18, 0, Math.PI * 2); c.fill();
-        c.fillStyle = '#a07a4f'; c.beginPath(); c.arc(cx, cy + s * 0.08, s * 0.11, 0, Math.PI * 2); c.fill();
-        break;
-      case 'bush': {
-        c.fillStyle = '#2f6b33'; c.beginPath(); c.arc(cx, cy, s * 0.38, 0, Math.PI * 2); c.fill();
-        c.fillStyle = '#c03a6b';
-        const spots = [[-.18, -.12], [.16, -.15], [0, .05], [-.2, .15], [.18, .14], [.02, -.25]];
-        for (let i = 0; i < t.berries && i < spots.length; i++) {
-          c.beginPath(); c.arc(cx + spots[i][0] * s, cy + spots[i][1] * s, Math.max(1.5, s * 0.07), 0, Math.PI * 2); c.fill();
-        }
-        break;
+  centerOn(tx, ty) { this.camX = tx * this.ts - this.viewW / 2; this.camY = ty * this.ts - this.viewH / 2; this.clampCam(); }
+
+  clampCam() {
+    const mw = this.sim.world.w * this.ts, mh = this.sim.world.h * this.ts;
+    this.camX = mw <= this.viewW ? (mw - this.viewW) / 2 : clamp(this.camX, 0, mw - this.viewW);
+    this.camY = mh <= this.viewH ? (mh - this.viewH) / 2 : clamp(this.camY, 0, mh - this.viewH);
+  }
+
+  attachInput() {
+    const cv = this.canvas, pts = new Map();
+    let moved = 0, pinch = null;
+    const pinchState = () => {
+      const [a, b] = [...pts.values()];
+      return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, z: this.ts };
+    };
+    cv.style.touchAction = 'none';
+    cv.addEventListener('pointerdown', e => {
+      cv.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 1) moved = 0;
+      if (pts.size === 2) pinch = pinchState();
+    });
+    cv.addEventListener('pointermove', e => {
+      const p = pts.get(e.pointerId);
+      if (!p) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      p.x = e.clientX; p.y = e.clientY;
+      if (pts.size === 1) {
+        moved += Math.abs(dx) + Math.abs(dy);
+        if (moved > 6) { this.follow = null; this.camX -= dx; this.camY -= dy; this.clampCam(); }
+      } else if (pts.size === 2 && pinch) {
+        const now = pinchState(), r = cv.getBoundingClientRect();
+        this.setZoom(pinch.z * now.d / pinch.d, now.mx - r.left, now.my - r.top);
+        moved = 99;
       }
-      case 'camp': {
-        // Holzstapel zeigt den Lagerbestand
-        const logs = Math.min(6, Math.ceil(this.sim.settlement.stock.wood / 4));
-        c.fillStyle = '#7a5230';
-        for (let i = 0; i < logs; i++) c.fillRect(x + s * 0.05, y + s * (0.85 - i * 0.12), s * 0.32, s * 0.09);
-        c.fillStyle = '#4a3220'; c.fillRect(cx - s * 0.2, cy + s * 0.18, s * 0.5, s * 0.08);
-        c.fillStyle = '#ff8a2a'; c.beginPath(); c.moveTo(cx + s * 0.05, cy - s * 0.3); c.lineTo(cx + s * 0.28, cy + s * 0.2); c.lineTo(cx - s * 0.18, cy + s * 0.2); c.fill();
-        c.fillStyle = '#ffd34d'; c.beginPath(); c.moveTo(cx + s * 0.05, cy - s * 0.08); c.lineTo(cx + s * 0.17, cy + s * 0.2); c.lineTo(cx - s * 0.07, cy + s * 0.2); c.fill();
-        break;
-      }
-      case 'site':
-        c.fillStyle = '#8a6a44'; c.fillRect(x + s * 0.1, y + s * 0.55, s * 0.8, s * 0.35);
-        c.strokeStyle = '#d9c39a'; c.lineWidth = 1; c.setLineDash([2, 2]);
-        c.strokeRect(x + s * 0.12, y + s * 0.12, s * 0.76, s * 0.76); c.setLineDash([]);
-        break;
-      case 'house':
-        c.fillStyle = '#d2ab72'; c.fillRect(x + s * 0.14, y + s * 0.42, s * 0.72, s * 0.5);
-        c.fillStyle = '#9b3d2c'; c.beginPath(); c.moveTo(x + s * 0.06, y + s * 0.46); c.lineTo(cx, y + s * 0.08); c.lineTo(x + s * 0.94, y + s * 0.46); c.fill();
-        c.fillStyle = '#5a3a22'; c.fillRect(cx - s * 0.09, y + s * 0.64, s * 0.18, s * 0.28);
-        break;
+    });
+    const end = e => {
+      const had = pts.delete(e.pointerId);
+      if (pts.size < 2) pinch = null;
+      if (had && e.type === 'pointerup' && pts.size === 0 && moved <= 6 && this.onTap) this.onTap(this.npcAt(e.clientX, e.clientY));
+    };
+    cv.addEventListener('pointerup', end);
+    cv.addEventListener('pointercancel', end);
+    cv.addEventListener('wheel', e => {
+      e.preventDefault();
+      const r = cv.getBoundingClientRect();
+      this.setZoom(this.ts * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top);
+    }, { passive: false });
+  }
+
+  npcAt(clientX, clientY) {
+    const r = this.canvas.getBoundingClientRect();
+    const tx = (clientX - r.left + this.camX) / this.ts - 0.5;
+    const ty = (clientY - r.top + this.camY) / this.ts - 0.3; // Figuren stehen etwas über der Kachelmitte
+    let best = null, bd = 1.2;
+    for (const n of this.sim.npcs) {
+      if (n.inside) continue;
+      const d = Math.hypot(n.x - tx, n.y - ty);
+      if (d < bd) { bd = d; best = n; }
     }
+    return best;
   }
 
   nightAlpha() {
     const h = this.sim.hourFloat;
     if (h >= 7 && h < 19) return 0;
-    if (h >= 19 && h < 22) return (h - 19) / 3 * 0.55;
-    if (h >= 5 && h < 7) return (1 - (h - 5) / 2) * 0.55;
-    return 0.55;
+    if (h >= 19 && h < 22) return (h - 19) / 3 * 0.6;
+    if (h >= 5 && h < 7) return (1 - (h - 5) / 2) * 0.6;
+    return 0.6;
   }
 
-  render(alpha, selected) {
-    const { ctx, ts: s, sim } = this;
-    this.now = performance.now();
-    if (sim.world.dirty) { this.drawBackground(); sim.world.dirty = false; }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this.bg, 0, 0);
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-
-    // Baufortschritt
-    const site = sim.settlement.site;
-    if (site) {
-      const x = site.tile.x * s, y = site.tile.y * s, p = Math.min(1, site.progress / site.work);
-      // Bauphasen: Fundament → Wände wachsen → Dach wächst
-      const wallH = s * 0.5 * Math.min(1, p / 0.6);
-      ctx.fillStyle = '#d2ab72'; ctx.fillRect(x + s * 0.14, y + s * 0.92 - wallH, s * 0.72, wallH);
-      if (p > 0.6) {
-        const rp = (p - 0.6) / 0.4;
-        ctx.fillStyle = '#9b3d2c'; ctx.beginPath();
-        ctx.moveTo(x + s * 0.06, y + s * 0.46); ctx.lineTo(x + s * 0.5, y + s * (0.46 - 0.38 * rp)); ctx.lineTo(x + s * 0.94, y + s * 0.46); ctx.fill();
+  // ---------------------------------------------------------------- Boden
+  drawGround(c, t, s, now) {
+    const x = t.x * s, y = t.y * s;
+    if (t.type === 'water') {
+      c.fillStyle = `hsl(205, 60%, ${38 + t.shade * 6}%)`; c.fillRect(x, y, s + 0.5, s + 0.5);
+      const k = (now / 2600 + t.shade * 3) % 1; // Glitzern
+      c.strokeStyle = `rgba(255,255,255,${0.35 * Math.sin(k * Math.PI)})`; c.lineWidth = Math.max(1, s * 0.04);
+      c.beginPath(); c.moveTo(x + s * (0.15 + k * 0.3), y + s * (0.3 + t.shade * 0.4)); c.lineTo(x + s * (0.45 + k * 0.3), y + s * (0.3 + t.shade * 0.4)); c.stroke();
+      // Ufer
+      const w = this.sim.world;
+      c.fillStyle = '#d8c48f';
+      for (const [dx, dy] of DIRS) {
+        const nb = w.tile(t.x + dx, t.y + dy);
+        if (!nb || nb.type === 'water') continue;
+        const e = s * 0.13;
+        if (dx === 1) c.fillRect(x + s - e, y, e, s); if (dx === -1) c.fillRect(x, y, e, s);
+        if (dy === 1) c.fillRect(x, y + s - e, s, e); if (dy === -1) c.fillRect(x, y, s, e);
       }
-      ctx.fillStyle = '#0008'; ctx.fillRect(x + 2, y + 2, s - 4, 4);
-      ctx.fillStyle = '#f0b54a'; ctx.fillRect(x + 2, y + 2, (s - 4) * Math.min(1, site.progress / site.work), 4);
+      return;
+    }
+    c.fillStyle = `hsl(${92 + t.shade * 14}, 42%, ${36 + t.shade * 7}%)`; c.fillRect(x, y, s + 0.5, s + 0.5);
+    // Trampelpfad
+    const p = Math.min(1, t.traffic / 60);
+    if (p > 0.12) {
+      c.fillStyle = `rgba(156, 124, 82, ${p * 0.85})`;
+      c.beginPath(); c.ellipse(x + s / 2, y + s / 2, s * (0.3 + p * 0.25), s * (0.3 + p * 0.25), 0, 0, TAU); c.fill();
+    }
+    if (t.type !== 'grass' || p > 0.6) return;
+    // Grasbüschel und Blumen
+    c.strokeStyle = 'rgba(20, 60, 20, .35)'; c.lineWidth = Math.max(1, s * 0.035);
+    for (let i = 0; i < 2; i++) {
+      const gx = x + s * ((t.shade * 7.3 + i * 0.47) % 0.8 + 0.1), gy = y + s * ((t.shade * 3.1 + i * 0.61) % 0.8 + 0.15);
+      c.beginPath(); c.moveTo(gx - s * 0.05, gy - s * 0.08); c.lineTo(gx, gy); c.lineTo(gx + s * 0.05, gy - s * 0.08); c.stroke();
+    }
+    if (t.shade > 0.86) {
+      c.fillStyle = t.shade > 0.93 ? '#fff6c8' : '#f3a6c8';
+      for (let i = 0; i < 3; i++) { c.beginPath(); c.arc(x + s * (0.25 + i * 0.22), y + s * (0.3 + ((i * 0.37 + t.shade) % 0.4)), Math.max(1, s * 0.035), 0, TAU); c.fill(); }
+    }
+  }
+
+  // --------------------------------------------------------------- Objekte
+  shadow(c, cx, cy, rx, ry) { c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(cx, cy, rx, ry, 0, 0, TAU); c.fill(); }
+
+  drawObject(c, t, s, now) {
+    const x = t.x * s, y = t.y * s, cx = x + s / 2;
+    switch (t.type) {
+      case 'tree': {
+        const sway = Math.sin(now / 1300 + t.x * 0.7 + t.y * 0.3) * s * 0.02;
+        const hit = t.hitAt && now - t.hitAt < 400 ? Math.sin(now / 25) * s * 0.03 : 0;
+        const ox = sway + hit, base = y + s * 0.88;
+        this.shadow(c, cx + s * 0.05, base, s * 0.34, s * 0.11);
+        c.fillStyle = '#6b4526'; c.fillRect(cx - s * 0.06, base - s * 0.38, s * 0.12, s * 0.38);
+        if (t.shade < 0.3) { // Nadelbaum
+          for (let i = 0; i < 3; i++) {
+            c.fillStyle = i % 2 ? '#24552f' : '#1d4a28';
+            const ty = base - s * (0.3 + i * 0.25), wdt = s * (0.42 - i * 0.1);
+            c.beginPath(); c.moveTo(cx - wdt + ox, ty); c.lineTo(cx + ox * 1.5, ty - s * 0.45); c.lineTo(cx + wdt + ox, ty); c.fill();
+          }
+        } else { // Laubbaum
+          const g = 30 + t.shade * 12;
+          c.fillStyle = `hsl(115, 42%, ${g - 10}%)`; c.beginPath(); c.arc(cx + ox, base - s * 0.62, s * 0.42, 0, TAU); c.fill();
+          c.fillStyle = `hsl(110, 45%, ${g - 3}%)`; c.beginPath(); c.arc(cx - s * 0.1 + ox, base - s * 0.72, s * 0.28, 0, TAU); c.fill();
+          c.fillStyle = `hsl(100, 50%, ${g + 6}%)`; c.beginPath(); c.arc(cx - s * 0.14 + ox, base - s * 0.8, s * 0.13, 0, TAU); c.fill();
+        }
+        break;
+      }
+      case 'stump':
+        this.shadow(c, cx, y + s * 0.72, s * 0.22, s * 0.07);
+        c.fillStyle = '#6b4526'; c.fillRect(cx - s * 0.15, y + s * 0.52, s * 0.3, s * 0.18);
+        c.fillStyle = '#c49a64'; c.beginPath(); c.ellipse(cx, y + s * 0.52, s * 0.15, s * 0.06, 0, 0, TAU); c.fill();
+        break;
+      case 'bush': {
+        const by = y + s * 0.62;
+        this.shadow(c, cx, y + s * 0.85, s * 0.36, s * 0.1);
+        c.fillStyle = '#2c6631';
+        for (const [dx, dy, r] of [[-0.17, 0.05, 0.24], [0.17, 0.05, 0.24], [0, -0.1, 0.27]]) { c.beginPath(); c.arc(cx + dx * s, by + dy * s, r * s, 0, TAU); c.fill(); }
+        c.fillStyle = '#3c7d3f'; c.beginPath(); c.arc(cx - s * 0.06, by - s * 0.16, s * 0.12, 0, TAU); c.fill();
+        const spots = [[-0.2, 0], [0.15, -0.12], [0.02, 0.06], [-0.08, -0.2], [0.22, 0.08], [0.06, -0.26]];
+        for (let i = 0; i < t.berries && i < spots.length; i++) {
+          c.fillStyle = '#b8325f'; c.beginPath(); c.arc(cx + spots[i][0] * s, by + spots[i][1] * s, Math.max(1.5, s * 0.055), 0, TAU); c.fill();
+          c.fillStyle = '#ffffff88'; c.beginPath(); c.arc(cx + spots[i][0] * s - s * 0.015, by + spots[i][1] * s - s * 0.015, Math.max(0.6, s * 0.018), 0, TAU); c.fill();
+        }
+        break;
+      }
+      case 'camp': this.drawCamp(c, t, s, now); break;
+      case 'site': this.drawHouse(c, t, s, now, this.sim.settlement.site); break;
+      case 'house': this.drawHouse(c, t, s, now, null); break;
+    }
+  }
+
+  drawCamp(c, t, s, now) {
+    const x = t.x * s, y = t.y * s, cx = x + s * 0.58, cy = y + s * 0.7;
+    // Holzlager links
+    const logs = Math.min(10, Math.ceil(this.sim.settlement.stock.wood / 2));
+    let i = 0;
+    for (let row = 0; row < 4 && i < logs; row++)
+      for (let k = 0; k < 4 - row && i < logs; k++, i++) {
+        const lx = x - s * 0.1 + (k + row * 0.5) * s * 0.14, ly = y + s * (0.9 - row * 0.12);
+        c.fillStyle = '#7a5230'; c.fillRect(lx - s * 0.06, ly - s * 0.2, s * 0.12, s * 0.2);
+        c.fillStyle = '#d2a36b'; c.beginPath(); c.arc(lx, ly, s * 0.065, 0, TAU); c.fill();
+      }
+    // Steinring
+    c.fillStyle = '#8b8b84';
+    for (let k = 0; k < 7; k++) { const a = k / 7 * TAU; c.beginPath(); c.ellipse(cx + Math.cos(a) * s * 0.24, cy + Math.sin(a) * s * 0.1, s * 0.06, s * 0.045, 0, 0, TAU); c.fill(); }
+    c.fillStyle = '#4a3220'; c.fillRect(cx - s * 0.18, cy - s * 0.03, s * 0.36, s * 0.06);
+    // Flammen
+    const fl = (h, w, col, ph) => {
+      const fh = s * h * (0.85 + 0.15 * Math.sin(now / 90 + ph));
+      c.fillStyle = col; c.beginPath(); c.moveTo(cx - s * w, cy);
+      c.quadraticCurveTo(cx - s * w, cy - fh * 0.6, cx + Math.sin(now / 130 + ph) * s * 0.04, cy - fh);
+      c.quadraticCurveTo(cx + s * w, cy - fh * 0.6, cx + s * w, cy); c.fill();
+    };
+    fl(0.5, 0.15, '#e8551f', 0); fl(0.36, 0.1, '#ff9a2a', 1.7); fl(0.2, 0.06, '#ffe36b', 3.1);
+  }
+
+  /** Haus oder Baustelle (site = Baustelle mit Fortschritt). */
+  drawHouse(c, t, s, now, site) {
+    const x = t.x * s, y = t.y * s;
+    const p = site ? Math.min(1, site.progress / site.work) : 1;
+    const roof = ROOFS[((t.building && t.building.id) || 0) % ROOFS.length];
+    const L = x + s * 0.08, R = x + s * 0.92, B = y + s * 0.95, T = y + s * 0.38;
+    this.shadow(c, x + s * 0.55, B, s * 0.5, s * 0.1);
+    if (site) { // Bauplatz
+      c.fillStyle = '#9b7b52'; c.fillRect(L - s * 0.04, B - s * 0.1, R - L + s * 0.08, s * 0.12);
+      c.fillStyle = '#8a8a82'; for (let k = 0; k < 5; k++) c.fillRect(L + k * s * 0.17, B - s * 0.12, s * 0.12, s * 0.07);
+    }
+    const wallTop = B - (B - T) * Math.min(1, p / 0.6);
+    if (p > 0.02) {
+      c.fillStyle = '#e6d2a8'; c.fillRect(L, wallTop, R - L, B - wallTop);
+      // Fachwerk
+      c.strokeStyle = '#5a3a22'; c.lineWidth = Math.max(1, s * 0.05);
+      c.strokeRect(L, wallTop, R - L, B - wallTop);
+      if (p >= 0.6) {
+        c.beginPath(); c.moveTo(L, T); c.lineTo(x + s * 0.3, B); c.moveTo(R, T); c.lineTo(x + s * 0.7, B); c.stroke();
+        // Tür und Fenster
+        c.fillStyle = '#5a3a22'; c.fillRect(x + s * 0.42, B - s * 0.3, s * 0.16, s * 0.3);
+        c.fillStyle = '#3b4a5a'; c.fillRect(x + s * 0.16, T + s * 0.12, s * 0.12, s * 0.12); c.fillRect(x + s * 0.72, T + s * 0.12, s * 0.12, s * 0.12);
+      }
+    }
+    if (site) { // Gerüst
+      c.strokeStyle = '#a07a4f'; c.lineWidth = Math.max(1, s * 0.035);
+      c.beginPath();
+      for (const gx of [L - s * 0.03, R + s * 0.03]) { c.moveTo(gx, B); c.lineTo(gx, T - s * 0.2); }
+      c.moveTo(L - s * 0.03, T + s * 0.1); c.lineTo(R + s * 0.03, T + s * 0.1); c.stroke();
+    }
+    if (p > 0.6) { // Dach wächst
+      const rp = site ? (p - 0.6) / 0.4 : 1, peak = T - s * 0.5 * rp;
+      c.fillStyle = roof; c.beginPath(); c.moveTo(L - s * 0.08, T + s * 0.04); c.lineTo(x + s * 0.5, peak); c.lineTo(R + s * 0.08, T + s * 0.04); c.fill();
+      c.fillStyle = 'rgba(0,0,0,.18)'; c.beginPath(); c.moveTo(x + s * 0.5, peak); c.lineTo(R + s * 0.08, T + s * 0.04); c.lineTo(x + s * 0.5, T + s * 0.04); c.fill();
+      if (!site) { c.fillStyle = '#6e6259'; c.fillRect(x + s * 0.66, T - s * 0.36, s * 0.1, s * 0.22); } // Schornstein
+    }
+    if (site) {
+      c.fillStyle = '#0008'; c.fillRect(x + 2, y + 2, s - 4, Math.max(3, s * 0.08));
+      c.fillStyle = '#f0b54a'; c.fillRect(x + 2, y + 2, (s - 4) * p, Math.max(3, s * 0.08));
+    }
+  }
+
+  // --------------------------------------------------------------- Siedler
+  pose(n) {
+    const a = n.action, step = n.task && n.task.steps[n.task.i];
+    const moving = !!(step && step.kind === 'move' && step.path.length);
+    let arms = n.inventory.wood > 0 ? 'carry' : 'none';
+    if (!moving && a) {
+      if (a.id === 'gatherWood') arms = 'chop';
+      else if (a.id === 'build') arms = 'build';
+      else if (a.id === 'eat') arms = 'eat';
+    }
+    let facing = n.facing || 1;
+    if (!moving && step && step.face) { const dx = step.face.x - n.x; if (Math.abs(dx) > 0.1) facing = dx > 0 ? 1 : -1; }
+    return { moving, arms, facing, step };
+  }
+
+  drawSettler(c, n, px, py, s, now, pose) {
+    const skin = SKIN[n.id % SKIN.length], hair = HAIR[(n.id * 7) % HAIR.length];
+    if (n.sleeping) { // liegt draußen am Boden
+      this.shadow(c, px, py + s * 0.25, s * 0.32, s * 0.08);
+      c.fillStyle = n.color; c.beginPath(); c.ellipse(px, py + s * 0.18, s * 0.26, s * 0.1, 0, 0, TAU); c.fill();
+      c.fillStyle = skin; c.beginPath(); c.arc(px - s * 0.28, py + s * 0.14, s * 0.1, 0, TAU); c.fill();
+      c.fillStyle = hair; c.beginPath(); c.arc(px - s * 0.31, py + s * 0.12, s * 0.09, Math.PI * 0.6, Math.PI * 1.6); c.fill();
+      return;
+    }
+    const walk = pose.moving ? Math.sin(now / 110 + n.id * 1.7) : 0;
+    const by = py + s * 0.38 - Math.abs(walk) * s * 0.03; // Füße
+    const L = s * 0.2; // Armlänge
+    c.save();
+    c.translate(px, by); c.scale(pose.facing, 1);
+    this.shadow(c, 0, 0, s * 0.18, s * 0.06);
+    c.lineCap = 'round';
+    // Beine
+    c.strokeStyle = '#4a3b30'; c.lineWidth = s * 0.075;
+    c.beginPath(); c.moveTo(-s * 0.05, -s * 0.2); c.lineTo(-s * 0.05 + walk * s * 0.09, 0);
+    c.moveTo(s * 0.05, -s * 0.2); c.lineTo(s * 0.05 - walk * s * 0.09, 0); c.stroke();
+    // Armwinkel (0 = hängt nach unten, π = nach oben)
+    const swing = (Math.sin(now / 130 + n.id) + 1) / 2;
+    let back = -walk * 0.6 + 0.1, front = walk * 0.6 + 0.1;
+    if (pose.arms === 'chop' || pose.arms === 'build') front = 0.5 + swing * 2.2;
+    else if (pose.arms === 'eat') front = 2.5 + Math.sin(now / 200) * 0.2;
+    else if (pose.arms === 'carry') { front = 2.7; back = 2.4; }
+    const arm = (a, col) => {
+      c.strokeStyle = col; c.lineWidth = s * 0.07;
+      const hx = Math.sin(a) * L, hy = -s * 0.44 + Math.cos(a) * L;
+      c.beginPath(); c.moveTo(0, -s * 0.44); c.lineTo(hx, hy); c.stroke();
+      c.fillStyle = skin; c.beginPath(); c.arc(hx, hy, s * 0.04, 0, TAU); c.fill();
+      return [hx, hy];
+    };
+    arm(back, n.color);
+    // Körper (Kittel mit Gürtel)
+    c.fillStyle = n.color;
+    c.beginPath(); c.moveTo(-s * 0.11, -s * 0.48); c.lineTo(s * 0.11, -s * 0.48); c.lineTo(s * 0.15, -s * 0.18); c.lineTo(-s * 0.15, -s * 0.18); c.closePath(); c.fill();
+    c.fillStyle = 'rgba(0,0,0,.15)'; c.fillRect(-s * 0.15, -s * 0.24, s * 0.3, s * 0.06);
+    c.fillStyle = '#5a3a22'; c.fillRect(-s * 0.13, -s * 0.3, s * 0.26, s * 0.035);
+    // Kopf
+    c.fillStyle = skin; c.beginPath(); c.arc(s * 0.01, -s * 0.6, s * 0.12, 0, TAU); c.fill();
+    c.fillStyle = hair; c.beginPath(); c.arc(0, -s * 0.62, s * 0.125, Math.PI * 1.0, Math.PI * 2.05); c.fill();
+    c.beginPath(); c.arc(-s * 0.07, -s * 0.6, s * 0.075, 0, TAU); c.fill();
+    c.fillStyle = '#2a1d14'; c.beginPath(); c.arc(s * 0.07, -s * 0.6, Math.max(0.8, s * 0.018), 0, TAU); c.fill();
+    // Holz auf der Schulter
+    if (pose.arms === 'carry') {
+      for (let k = 0; k < Math.min(3, Math.ceil(n.inventory.wood / 2)); k++) {
+        const ly = -s * (0.5 + k * 0.07);
+        c.fillStyle = '#7a5230'; c.fillRect(-s * 0.24, ly - s * 0.03, s * 0.42, s * 0.065);
+        c.fillStyle = '#d2a36b'; c.beginPath(); c.arc(s * 0.18, ly, s * 0.033, 0, TAU); c.fill();
+      }
+    }
+    // vorderer Arm mit Werkzeug
+    const [hx, hy] = arm(front, n.color);
+    if (pose.arms === 'chop' || pose.arms === 'build') {
+      c.save(); c.translate(hx, hy); c.rotate(-front);
+      c.strokeStyle = '#8a6239'; c.lineWidth = s * 0.035;
+      c.beginPath(); c.moveTo(0, -s * 0.04); c.lineTo(0, s * 0.22); c.stroke();
+      c.fillStyle = '#9aa3ab';
+      if (pose.arms === 'chop') { c.beginPath(); c.moveTo(0, s * 0.14); c.lineTo(s * 0.11, s * 0.12); c.lineTo(s * 0.11, s * 0.24); c.lineTo(0, s * 0.22); c.fill(); }
+      else c.fillRect(-s * 0.05, s * 0.17, s * 0.13, s * 0.07);
+      c.restore();
+    } else if (pose.arms === 'eat') {
+      c.fillStyle = '#b8325f'; c.beginPath(); c.arc(hx, hy - s * 0.03, s * 0.035, 0, TAU); c.fill();
+    }
+    c.restore();
+  }
+
+  // ---------------------------------------------------------------- Frame
+  render(alpha, selected) {
+    const { ctx: c, ts: s, sim } = this;
+    const now = this.now = performance.now();
+    c.lineJoin = 'round'; // keine Zacken an Textkonturen
+    const { w, h } = sim.world;
+
+    if (this.follow && !this.follow.inside) { // Kamera gleitet hinterher
+      const tx = (this.follow.x + 0.5) * s - this.viewW / 2, ty = (this.follow.y + 0.5) * s - this.viewH / 2;
+      this.camX += (tx - this.camX) * 0.08; this.camY += (ty - this.camY) * 0.08; this.clampCam();
     }
 
-    // Nacht
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.fillStyle = '#1b2a1e'; c.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    c.setTransform(this.dpr, 0, 0, this.dpr, -this.camX * this.dpr, -this.camY * this.dpr);
+
+    const x0 = Math.max(0, Math.floor(this.camX / s) - 1), x1 = Math.min(w - 1, Math.ceil((this.camX + this.viewW) / s));
+    const y0 = Math.max(0, Math.floor(this.camY / s) - 1), y1 = Math.min(h - 1, Math.ceil((this.camY + this.viewH) / s) + 1);
+
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) this.drawGround(c, sim.world.tile(x, y), s, now);
+
+    // Siedler den Reihen zuordnen
+    const rows = new Map(), drawn = [];
+    for (const n of sim.npcs) {
+      if (n.inside) continue;
+      const fx = n.prevX + (n.x - n.prevX) * alpha, fy = n.prevY + (n.y - n.prevY) * alpha;
+      const pose = this.pose(n);
+      const off = pose.moving ? 0 : (n.id % 3 - 1) * 0.16; // nicht exakt übereinander stehen
+      const e = { n, px: (fx + 0.5 + off) * s, py: (fy + 0.5) * s, fy, pose };
+      const r = clamp(Math.round(fy), y0, y1);
+      (rows.get(r) || rows.set(r, []).get(r)).push(e);
+      drawn.push(e);
+    }
+
+    // Weg des ausgewählten Siedlers
+    const sel = drawn.find(e => e.n === selected);
+    if (sel && sel.pose.moving) {
+      c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = Math.max(1.5, s * 0.05); c.setLineDash([s * 0.15, s * 0.15]);
+      c.beginPath(); c.moveTo(sel.px, sel.py + s * 0.3);
+      for (const q of sel.pose.step.path) c.lineTo((q.x + 0.5) * s, (q.y + 0.8) * s);
+      c.stroke(); c.setLineDash([]);
+    }
+
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) this.drawObject(c, sim.world.tile(x, y), s, now);
+      const list = rows.get(y);
+      if (list) {
+        list.sort((a, b) => a.fy - b.fy);
+        for (const e of list) {
+          if (e.n === selected) { c.strokeStyle = '#f0b54a'; c.lineWidth = 2; c.beginPath(); c.ellipse(e.px, e.py + s * 0.38, s * 0.26, s * 0.09, 0, 0, TAU); c.stroke(); }
+          this.drawSettler(c, e.n, e.px, e.py, s, now, e.pose);
+        }
+      }
+    }
+
+    // Rauch aus bewohnten Häusern
+    for (const b of sim.settlement.houses) {
+      if (!b.residents || !b.residents.length) continue;
+      const sx = (b.tile.x + 0.71) * s, sy = (b.tile.y + 0.02) * s;
+      for (let k = 0; k < 3; k++) {
+        const q = (now / 2600 + k / 3 + b.id * 0.37) % 1;
+        c.fillStyle = `rgba(220,220,220,${0.4 * (1 - q)})`;
+        c.beginPath(); c.arc(sx + Math.sin(q * 5 + b.id) * s * 0.08, sy - q * s * 0.7, s * (0.05 + q * 0.09), 0, TAU); c.fill();
+      }
+    }
+
+    // Nacht + Lichter
     const na = this.nightAlpha();
     if (na > 0) {
-      ctx.fillStyle = `rgba(8, 12, 40, ${na})`; ctx.fillRect(0, 0, this.cssW, this.cssH);
-      const c = sim.settlement.camp, fx = (c.x + 0.5) * s, fy = (c.y + 0.5) * s;
-      const g = ctx.createRadialGradient(fx, fy, 0, fx, fy, s * 3);
-      g.addColorStop(0, `rgba(255, 170, 60, ${na * 0.7})`); g.addColorStop(1, 'rgba(255,170,60,0)');
-      ctx.fillStyle = g; ctx.fillRect(fx - s * 3, fy - s * 3, s * 6, s * 6);
+      c.save(); c.setTransform(1, 0, 0, 1, 0, 0);
+      c.fillStyle = `rgba(10, 14, 42, ${na})`; c.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      c.restore();
+      c.save(); c.globalCompositeOperation = 'lighter';
+      const glow = (gx, gy, r, a) => {
+        const g = c.createRadialGradient(gx, gy, 0, gx, gy, r);
+        g.addColorStop(0, `rgba(255,160,60,${a})`); g.addColorStop(1, 'rgba(255,160,60,0)');
+        c.fillStyle = g; c.fillRect(gx - r, gy - r, r * 2, r * 2);
+      };
+      const cp = sim.settlement.camp;
+      glow((cp.x + 0.58) * s, (cp.y + 0.55) * s, s * (3 + Math.sin(now / 120) * 0.15), na * 0.75);
+      for (const b of sim.settlement.houses) glow((b.tile.x + 0.5) * s, (b.tile.y + 0.55) * s, s * 1.1, na * 0.35);
+      c.restore();
+      c.fillStyle = `rgba(255, 214, 120, ${Math.min(1, na * 1.6)})`;
+      for (const b of sim.settlement.houses) {
+        const T = (b.tile.y + 0.38) * s;
+        c.fillRect((b.tile.x + 0.16) * s, T + s * 0.12, s * 0.12, s * 0.12);
+        c.fillRect((b.tile.x + 0.72) * s, T + s * 0.12, s * 0.12, s * 0.12);
+      }
     }
 
-    // NPCs
-    const fs = Math.max(10, Math.round(s * 0.55));
-    for (const n of sim.npcs) {
-      if (n.inside) { // schläft im Haus
-        const t = n.inside.tile;
-        ctx.font = `bold ${fs}px system-ui`; ctx.fillStyle = '#fff';
-        ctx.fillText('z', (t.x + 0.75 + (n.id % 2) * 0.15) * s, (t.y + 0.1 - (n.id % 2) * 0.15) * s);
-        continue;
+    // Schlafende im Haus: Zzz
+    c.textAlign = 'center';
+    const fs = Math.max(10, Math.round(s * 0.32));
+    c.font = `700 ${fs}px system-ui`;
+    for (const b of sim.settlement.houses) {
+      if (!b.sleepers.size) continue;
+      const q = (now / 1800 + b.id * 0.3) % 1;
+      c.globalAlpha = 1 - q; c.fillStyle = '#fff';
+      c.fillText('z', (b.tile.x + 0.3 + q * 0.2) * s, (b.tile.y - 0.1 - q * 0.4) * s);
+      c.globalAlpha = 1;
+    }
+
+    // Namen und Sprechblasen
+    const showNames = s >= 26;
+    for (const e of drawn) {
+      const { n, px, pose } = e, top = e.py - s * 0.32;
+      if (n.sleeping) { c.fillStyle = '#fff'; c.fillText('z', px + s * 0.1, e.py - s * 0.1 - ((now / 600) % 1) * s * 0.3); continue; }
+      if (showNames || n === selected) {
+        c.font = `600 ${Math.max(10, Math.round(s * 0.28))}px system-ui`;
+        c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.65)'; c.strokeText(n.name, px, top - s * 0.02);
+        c.fillStyle = '#fff'; c.fillText(n.name, px, top - s * 0.02);
       }
-      const step = n.task && n.task.steps[n.task.i];
-      const moving = step && step.kind === 'move' && step.path.length > 0;
-      const px = (n.prevX + (n.x - n.prevX) * alpha + 0.5 + (n.id % 2 ? -0.14 : 0.14)) * s; // leicht versetzt, damit sich niemand verdeckt
-      // Hüpfen beim Laufen, Wippen beim Arbeiten
-      const bob = moving ? Math.abs(Math.sin(this.now / 110 + n.id)) * s * 0.12
-        : (n.working ? Math.abs(Math.sin(this.now / 160 + n.id)) * s * 0.06 : 0);
-      const py = (n.prevY + (n.y - n.prevY) * alpha + 0.5) * s - bob;
-      const r = s * 0.32;
-      // Ausgewählter NPC: Weg zum Ziel anzeigen
-      if (n === selected && moving) {
-        ctx.strokeStyle = n.color; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(px, py);
-        for (const q of step.path) ctx.lineTo((q.x + 0.5) * s, (q.y + 0.5) * s);
-        ctx.stroke(); ctx.setLineDash([]);
-      }
-      if (n === selected) { ctx.strokeStyle = '#f0b54a'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(px, py, r + 4, 0, Math.PI * 2); ctx.stroke(); }
-      ctx.fillStyle = '#0006'; ctx.beginPath(); ctx.ellipse(px, py + r * 0.9, r * 0.9, r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = n.color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      if (n.inventory.wood > 0) { ctx.fillStyle = '#7a5230'; ctx.fillRect(px + r * 0.4, py - r * 0.1, r * 0.9, r * 0.45); }
-      if (n.sleeping) { ctx.font = `bold ${fs}px system-ui`; ctx.fillStyle = '#fff'; ctx.fillText('z', px + r, py - r); }
-      ctx.font = `600 ${Math.max(10, Math.round(s * 0.45))}px system-ui`;
-      ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000a';
-      ctx.strokeText(n.name, px, py - r - 4); ctx.fillStyle = '#fff'; ctx.fillText(n.name, px, py - r - 4);
-      // Sprechblase mit Symbol der aktuellen Tätigkeit
       const a = n.action;
-      if (a && a.icon && !n.sleeping) {
-        const bx = px + r * 1.5, by = py - r * 1.7, br = Math.max(8, s * 0.36);
-        ctx.fillStyle = '#ffffffe6'; ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(bx - br * 0.6, by + br * 0.5); ctx.lineTo(px + r * 0.6, py - r * 0.6); ctx.lineTo(bx - br * 0.1, by + br * 0.9); ctx.fill();
-        ctx.font = `${Math.round(br * 1.15)}px system-ui`; ctx.textBaseline = 'middle';
-        ctx.fillText(a.icon, bx, by + 1); ctx.textBaseline = 'alphabetic';
+      if (a && a.icon && (s >= 20 || n === selected) && !pose.moving) {
+        const bx = px + s * 0.32, by = top - s * 0.3, br = Math.max(8, s * 0.2);
+        c.fillStyle = 'rgba(255,255,255,.92)'; c.beginPath(); c.arc(bx, by, br, 0, TAU); c.fill();
+        c.beginPath(); c.moveTo(bx - br * 0.5, by + br * 0.6); c.lineTo(px + s * 0.1, top + s * 0.05); c.lineTo(bx, by + br * 0.9); c.fill();
+        c.font = `${Math.round(br * 1.1)}px system-ui`; c.textBaseline = 'middle';
+        c.fillText(a.icon, bx, by + 1); c.textBaseline = 'alphabetic';
       }
-      ctx.textAlign = 'start';
     }
 
-    // Schwebende Texte (+1 Holz, Haus fertig …)
-    ctx.textAlign = 'center';
-    ctx.font = `700 ${Math.max(11, Math.round(s * 0.55))}px system-ui`;
-    sim.floats = sim.floats.filter(f => this.now - f.born < 1400);
+    // Schwebende Texte
+    c.font = `700 ${Math.max(11, Math.round(s * 0.36))}px system-ui`;
+    sim.floats = sim.floats.filter(f => now - f.born < 1400);
     for (const f of sim.floats) {
-      const k = (this.now - f.born) / 1400;
-      const fx = (f.x + 0.5) * s, fy = (f.y + 0.2 - k * 1.2) * s;
-      ctx.globalAlpha = 1 - k * k;
-      ctx.lineWidth = 3; ctx.strokeStyle = '#000b'; ctx.strokeText(f.text, fx, fy);
-      ctx.fillStyle = f.color; ctx.fillText(f.text, fx, fy);
+      const k = (now - f.born) / 1400, fx = (f.x + 0.5) * s, fy = (f.y - k * 1.0) * s;
+      c.globalAlpha = 1 - k * k;
+      c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.7)'; c.strokeText(f.text, fx, fy);
+      c.fillStyle = f.color; c.fillText(f.text, fx, fy);
     }
-    ctx.globalAlpha = 1; ctx.textAlign = 'start';
-  }
-
-  npcAt(clientX, clientY) {
-    const rect = this.canvas.getBoundingClientRect();
-    const tx = (clientX - rect.left) / this.ts - 0.5, ty = (clientY - rect.top) / this.ts - 0.5;
-    let best = null, bd = 1.5;
-    for (const n of this.sim.npcs) {
-      const d = Math.hypot(n.x - tx, n.y - ty);
-      if (d < bd) { bd = d; best = n; }
-    }
-    return best;
+    c.globalAlpha = 1; c.textAlign = 'start';
   }
 }
 
@@ -946,7 +1319,7 @@ function updateCards() {
     el.querySelector('.ev').textContent = Math.round(n.energy);
     el.querySelector('.hb').style.width = n.hunger + '%';
     el.querySelector('.eb').style.width = n.energy + '%';
-    el.querySelector('.inv').textContent = `🪵 trägt ${n.inventory.wood}/${CONFIG.npc.carryCapacity}`;
+    el.querySelector('.inv').textContent = `🪵 ${n.inventory.wood}/${CONFIG.npc.carryCapacity} · ${n.home ? '🏠 Haus ' + n.home.id : '⛺ kein Haus'}`;
   }
 }
 
@@ -960,7 +1333,7 @@ function updateHud() {
     + `<div class="goal" title="Holz bis zum nächsten Haus"><i style="width:${Math.min(100, st.stock.wood / CONFIG.buildings.house.cost.wood * 100)}%"></i></div>`;
 }
 
-function select(n) { ui.selected = ui.selected === n ? null : n; updateCards(); }
+function select(n) { ui.selected = ui.selected === n ? null : n; renderer.follow = ui.selected; updateCards(); }
 
 function setSpeed(v) {
   ui.speed = v;
@@ -973,7 +1346,8 @@ function newWorld(seed) {
   sim.on('npcAdded', buildCards);
   sim.log(`🔥 ${sim.npcs.map(n => n.name).join(' und ')} schlagen ihr Lager auf.`, null, true);
   ui.selected = null; ui.accum = 0;
-  if (renderer) renderer.setSim(sim); else renderer = new Renderer($('map'), sim);
+  if (renderer) renderer.setSim(sim);
+  else { renderer = new Renderer($('map'), sim); renderer.onTap = n => { if (n) select(n); }; }
   buildCards(); renderLog(); updateHud(); updateCards();
   $('seedInfo').textContent = `Welt #${seed}`;
   window.SIM = sim; // zum Ausprobieren in der Browser-Konsole
@@ -995,13 +1369,19 @@ function frame(now) {
 }
 
 document.querySelectorAll('#speed button').forEach(b => b.addEventListener('click', () => setSpeed(Number(b.dataset.speed))));
-$('map').addEventListener('click', e => { const n = renderer.npcAt(e.clientX, e.clientY); if (n) select(n); });
+document.querySelectorAll('#zoomBtns [data-z]').forEach(b => b.addEventListener('click', () => renderer.setZoom(renderer.ts * Number(b.dataset.z))));
+$('homeBtn').addEventListener('click', () => { renderer.follow = null; const c = sim.world.camp; renderer.centerOn(c.x + 0.5, c.y + 0.5); });
 $('newWorld').addEventListener('click', () => newWorld(Math.floor(Math.random() * 1e6)));
 window.addEventListener('resize', () => renderer.resize());
 
 const urlSeed = Number(new URLSearchParams(location.search).get('seed'));
 newWorld(Number.isFinite(urlSeed) && urlSeed > 0 ? urlSeed : Math.floor(Math.random() * 1e6));
 requestAnimationFrame(frame);
+
+// Als App installierbar und offline nutzbar (nur auf der echten Webseite, z. B. GitHub Pages)
+if ('serviceWorker' in navigator && location.protocol === 'https:' && window.self === window.top) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
