@@ -1,0 +1,939 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16201a">
+<title>Siedlung</title>
+<style>
+  :root {
+    --bg: #16201a;
+    --panel: #1f2b23;
+    --panel-2: #283629;
+    --text: #e9efe6;
+    --muted: #9fb09f;
+    --accent: #f0b54a;
+    --hunger: #e0664f;
+    --energy: #6fcf6a;
+    --border: #344636;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent; }
+  body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 8px 12px 16px; }
+
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding-bottom: 8px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #clock { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #speed { display: flex; gap: 4px; }
+  #speed button, .small-btn {
+    min-width: 44px; height: 36px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  #speed button.active { background: var(--accent); color: #2a1d05; border-color: var(--accent); }
+  #stats { margin: 6px 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #stats b { color: var(--text); }
+  #log {
+    list-style: none; margin: 0; padding: 6px 8px; height: 112px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px; font-size: 13px;
+  }
+  #log li { padding: 1px 0; border-bottom: 1px solid #ffffff0a; }
+  #log .t { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 4px; }
+  #log .who { font-weight: 700; }
+  #log .event { color: var(--accent); font-weight: 600; }
+
+  #mapWrap { display: flex; justify-content: center; }
+  canvas { display: block; border-radius: 10px; touch-action: manipulation; }
+
+  #npcs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+  .card { background: var(--panel); border: 2px solid var(--border); border-radius: 12px; padding: 8px 10px; cursor: pointer; }
+  .card.selected { border-color: var(--accent); }
+  .card .name { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .card .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; }
+  .card .doing { color: var(--muted); font-size: 12px; min-height: 2.6em; margin: 2px 0 4px; }
+  .bar { height: 8px; background: #0005; border-radius: 4px; overflow: hidden; margin: 2px 0 5px; }
+  .bar > i { display: block; height: 100%; width: 0; transition: width .2s linear; }
+  .lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .card .inv { font-size: 12px; color: var(--muted); }
+  footer { margin-top: 12px; display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 12px; }
+  .small-btn { height: 32px; padding: 0 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="row">
+      <div id="clock">Tag 1 · 06:00 <span id="phase">🌅</span></div>
+      <div id="speed">
+        <button data-speed="0" aria-label="Pause">⏸</button>
+        <button data-speed="1" class="active">1x</button>
+        <button data-speed="2">2x</button>
+        <button data-speed="5">5x</button>
+      </div>
+    </div>
+    <div id="stats"></div>
+    <ol id="log" aria-live="polite"></ol>
+  </header>
+
+  <div id="mapWrap"><canvas id="map"></canvas></div>
+  <section id="npcs"></section>
+
+  <footer>
+    <span id="seedInfo"></span>
+    <button class="small-btn" id="newWorld">🌍 Neue Welt</button>
+  </footer>
+</div>
+
+<script>
+'use strict';
+
+/* =====================================================================
+ * 1) KONFIGURATION
+ * Alle Spielwerte an einer Stelle. Neue Gebäude, Berufe usw. werden hier
+ * ergänzt, ohne die Logik weiter unten umbauen zu müssen.
+ * ===================================================================== */
+const CONFIG = {
+  map: { width: 24, height: 32 },
+  time: {
+    minutesPerSecond: 10,   // bei 1x: 1 echte Sekunde = 10 Spielminuten (1 Tag ≈ 2,4 Minuten)
+    startHour: 6,
+    nightStart: 22,
+    nightEnd: 6,
+  },
+  speeds: [0, 1, 2, 5],
+  npc: {
+    moveSpeed: 0.25,        // Kacheln pro Spielminute
+    carryCapacity: 5,       // Holz, das ein NPC auf einmal tragen kann
+    startHunger: 25,
+    startEnergy: 90,
+    hungerPerMin: 0.1,      // 0 = satt, 100 = am Verhungern
+    energyPerMin: 0.06,     // Verbrauch im Wachzustand
+    workEnergyPerMin: 0.04, // Zusatzverbrauch bei körperlicher Arbeit
+    sleepEnergyPerMin: 0.22,
+    houseSleepBonus: 1.5,   // schläft im Haus schneller aus
+    eatThreshold: 55,       // ab hier wird gegessen
+    criticalHunger: 85,     // ab hier wird alles andere unterbrochen
+    tiredThreshold: 25,     // ab hier wird geschlafen
+    criticalEnergy: 8,
+    nightSleepBelow: 95,    // nachts schlafen, wenn Energie darunter liegt
+    wakeEnergy: 80,         // tagsüber aufwachen ab dieser Energie
+  },
+  resources: {
+    treeWood: 4,
+    chopMinutes: 15,        // Minuten pro Holz
+    treeRegrowMinutes: 2 * 1440,
+    bushMaxBerries: 6,
+    berryRegrowMinutes: 80,
+    eatMinutes: 5,          // Minuten pro Beere
+    berryFood: 15,          // so viel Hunger stillt eine Beere
+    bushCount: 16,
+  },
+  // Gebäudetypen. Später z. B. markt, schmiede, lager ...
+  buildings: {
+    house: { name: 'Haus', cost: { wood: 20 }, work: 240, beds: 2 },
+  },
+  // Berufe (Platzhalter): Gewichte multiplizieren die Aktions-Wertung.
+  professions: {
+    settler: { name: 'Siedler', weights: {} },
+    // lumberjack: { name: 'Holzfäller', weights: { gatherWood: 1.6 } },
+  },
+  startingNpcs: [
+    { name: 'Mira',  color: '#f0a04b' },
+    { name: 'Tarek', color: '#5fb6ef' },
+  ],
+  logSize: 80,
+};
+
+/* =====================================================================
+ * 2) HILFSFUNKTIONEN
+ * ===================================================================== */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const pad2 = n => String(n).padStart(2, '0');
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+/* =====================================================================
+ * 3) WELT: Kacheln, Kartengenerierung, Wegfindung, Nachwachsen
+ * ===================================================================== */
+const TILE_DEFS = {
+  grass: { name: 'Wiese',        walkable: true  },
+  tree:  { name: 'Wald',         walkable: false },
+  stump: { name: 'Baumstumpf',   walkable: false },
+  water: { name: 'Wasser',       walkable: false },
+  bush:  { name: 'Beerenstrauch',walkable: false },
+  camp:  { name: 'Lager',        walkable: false },
+  site:  { name: 'Baustelle',    walkable: false },
+  house: { name: 'Haus',         walkable: false },
+};
+
+class World {
+  constructor(cfg, rng) {
+    this.cfg = cfg;
+    this.w = cfg.map.width;
+    this.h = cfg.map.height;
+    this.tiles = [];
+    this.dirty = true; // Hintergrund muss neu gezeichnet werden
+    this.camp = generateMap(this, rng);
+  }
+  inBounds(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
+  tile(x, y) { return this.inBounds(x, y) ? this.tiles[y * this.w + x] : null; }
+  walkable(x, y) { const t = this.tile(x, y); return !!t && TILE_DEFS[t.type].walkable; }
+  setType(t, type) { t.type = type; t.timer = 0; this.dirty = true; }
+
+  /**
+   * Breitensuche ab (sx, sy) über begehbare Kacheln.
+   * goal(x, y) liefert ein Ziel zurück (truthy), sobald (x, y) ein passender Standplatz ist.
+   * Ergebnis: { path: [{x,y}...] ohne Startfeld, stand: {x,y}, target }
+   */
+  bfs(sx, sy, goal) {
+    const start = { x: Math.round(sx), y: Math.round(sy) };
+    if (!this.inBounds(start.x, start.y)) return null;
+    const n = this.w * this.h;
+    const prev = new Int32Array(n).fill(-2);
+    const startIdx = start.y * this.w + start.x;
+    prev[startIdx] = -1;
+    const queue = [startIdx];
+    for (let head = 0; head < queue.length; head++) {
+      const idx = queue[head];
+      const x = idx % this.w, y = (idx / this.w) | 0;
+      const target = goal(x, y);
+      if (target) {
+        const path = [];
+        for (let i = idx; i !== startIdx; i = prev[i]) path.push({ x: i % this.w, y: (i / this.w) | 0 });
+        path.reverse();
+        return { path, stand: { x, y }, target };
+      }
+      for (const [dx, dy] of DIRS) {
+        const nx = x + dx, ny = y + dy;
+        if (!this.walkable(nx, ny)) continue;
+        const ni = ny * this.w + nx;
+        if (prev[ni] !== -2) continue;
+        prev[ni] = idx;
+        queue.push(ni);
+      }
+    }
+    return null;
+  }
+
+  /** Nächster Standplatz direkt neben einer Kachel, die isTarget(tile) erfüllt. */
+  findAdjacent(sx, sy, isTarget) {
+    return this.bfs(sx, sy, (x, y) => {
+      for (const [dx, dy] of DIRS) {
+        const t = this.tile(x + dx, y + dy);
+        if (t && isTarget(t)) return t;
+      }
+      return null;
+    });
+  }
+
+  /** Läuft jede Spielminute: Beeren und Bäume wachsen nach. */
+  update() {
+    const r = this.cfg.resources;
+    for (const t of this.tiles) {
+      if (t.type === 'bush' && t.berries < r.bushMaxBerries) {
+        if (++t.timer >= r.berryRegrowMinutes) { t.berries++; t.timer = 0; this.dirty = true; }
+      } else if (t.type === 'stump') {
+        if (++t.timer >= r.treeRegrowMinutes) { this.setType(t, 'tree'); t.wood = r.treeWood; }
+      }
+    }
+  }
+}
+
+function generateMap(world, rng) {
+  const { w, h } = world;
+  const r = world.cfg.resources;
+  const ri = (a, b) => a + Math.floor(rng() * (b - a + 1));
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++)
+      world.tiles.push({ x, y, type: 'grass', wood: 0, berries: 0, timer: 0, shade: rng(), building: null });
+
+  const blob = (cx, cy, radius, type, density = 1) => {
+    const R = Math.ceil(radius + 1);
+    for (let y = cy - R; y <= cy + R; y++)
+      for (let x = cx - R; x <= cx + R; x++) {
+        const t = world.tile(x, y);
+        if (!t) continue;
+        const d = Math.hypot(x - cx, y - cy);
+        if (d + rng() * 1.4 < radius && rng() < density) t.type = type;
+      }
+  };
+
+  // Seen
+  const lakes = 1 + (rng() < 0.6 ? 1 : 0);
+  for (let i = 0; i < lakes; i++) blob(ri(2, w - 3), ri(2, h - 3), 2.5 + rng() * 2.5, 'water');
+  // Wälder
+  for (let i = 0; i < 8; i++) blob(ri(0, w - 1), ri(0, h - 1), 2 + rng() * 2.5, 'tree', 0.8);
+
+  // Lichtung mit Lager in der Mitte
+  const camp = { x: Math.floor(w / 2), y: Math.floor(h / 2) };
+  for (let y = camp.y - 4; y <= camp.y + 4; y++)
+    for (let x = camp.x - 4; x <= camp.x + 4; x++) {
+      const t = world.tile(x, y);
+      if (t && Math.hypot(x - camp.x, y - camp.y) <= 3.6) t.type = 'grass';
+    }
+  world.tile(camp.x, camp.y).type = 'camp';
+
+  // Ein paar Bäume garantiert in Reichweite
+  for (let i = 0; i < 3; i++) {
+    const a = rng() * Math.PI * 2;
+    blob(Math.round(camp.x + Math.cos(a) * 7), Math.round(camp.y + Math.sin(a) * 7), 1.8, 'tree', 0.9);
+  }
+
+  // Beerensträucher: einige nah am Lager, der Rest verstreut
+  let placed = 0, tries = 0;
+  while (placed < r.bushCount && tries++ < 2000) {
+    let x, y;
+    if (placed < 5) {
+      const a = rng() * Math.PI * 2, d = 4 + rng() * 3;
+      x = Math.round(camp.x + Math.cos(a) * d); y = Math.round(camp.y + Math.sin(a) * d);
+    } else { x = ri(0, w - 1); y = ri(0, h - 1); }
+    const t = world.tile(x, y);
+    if (!t || t.type !== 'grass' || Math.hypot(x - camp.x, y - camp.y) < 3) continue;
+    t.type = 'bush'; placed++;
+  }
+
+  for (const t of world.tiles) {
+    if (t.type === 'tree') t.wood = r.treeWood;
+    if (t.type === 'bush') t.berries = r.bushMaxBerries;
+  }
+  return camp;
+}
+
+/* =====================================================================
+ * 4) SIEDLUNG: Lager, Gebäude, Baustellen
+ * ===================================================================== */
+class Settlement {
+  constructor(sim, camp) {
+    this.sim = sim;
+    this.camp = camp;
+    this.stock = { wood: 0 };   // später: food, stone, coins ...
+    this.buildings = [];
+    this.site = null;           // aktuelle Baustelle
+  }
+  get houses() { return this.buildings.filter(b => b.type === 'house'); }
+  canAfford(cost) { return Object.entries(cost).every(([k, v]) => (this.stock[k] || 0) >= v); }
+  pay(cost) { for (const [k, v] of Object.entries(cost)) this.stock[k] -= v; }
+
+  update() {
+    // Einfache Bauplanung: genug Holz im Lager → nächstes Haus beginnen.
+    if (!this.site && this.canAfford(CONFIG.buildings.house.cost)) this.startConstruction('house');
+  }
+
+  startConstruction(type) {
+    const def = CONFIG.buildings[type];
+    const tile = this.findBuildSpot();
+    if (!tile) return false;
+    this.pay(def.cost);
+    this.sim.world.setType(tile, 'site');
+    this.site = { type, tile, progress: 0, work: def.work };
+    this.sim.log(`🪓 ${def.cost.wood} Holz beisammen – die Siedler bauen gemeinsam ein ${def.name}!`, null, true);
+    this.sim.emit('constructionStarted', this.site);
+    return true;
+  }
+
+  completeSite() {
+    const site = this.site;
+    const def = CONFIG.buildings[site.type];
+    this.sim.world.setType(site.tile, site.type);
+    const b = { id: this.buildings.length + 1, type: site.type, tile: site.tile, beds: def.beds || 0, sleepers: new Set() };
+    site.tile.building = b;
+    this.buildings.push(b);
+    this.site = null;
+    this.sim.log(`🏠 ${def.name} Nr. ${this.houses.length} ist fertig!`, null, true);
+    this.sim.emit('buildingCompleted', b);
+  }
+
+  /** Sucht freie Wiese nahe am Lager. Raster mit Abstand 2 hält Wege frei. */
+  findBuildSpot() {
+    const { world, npcs } = this.sim;
+    const c = this.camp;
+    let best = null, bestD = Infinity;
+    for (let y = 0; y < world.h; y++)
+      for (let x = 0; x < world.w; x++) {
+        const dx = x - c.x, dy = y - c.y;
+        if (dx % 2 !== 0 || dy % 2 !== 0 || (dx === 0 && dy === 0)) continue;
+        const t = world.tile(x, y);
+        if (t.type !== 'grass') continue;
+        if (npcs.some(n => Math.round(n.x) === x && Math.round(n.y) === y)) continue;
+        if (!DIRS.some(([ax, ay]) => world.walkable(x + ax, y + ay))) continue;
+        const d = Math.hypot(dx, dy * 1.1);
+        if (d < bestD && world.bfs(c.x, c.y + 1, (px, py) => Math.abs(px - x) + Math.abs(py - y) === 1)) {
+          best = t; bestD = d;
+        }
+      }
+    return best;
+  }
+}
+
+/* =====================================================================
+ * 5) AKTIONEN (Utility-KI)
+ * Jede Aktion bewertet sich selbst (score). Der NPC wählt die höchste
+ * Wertung und plant dafür Schritte (move / act). Neue Tätigkeiten wie
+ * Handeln, Jagen oder Schmieden = einfach weitere defineAction-Aufrufe.
+ * ===================================================================== */
+const ACTIONS = {};
+function defineAction(def) { ACTIONS[def.id] = { interruptible: true, ...def }; }
+
+// Schritt-Bausteine
+const move = path => ({ kind: 'move', path });
+const act = (tick, opts = {}) => ({ kind: 'act', tick, t: 0, ...opts });
+
+defineAction({
+  id: 'eat', label: 'isst Beeren', start: 'geht Beeren essen', icon: '🫐',
+  interruptible: false,
+  score: n => n.hunger >= CONFIG.npc.eatThreshold ? 50 + n.hunger * 0.5 : 0,
+  urgent: n => n.hunger >= CONFIG.npc.criticalHunger,
+  plan(n, sim) {
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'bush' && t.berries > 0);
+    if (!res) return null;
+    const bush = res.target;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t % CONFIG.resources.eatMinutes !== 0) return;
+      if (bush.type !== 'bush' || bush.berries <= 0) return 'done'; // leer → ggf. nächster Strauch
+      bush.berries--; bush.timer = 0; sim.world.dirty = true;
+      n.hunger = Math.max(0, n.hunger - CONFIG.resources.berryFood);
+      n.gainXp('gathering', 1);
+      if (n.hunger <= 5) return 'done';
+    })];
+  },
+});
+
+defineAction({
+  id: 'sleep', label: 'schläft', start: 'legt sich schlafen', icon: '💤',
+  score(n, sim) {
+    const c = CONFIG.npc;
+    if (n.energy < c.tiredThreshold) return 60 + (100 - n.energy) * 0.4;
+    if (sim.isNight && n.energy < c.nightSleepBelow) return 65;
+    return 0;
+  },
+  urgent: n => n.energy <= CONFIG.npc.criticalEnergy,
+  plan(n, sim) {
+    const house = sim.settlement.houses.find(h => h.sleepers.size < h.beds);
+    const steps = [];
+    if (house) {
+      const res = sim.world.findAdjacent(n.x, n.y, t => t === house.tile);
+      if (res) { steps.push(move(res.path)); house.sleepers.add(n); n.bed = house; }
+    }
+    steps.push(act((n, sim) => {
+      n.sleeping = true;
+      n.inside = n.bed;
+      const c = CONFIG.npc;
+      n.energy = Math.min(100, n.energy + c.sleepEnergyPerMin * (n.bed ? c.houseSleepBonus : 1));
+      if (!sim.isNight && n.energy >= c.wakeEnergy) return 'done';
+    }));
+    return steps;
+  },
+  describe: n => n.bed ? `geht ins Haus Nr. ${n.bed.id} schlafen` : 'schläft unter freiem Himmel',
+  onEnd(n) {
+    if (n.bed) n.bed.sleepers.delete(n);
+    n.bed = null; n.inside = null; n.sleeping = false;
+  },
+});
+
+defineAction({
+  id: 'build', label: 'baut am Haus', start: 'hilft beim Hausbau', icon: '🔨',
+  score: (n, sim) => sim.settlement.site ? 50 : 0,
+  plan(n, sim) {
+    const site = sim.settlement.site;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === site.tile);
+    if (!res) return null;
+    return [move(res.path), act((n, sim) => {
+      if (sim.settlement.site !== site) return 'done'; // schon fertig
+      site.progress += n.workRate('build');
+      n.gainXp('building', 1);
+      if (site.progress >= site.work) { sim.settlement.completeSite(); return 'done'; }
+    }, { work: true })];
+  },
+});
+
+defineAction({
+  id: 'deliver', label: 'bringt Holz ins Lager', start: 'bringt Holz zum Lager', icon: '📦',
+  score: n => n.inventory.wood >= CONFIG.npc.carryCapacity ? 45 : (n.inventory.wood > 0 ? 20 : 0),
+  plan(n, sim) {
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'camp');
+    if (!res) return null;
+    return [move(res.path), act((n, sim) => {
+      const amount = n.inventory.wood;
+      sim.settlement.stock.wood += amount;
+      n.inventory.wood = 0;
+      sim.world.dirty = true;
+      const need = CONFIG.buildings.house.cost.wood;
+      sim.log(`legt ${amount} Holz ins Lager (${sim.settlement.stock.wood}/${need})`, n);
+      return 'done';
+    })];
+  },
+});
+
+defineAction({
+  id: 'gatherWood', label: 'hackt Holz', start: 'geht Holz hacken', icon: '🪓',
+  score: n => n.inventory.wood < CONFIG.npc.carryCapacity ? 30 : 0,
+  plan(n, sim) {
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'tree' && t.wood > 0);
+    if (!res) return null;
+    const tree = res.target;
+    return [move(res.path), act((n, sim, s) => {
+      if (tree.type !== 'tree' || tree.wood <= 0) return 'done';
+      if (s.t % Math.max(1, Math.round(CONFIG.resources.chopMinutes / n.workRate('chop'))) !== 0) return;
+      tree.wood--;
+      n.inventory.wood++;
+      n.gainXp('woodcutting', 1);
+      if (tree.wood <= 0) sim.world.setType(tree, 'stump');
+      if (n.inventory.wood >= CONFIG.npc.carryCapacity || tree.type !== 'tree') return 'done';
+    }, { work: true })];
+  },
+});
+
+defineAction({
+  id: 'wander', label: 'schlendert herum', start: 'schlendert herum', icon: '🚶',
+  score: () => 2,
+  plan(n, sim) {
+    const c = sim.settlement.camp;
+    const gx = c.x + Math.round((sim.rng() - 0.5) * 8), gy = c.y + Math.round((sim.rng() - 0.5) * 8);
+    const res = sim.world.bfs(n.x, n.y, (x, y) => x === gx && y === gy);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => s.t >= 10 ? 'done' : undefined)];
+  },
+});
+
+defineAction({
+  id: 'idle', label: 'ruht sich aus', start: 'ruht sich aus', icon: '🙂',
+  score: () => 1,
+  plan: () => [act((n, sim, s) => s.t >= 15 ? 'done' : undefined)],
+});
+
+/* =====================================================================
+ * 6) NPC
+ * ===================================================================== */
+class NPC {
+  constructor(id, def, x, y) {
+    this.id = id;
+    this.name = def.name;
+    this.color = def.color;
+    this.x = x; this.y = y; this.prevX = x; this.prevY = y;
+    this.hunger = CONFIG.npc.startHunger;
+    this.energy = CONFIG.npc.startEnergy;
+    this.inventory = { wood: 0 };  // später: food, coins, weapon ...
+    this.profession = 'settler';
+    this.skills = {};              // Erfahrung je Tätigkeit → Grundlage fürs Level-System
+    this.task = null;
+    this.lastLogged = null;
+    this.sleeping = false; this.inside = null; this.bed = null; this.working = false;
+  }
+
+  get action() { return this.task ? ACTIONS[this.task.actionId] : null; }
+
+  // --- Erweiterungspunkte -------------------------------------------
+  gainXp(skill, amount) { this.skills[skill] = (this.skills[skill] || 0) + amount; }
+  /** Arbeitsgeschwindigkeit; später abhängig von Level, Beruf, Werkzeug. */
+  workRate(/* kind */) { return 1; }
+  /** Beruf gewichtet Aktionen. */
+  weight(actionId) { return CONFIG.professions[this.profession]?.weights?.[actionId] ?? 1; }
+  // ------------------------------------------------------------------
+
+  update(sim) {
+    this.prevX = this.x; this.prevY = this.y;
+    this.updateNeeds(sim);
+
+    // Dringende Bedürfnisse unterbrechen die aktuelle Tätigkeit
+    if (this.task && this.action.interruptible) {
+      const urgent = Object.values(ACTIONS).find(a => a.urgent && a.id !== this.task.actionId && a.urgent(this, sim));
+      if (urgent) {
+        const steps = urgent.plan(this, sim); // nur unterbrechen, wenn das Dringende auch machbar ist
+        if (steps) { this.endTask(sim); this.startTask(urgent, steps, sim); }
+      }
+    }
+    if (!this.task) this.decide(sim);
+    if (this.task) this.runTask(sim);
+  }
+
+  updateNeeds(sim) {
+    const c = CONFIG.npc;
+    this.hunger = clamp(this.hunger + c.hungerPerMin * (this.sleeping ? 0.5 : 1), 0, 100);
+    if (!this.sleeping) this.energy = clamp(this.energy - c.energyPerMin - (this.working ? c.workEnergyPerMin : 0), 0, 100);
+    if (this.hunger >= 100 && !this.starving) { this.starving = true; sim.log('hat schrecklichen Hunger!', this); }
+    if (this.hunger < 90) this.starving = false;
+  }
+
+  decide(sim) {
+    const ranked = Object.values(ACTIONS)
+      .map(a => ({ a, s: a.score(this, sim) * this.weight(a.id) }))
+      .filter(e => e.s > 0)
+      .sort((p, q) => q.s - p.s);
+    for (const { a } of ranked) if (this.tryStart(a, sim)) return;
+  }
+
+  tryStart(action, sim) {
+    const steps = action.plan(this, sim);
+    if (!steps) return false;
+    this.startTask(action, steps, sim);
+    return true;
+  }
+
+  startTask(action, steps, sim) {
+    this.task = { actionId: action.id, steps, i: 0 };
+    if (action.id !== this.lastLogged) {
+      sim.log(action.describe ? action.describe(this, sim) : action.start, this);
+      this.lastLogged = action.id;
+    }
+    return true;
+  }
+
+  runTask(sim) {
+    const task = this.task;
+    const step = task.steps[task.i];
+    if (!step) return this.endTask(sim);
+    this.working = false;
+    let result;
+    if (step.kind === 'move') result = this.moveAlong(step, sim);
+    else { step.t++; this.working = !!step.work; result = step.tick(this, sim, step); }
+    if (result === 'done') { task.i++; if (task.i >= task.steps.length) this.endTask(sim); }
+    else if (result === 'fail') this.endTask(sim);
+  }
+
+  moveAlong(step, sim) {
+    let budget = CONFIG.npc.moveSpeed;
+    while (budget > 0 && step.path.length) {
+      const next = step.path[0];
+      if (!sim.world.walkable(next.x, next.y)) return 'fail'; // Weg verbaut → neu planen
+      const dx = next.x - this.x, dy = next.y - this.y, d = Math.hypot(dx, dy);
+      if (d <= budget) { this.x = next.x; this.y = next.y; budget -= d; step.path.shift(); }
+      else { this.x += dx / d * budget; this.y += dy / d * budget; budget = 0; }
+    }
+    return step.path.length ? undefined : 'done';
+  }
+
+  endTask(sim) {
+    const a = this.action;
+    if (a && a.onEnd) a.onEnd(this, sim);
+    this.task = null; this.working = false;
+  }
+
+  get statusText() {
+    const a = this.action;
+    if (!a) return 'überlegt…';
+    const step = this.task.steps[this.task.i];
+    if (step && step.kind === 'move' && a.id !== 'wander') return a.describe ? a.describe(this) : a.start;
+    return a.label;
+  }
+}
+
+/* =====================================================================
+ * 7) SIMULATION: Zeit, Ereignisse, Log
+ * ===================================================================== */
+class Simulation {
+  constructor(seed) {
+    this.seed = seed;
+    this.rng = mulberry32(seed);
+    this.minutes = CONFIG.time.startHour * 60;
+    this.world = new World(CONFIG, this.rng);
+    this.settlement = new Settlement(this, this.world.camp);
+    this.npcs = [];
+    this.logEntries = [];
+    this.listeners = {};
+    CONFIG.startingNpcs.forEach(def => this.addNpc(def));
+  }
+
+  get day() { return Math.floor(this.minutes / 1440) + 1; }
+  get hourFloat() { return (this.minutes % 1440) / 60; }
+  get isNight() { const h = this.hourFloat; return h >= CONFIG.time.nightStart || h < CONFIG.time.nightEnd; }
+  get clock() { const m = this.minutes % 1440; return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`; }
+
+  addNpc(def) {
+    const c = this.world.camp;
+    const spot = this.world.bfs(c.x, c.y + 1, (x, y) =>
+      Math.abs(x - c.x) + Math.abs(y - c.y) >= 1 && !this.npcs.some(n => n.x === x && n.y === y) ? true : null);
+    const x = spot ? spot.stand.x : c.x, y = spot ? spot.stand.y : c.y + 1;
+    const npc = new NPC(this.npcs.length + 1, def, x, y);
+    this.npcs.push(npc);
+    this.emit('npcAdded', npc);
+    return npc;
+  }
+
+  on(evt, fn) { (this.listeners[evt] ||= []).push(fn); }
+  emit(evt, data) { (this.listeners[evt] || []).forEach(fn => fn(data, this)); }
+
+  log(text, npc = null, event = false) {
+    const entry = { day: this.day, clock: this.clock, text, npc, event };
+    this.logEntries.unshift(entry);
+    if (this.logEntries.length > CONFIG.logSize) this.logEntries.pop();
+    this.emit('log', entry);
+  }
+
+  /** Eine Spielminute. */
+  step() {
+    this.minutes++;
+    if (this.minutes % 1440 === 0) this.log(`🌅 Tag ${this.day} beginnt.`, null, true);
+    this.world.update(this);
+    this.settlement.update(this);
+    for (const npc of this.npcs) npc.update(this);
+  }
+}
+
+/* =====================================================================
+ * 8) DARSTELLUNG (Canvas)
+ * ===================================================================== */
+class Renderer {
+  constructor(canvas, sim) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.bg = document.createElement('canvas');
+    this.setSim(sim);
+  }
+  setSim(sim) { this.sim = sim; this.resize(); }
+
+  resize() {
+    const { w, h } = this.sim.world;
+    const wrap = this.canvas.parentElement;
+    const maxW = wrap.clientWidth || window.innerWidth;
+    const maxH = Math.max(240, window.innerHeight * 0.62);
+    this.ts = Math.max(8, Math.floor(Math.min(maxW / w, maxH / h)));
+    this.cssW = this.ts * w; this.cssH = this.ts * h;
+    this.dpr = Math.min(window.devicePixelRatio || 1, 3);
+    for (const c of [this.canvas, this.bg]) { c.width = Math.round(this.cssW * this.dpr); c.height = Math.round(this.cssH * this.dpr); }
+    this.canvas.style.width = this.cssW + 'px';
+    this.canvas.style.height = this.cssH + 'px';
+    this.sim.world.dirty = true;
+  }
+
+  drawBackground() {
+    const c = this.bg.getContext('2d');
+    c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    for (const t of this.sim.world.tiles) this.drawTile(c, t);
+  }
+
+  drawTile(c, t) {
+    const s = this.ts, x = t.x * s, y = t.y * s, cx = x + s / 2, cy = y + s / 2;
+    const grass = `hsl(${95 + t.shade * 12}, 38%, ${30 + t.shade * 6}%)`;
+    if (t.type === 'water') {
+      c.fillStyle = `hsl(208, 55%, ${36 + t.shade * 5}%)`; c.fillRect(x, y, s, s);
+      c.strokeStyle = '#ffffff33'; c.lineWidth = 1;
+      c.beginPath(); c.moveTo(x + s * 0.2, y + s * (0.35 + t.shade * 0.3)); c.lineTo(x + s * 0.55, y + s * (0.35 + t.shade * 0.3)); c.stroke();
+      return;
+    }
+    c.fillStyle = grass; c.fillRect(x, y, s, s);
+    switch (t.type) {
+      case 'tree':
+        c.fillStyle = '#5b3b22'; c.fillRect(cx - s * 0.07, cy, s * 0.14, s * 0.4);
+        c.fillStyle = `hsl(130, 45%, ${18 + t.shade * 8}%)`;
+        c.beginPath(); c.arc(cx, cy - s * 0.05, s * 0.4, 0, Math.PI * 2); c.fill();
+        c.fillStyle = '#ffffff14';
+        c.beginPath(); c.arc(cx - s * 0.12, cy - s * 0.17, s * 0.16, 0, Math.PI * 2); c.fill();
+        break;
+      case 'stump':
+        c.fillStyle = '#6b4a2c'; c.beginPath(); c.arc(cx, cy + s * 0.1, s * 0.18, 0, Math.PI * 2); c.fill();
+        c.fillStyle = '#a07a4f'; c.beginPath(); c.arc(cx, cy + s * 0.08, s * 0.11, 0, Math.PI * 2); c.fill();
+        break;
+      case 'bush': {
+        c.fillStyle = '#2f6b33'; c.beginPath(); c.arc(cx, cy, s * 0.38, 0, Math.PI * 2); c.fill();
+        c.fillStyle = '#c03a6b';
+        const spots = [[-.18, -.12], [.16, -.15], [0, .05], [-.2, .15], [.18, .14], [.02, -.25]];
+        for (let i = 0; i < t.berries && i < spots.length; i++) {
+          c.beginPath(); c.arc(cx + spots[i][0] * s, cy + spots[i][1] * s, Math.max(1.5, s * 0.07), 0, Math.PI * 2); c.fill();
+        }
+        break;
+      }
+      case 'camp': {
+        // Holzstapel zeigt den Lagerbestand
+        const logs = Math.min(6, Math.ceil(this.sim.settlement.stock.wood / 4));
+        c.fillStyle = '#7a5230';
+        for (let i = 0; i < logs; i++) c.fillRect(x + s * 0.05, y + s * (0.85 - i * 0.12), s * 0.32, s * 0.09);
+        c.fillStyle = '#4a3220'; c.fillRect(cx - s * 0.2, cy + s * 0.18, s * 0.5, s * 0.08);
+        c.fillStyle = '#ff8a2a'; c.beginPath(); c.moveTo(cx + s * 0.05, cy - s * 0.3); c.lineTo(cx + s * 0.28, cy + s * 0.2); c.lineTo(cx - s * 0.18, cy + s * 0.2); c.fill();
+        c.fillStyle = '#ffd34d'; c.beginPath(); c.moveTo(cx + s * 0.05, cy - s * 0.08); c.lineTo(cx + s * 0.17, cy + s * 0.2); c.lineTo(cx - s * 0.07, cy + s * 0.2); c.fill();
+        break;
+      }
+      case 'site':
+        c.fillStyle = '#8a6a44'; c.fillRect(x + s * 0.1, y + s * 0.55, s * 0.8, s * 0.35);
+        c.strokeStyle = '#d9c39a'; c.lineWidth = 1; c.setLineDash([2, 2]);
+        c.strokeRect(x + s * 0.12, y + s * 0.12, s * 0.76, s * 0.76); c.setLineDash([]);
+        break;
+      case 'house':
+        c.fillStyle = '#d2ab72'; c.fillRect(x + s * 0.14, y + s * 0.42, s * 0.72, s * 0.5);
+        c.fillStyle = '#9b3d2c'; c.beginPath(); c.moveTo(x + s * 0.06, y + s * 0.46); c.lineTo(cx, y + s * 0.08); c.lineTo(x + s * 0.94, y + s * 0.46); c.fill();
+        c.fillStyle = '#5a3a22'; c.fillRect(cx - s * 0.09, y + s * 0.64, s * 0.18, s * 0.28);
+        break;
+    }
+  }
+
+  nightAlpha() {
+    const h = this.sim.hourFloat;
+    if (h >= 7 && h < 19) return 0;
+    if (h >= 19 && h < 22) return (h - 19) / 3 * 0.55;
+    if (h >= 5 && h < 7) return (1 - (h - 5) / 2) * 0.55;
+    return 0.55;
+  }
+
+  render(alpha, selected) {
+    const { ctx, ts: s, sim } = this;
+    if (sim.world.dirty) { this.drawBackground(); sim.world.dirty = false; }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(this.bg, 0, 0);
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+
+    // Baufortschritt
+    const site = sim.settlement.site;
+    if (site) {
+      const x = site.tile.x * s, y = site.tile.y * s;
+      ctx.fillStyle = '#0008'; ctx.fillRect(x + 2, y + 2, s - 4, 4);
+      ctx.fillStyle = '#f0b54a'; ctx.fillRect(x + 2, y + 2, (s - 4) * Math.min(1, site.progress / site.work), 4);
+    }
+
+    // Nacht
+    const na = this.nightAlpha();
+    if (na > 0) {
+      ctx.fillStyle = `rgba(8, 12, 40, ${na})`; ctx.fillRect(0, 0, this.cssW, this.cssH);
+      const c = sim.settlement.camp, fx = (c.x + 0.5) * s, fy = (c.y + 0.5) * s;
+      const g = ctx.createRadialGradient(fx, fy, 0, fx, fy, s * 3);
+      g.addColorStop(0, `rgba(255, 170, 60, ${na * 0.7})`); g.addColorStop(1, 'rgba(255,170,60,0)');
+      ctx.fillStyle = g; ctx.fillRect(fx - s * 3, fy - s * 3, s * 6, s * 6);
+    }
+
+    // NPCs
+    const fs = Math.max(10, Math.round(s * 0.55));
+    for (const n of sim.npcs) {
+      if (n.inside) { // schläft im Haus
+        const t = n.inside.tile;
+        ctx.font = `bold ${fs}px system-ui`; ctx.fillStyle = '#fff';
+        ctx.fillText('z', (t.x + 0.75 + (n.id % 2) * 0.15) * s, (t.y + 0.1 - (n.id % 2) * 0.15) * s);
+        continue;
+      }
+      const px = (n.prevX + (n.x - n.prevX) * alpha + 0.5) * s;
+      const py = (n.prevY + (n.y - n.prevY) * alpha + 0.5) * s;
+      const r = s * 0.32;
+      if (n === selected) { ctx.strokeStyle = '#f0b54a'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(px, py, r + 4, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.fillStyle = '#0006'; ctx.beginPath(); ctx.ellipse(px, py + r * 0.9, r * 0.9, r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = n.color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (n.inventory.wood > 0) { ctx.fillStyle = '#7a5230'; ctx.fillRect(px + r * 0.4, py - r * 0.1, r * 0.9, r * 0.45); }
+      if (n.sleeping) { ctx.font = `bold ${fs}px system-ui`; ctx.fillStyle = '#fff'; ctx.fillText('z', px + r, py - r); }
+      ctx.font = `600 ${Math.max(10, Math.round(s * 0.45))}px system-ui`;
+      ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000a';
+      ctx.strokeText(n.name, px, py - r - 4); ctx.fillStyle = '#fff'; ctx.fillText(n.name, px, py - r - 4);
+      ctx.textAlign = 'start';
+    }
+  }
+
+  npcAt(clientX, clientY) {
+    const rect = this.canvas.getBoundingClientRect();
+    const tx = (clientX - rect.left) / this.ts - 0.5, ty = (clientY - rect.top) / this.ts - 0.5;
+    let best = null, bd = 1.5;
+    for (const n of this.sim.npcs) {
+      const d = Math.hypot(n.x - tx, n.y - ty);
+      if (d < bd) { bd = d; best = n; }
+    }
+    return best;
+  }
+}
+
+/* =====================================================================
+ * 9) OBERFLÄCHE: HUD, Log, NPC-Karten, Tempo
+ * ===================================================================== */
+const $ = id => document.getElementById(id);
+const ui = { speed: 1, selected: null, accum: 0, cards: new Map() };
+let sim, renderer;
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function renderLog() {
+  $('log').innerHTML = sim.logEntries.slice(0, 40).map(e => {
+    const who = e.npc ? `<span class="who" style="color:${e.npc.color}">${esc(e.npc.name)}</span> ` : '';
+    return `<li class="${e.event ? 'event' : ''}"><span class="t">T${e.day} ${e.clock}</span>${who}${esc(e.text)}</li>`;
+  }).join('');
+}
+
+function buildCards() {
+  const box = $('npcs');
+  box.innerHTML = ''; ui.cards.clear();
+  for (const n of sim.npcs) {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = `
+      <div class="name"><span class="dot" style="background:${n.color}"></span>${esc(n.name)}</div>
+      <div class="doing"></div>
+      <div class="lbl"><span>Hunger</span><span class="hv"></span></div>
+      <div class="bar"><i class="hb" style="background:var(--hunger)"></i></div>
+      <div class="lbl"><span>Energie</span><span class="ev"></span></div>
+      <div class="bar"><i class="eb" style="background:var(--energy)"></i></div>
+      <div class="inv"></div>`;
+    el.addEventListener('click', () => select(n));
+    box.appendChild(el);
+    ui.cards.set(n, el);
+  }
+}
+
+function updateCards() {
+  for (const [n, el] of ui.cards) {
+    const a = n.action;
+    el.classList.toggle('selected', n === ui.selected);
+    el.querySelector('.doing').textContent = (a ? a.icon + ' ' : '') + n.statusText;
+    el.querySelector('.hv').textContent = Math.round(n.hunger);
+    el.querySelector('.ev').textContent = Math.round(n.energy);
+    el.querySelector('.hb').style.width = n.hunger + '%';
+    el.querySelector('.eb').style.width = n.energy + '%';
+    el.querySelector('.inv').textContent = `🪵 trägt ${n.inventory.wood}/${CONFIG.npc.carryCapacity}`;
+  }
+}
+
+function updateHud() {
+  const h = sim.hourFloat;
+  const phase = sim.isNight ? '🌙' : (h < 8 ? '🌅' : (h >= 19 ? '🌇' : '☀️'));
+  $('clock').innerHTML = `Tag ${sim.day} · ${sim.clock} <span>${phase}</span>`;
+  const st = sim.settlement;
+  const site = st.site ? ` · 🔨 Bau ${Math.floor(st.site.progress / st.site.work * 100)}%` : '';
+  $('stats').innerHTML = `🪵 Lager <b>${st.stock.wood}</b>/${CONFIG.buildings.house.cost.wood} · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}`;
+}
+
+function select(n) { ui.selected = ui.selected === n ? null : n; updateCards(); }
+
+function setSpeed(v) {
+  ui.speed = v;
+  document.querySelectorAll('#speed button').forEach(b => b.classList.toggle('active', Number(b.dataset.speed) === v));
+}
+
+function newWorld(seed) {
+  sim = new Simulation(seed);
+  sim.on('log', renderLog);
+  sim.on('npcAdded', buildCards);
+  sim.log(`🔥 ${sim.npcs.map(n => n.name).join(' und ')} schlagen ihr Lager auf.`, null, true);
+  ui.selected = null; ui.accum = 0;
+  if (renderer) renderer.setSim(sim); else renderer = new Renderer($('map'), sim);
+  buildCards(); renderLog(); updateHud(); updateCards();
+  $('seedInfo').textContent = `Welt #${seed}`;
+  window.SIM = sim; // zum Ausprobieren in der Browser-Konsole
+}
+
+/* =====================================================================
+ * 10) HAUPTSCHLEIFE
+ * ===================================================================== */
+let last = performance.now(), lastCards = 0;
+function frame(now) {
+  const dt = Math.min(0.25, (now - last) / 1000);
+  last = now;
+  ui.accum += dt * ui.speed * CONFIG.time.minutesPerSecond;
+  while (ui.accum >= 1) { sim.step(); ui.accum -= 1; }
+  renderer.render(ui.speed ? ui.accum : 1, ui.selected);
+  updateHud();
+  if (now - lastCards > 200) { updateCards(); lastCards = now; }
+  requestAnimationFrame(frame);
+}
+
+document.querySelectorAll('#speed button').forEach(b => b.addEventListener('click', () => setSpeed(Number(b.dataset.speed))));
+$('map').addEventListener('click', e => { const n = renderer.npcAt(e.clientX, e.clientY); if (n) select(n); });
+$('newWorld').addEventListener('click', () => newWorld(Math.floor(Math.random() * 1e6)));
+window.addEventListener('resize', () => renderer.resize());
+
+const urlSeed = Number(new URLSearchParams(location.search).get('seed'));
+newWorld(Number.isFinite(urlSeed) && urlSeed > 0 ? urlSeed : Math.floor(Math.random() * 1e6));
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
