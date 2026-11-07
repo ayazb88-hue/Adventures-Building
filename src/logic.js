@@ -120,7 +120,7 @@ defineAction({
 defineAction({
   id: 'deliver', label: 'bringt Holz ins Lager', short: 'Abliefern', start: 'bringt Holz zum Lager', icon: '📦',
   score(n, sim) {
-    const w = n.inventory.wood;
+    const w = n.inventory.wood + (n.inventory.stone || 0);
     if (w >= CONFIG.npc.carryCapacity) return 45;
     if (w > 0 && !n.town.site && n.town.stock.wood + w >= houseCost()) return 48; // reicht schon fürs Haus
     return w > 0 ? 20 : 0;
@@ -134,11 +134,12 @@ defineAction({
     const res = sim.world.findAdjacent(n.x, n.y, t => t === n.town.campTile);
     if (!res) return null;
     return [move(res.path), act((n, sim) => {
-      const amount = n.inventory.wood;
-      n.town.stock.wood += amount;
-      n.inventory.wood = 0;
-      sim.float(n.town.camp.x, n.town.camp.y, `+${amount} 🪵`, '#f0b54a');
-      sim.log(`legt ${amount} Holz ins Lager (${n.town.stock.wood}/${houseCost()})`, n);
+      const amount = n.inventory.wood, stone = n.inventory.stone || 0;
+      n.town.stock.wood += amount; n.town.stock.stone += stone;
+      n.inventory.wood = 0; n.inventory.stone = 0;
+      sim.float(n.town.camp.x, n.town.camp.y, stone ? `+${stone} 🪨` : `+${amount} 🪵`, '#f0b54a');
+      if (amount) sim.log(`legt ${amount} Holz ins Lager (${n.town.stock.wood}/${houseCost()})`, n);
+      if (stone) sim.log(`bringt ${stone} Stein ins Lager (${n.town.stock.stone})`, n);
       return 'done';
     })];
   },
@@ -146,7 +147,7 @@ defineAction({
 
 defineAction({
   id: 'gatherWood', label: 'hackt Holz', short: 'Holz', start: 'geht Holz hacken', icon: '🪓',
-  score: (n, sim) => n.inventory.wood < CONFIG.npc.carryCapacity ? 30 + (n.town.stock.wood >= houseCost() * 0.6 ? 4 : 0) : 0,
+  score: (n, sim) => n.inventory.wood < CONFIG.npc.carryCapacity && !n.inventory.stone ? 30 + (n.town.stock.wood >= houseCost() * 0.6 ? 4 : 0) : 0,
   think(n, sim) {
     const need = Math.max(0, houseCost() - n.town.stock.wood - woodCarried(sim));
     if (n.town.site) return 'Fürs übernächste Haus brauchen wir auch Holz.';
@@ -505,6 +506,72 @@ function finishGate(n, gate, sim) {
 }
 
 defineAction({
+  id: 'mineStone', label: 'bricht Stein', short: 'Stein', start: 'geht zum Steinbruch', icon: '⛏️',
+  score(n, sim) {
+    if (n.inventory.wood || sim.isNight || (n.inventory.stone || 0) >= CONFIG.npc.carryCapacity) return 0;
+    return n.town.stoneWanted || n.town.stock.stone < 15 ? 31 : 6;
+  },
+  think: (n, sim) => n.town.stoneWanted ? 'Für die neuen Gebäude brauchen wir Stein. Ab in den Steinbruch!' : 'Ein Vorrat an Stein kann nie schaden.',
+  plan(n, sim) {
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'rock' && t.wood > 0, 6000);
+    if (!res) return null;
+    const rock = res.target;
+    return [move(res.path), act((n, sim, s) => {
+      if (rock.type !== 'rock' || rock.wood <= 0) return 'done';
+      rock.hitAt = performance.now();
+      if (s.t % CONFIG.resources.mineMinutes !== 0) return;
+      rock.wood--; n.inventory.stone = (n.inventory.stone || 0) + 1;
+      sim.float(rock.x, rock.y, '+1 🪨', '#d8d4cc');
+      n.gainXp('mining', 1);
+      if (rock.wood <= 0) { sim.world.setType(rock, 'grass'); sim.log('⛏️ hat einen Felsen ganz abgetragen.', n); }
+      if (n.inventory.stone >= CONFIG.npc.carryCapacity || rock.type !== 'rock') return 'done';
+    }, { work: true, face: rock, tool: 'pick' })];
+  },
+});
+
+defineAction({
+  id: 'visitTavern', label: 'sitzt in der Taverne', short: 'Taverne', start: 'geht in die Taverne', icon: '🍺',
+  score(n, sim) {
+    const tv = n.town.tavern, h = sim.hourFloat;
+    if (!tv || h < 18 || h >= 22.5 || n.town.stock.coins < 1 || sim.minutes - (n.lastTavern || -1e9) < 1200) return 0;
+    return 30 + (100 - n.social) * 0.3 + n.traits.gesellig * 10;
+  },
+  think: (n, sim) => pick(sim, ['Feierabend! Ein Krug in der Taverne wäre jetzt schön.', 'In der Taverne spielt heute bestimmt wieder Musik.', 'Mal hören, welche Geschichten die Abenteurer heute erzählen.']),
+  plan(n, sim) {
+    const tv = n.town.tavern;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === tv.tile, 5000);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t === 1) { n.lastTavern = sim.minutes; n.town.stock.coins = Math.max(0, n.town.stock.coins - 1); n.inside = tv; tv.guests = (tv.guests || 0) + 1; }
+      n.social = Math.min(100, n.social + 0.8); n.mood = Math.min(100, n.mood + 0.3);
+      if (s.t >= 60) return 'done';
+    })];
+  },
+  onEnd(n) { if (n.inside && n.inside.type === 'tavern') { n.inside.guests = Math.max(0, (n.inside.guests || 1) - 1); n.inside = null; } },
+});
+
+defineAction({
+  id: 'pray', label: 'betet im Tempel', short: 'Tempel', start: 'geht zum Tempel', icon: '🙏',
+  score(n, sim) {
+    const tp = n.town.temple;
+    if (!tp || sim.isNight || sim.minutes - (n.lastPray || -1e9) < 1440) return 0;
+    const need = Math.max(0, 55 - n.mood) + (n.hp < n.maxHp * 0.6 ? 30 : 0);
+    return need > 0 ? 25 + need * 0.6 : 0;
+  },
+  think: n => n.hp < n.maxHp * 0.6 ? 'Meine Wunden schmerzen. Im Tempel finde ich Heilung.' : 'Ich brauche einen Moment der Ruhe im Tempel.',
+  plan(n, sim) {
+    const tp = n.town.temple;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === tp.tile, 5000);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t === 1) n.lastPray = sim.minutes;
+      n.mood = Math.min(100, n.mood + 0.5); n.hp = Math.min(n.maxHp, n.hp + n.maxHp * 0.02);
+      if (s.t >= 40) return 'done';
+    }, { face: tp.tile })];
+  },
+});
+
+defineAction({
   id: 'visitMarket', label: 'bummelt über den Markt', short: 'Markt', start: 'geht auf den Markt', icon: '🛍️',
   score(n, sim) {
     const m = n.town.market;
@@ -628,7 +695,7 @@ class NPC {
     this.x = x; this.y = y; this.prevX = x; this.prevY = y;
     this.hunger = CONFIG.npc.startHunger;
     this.energy = CONFIG.npc.startEnergy;
-    this.inventory = { wood: 0 };  // später: food, coins, weapon ...
+    this.inventory = { wood: 0, stone: 0 };  // später: food, coins, weapon ...
     this.profession = 'settler';
     this.home = null;
     this.skills = {};              // Erfahrung je Tätigkeit → Grundlage fürs Level-System
@@ -1060,11 +1127,34 @@ class Simulation {
     const P = CONFIG.professions, counts = {};
     for (const n of this.npcs) counts[n.profession] = (counts[n.profession] || 0) + 1;
     let best = 'holzfaeller', gapBest = -Infinity;
-    for (const k of ['holzfaeller', 'bauer', 'handwerker']) {
+    for (const k of ['holzfaeller', 'bauer', 'handwerker', 'steinmetz']) {
       const gap = P[k].share - (counts[k] || 0) / this.npcs.length;
       if (gap > gapBest) { gapBest = gap; best = k; }
     }
     return best;
+  }
+
+  /** Wachtürme schießen auf Monster in Reichweite. */
+  updateTowers() {
+    if (!this.monsters.length) return;
+    const range = CONFIG.buildings.tower.range;
+    for (const tw of this.towns) for (const b of tw.towers) {
+      if ((b.cd = (b.cd || 0) - 1) > 0) continue;
+      let best = null, bd = range;
+      for (const m of this.monsters) { const d = Math.hypot(m.x - b.tile.x, m.y - b.tile.y); if (d < bd) { bd = d; best = m; } }
+      if (!best) continue;
+      b.cd = 3;
+      const dmg = Math.round(12 * (1 + this.day * 0.1));
+      best.hp -= dmg; best.hitAt = performance.now();
+      this.float(best.x, best.y - 0.3, `-${dmg}`, '#ffd166');
+      this.emit('towerShot', { from: b.tile, to: best });
+      if (best.hp <= 0) {
+        const M = MONSTERS[best.kind];
+        tw.stock.crystals += M.tier === 3 ? 2 : 1;
+        this.log(`🏹 Ein Wachturm von ${tw.name} erlegt einen ${M.name}! (+💎)`, null, true);
+        this.emit('monsterKilled', best);
+      }
+    }
   }
 
   /** Handel: Markttag, Karren zwischen den Orten, fahrender Händler. */
@@ -1275,6 +1365,7 @@ class Simulation {
     if (this.minutes % 1440 === 7 * 60) this.payTribute();
     for (const npc of this.npcs) npc.update(this);
     this.updateMonsters();
+    this.updateTowers();
     this.updateTrade();
     if (!this.guild && this.minutes % 60 === 0) {
       const aw = this.npcs.filter(n => n.awakened).sort((a, b) => b.level - a.level);

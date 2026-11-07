@@ -201,12 +201,17 @@ const CONFIG = {
     berryRegrowMinutes: 80,
     eatMinutes: 5,
     berryFood: 15,
-    bushDensity: 0.022,     // Anteil der Kacheln mit Beerensträuchern
+    bushDensity: 0.022,
+    rockStone: 8,           // Stein pro Felsen
+    mineMinutes: 25,        // Minuten pro Stein     // Anteil der Kacheln mit Beerensträuchern
   },
   buildings: {
     house:  { name: 'Haus', cost: { wood: 20 }, work: 240, beds: 2 },
     smithy: { name: 'Schmiede', cost: { wood: 30 }, work: 360, beds: 0 },
     market: { name: 'Marktplatz', cost: { wood: 25 }, work: 240, beds: 0 },
+    tower:  { name: 'Wachturm', cost: { wood: 10, stone: 15 }, work: 240, beds: 0, range: 6.5 },
+    tavern: { name: 'Taverne', cost: { wood: 25, stone: 10, coins: 20 }, work: 300, beds: 0 },
+    temple: { name: 'Tempel', cost: { wood: 15, stone: 30, coins: 40 }, work: 420, beds: 0 },
     castle: { name: 'Burg', cost: { wood: 80, crystals: 6 }, work: 600, beds: 4, size: 3 },
   },
   farming: { growMinutes: 1440, harvestFood: 6, foodPerMeal: 40, plantMinutes: 40, harvestMinutes: 20 },
@@ -214,9 +219,10 @@ const CONFIG = {
   // Berufe der Arbeiter: Gewichte verändern, welche Tätigkeit bevorzugt wird; hat = Kopfbedeckung
   professions: {
     settler:    { name: 'Siedler', weights: {}, hat: null },
-    holzfaeller:{ name: 'Holzfäller', weights: { gatherWood: 1.5, plantField: 0.3, harvest: 0.6 }, hat: 'cap', share: 0.4 },
-    bauer:      { name: 'Bauer', weights: { plantField: 2, harvest: 2, gatherWood: 0.6 }, hat: 'straw', share: 0.35 },
-    handwerker: { name: 'Handwerker', weights: { build: 1.6, gatherWood: 1.1 }, hat: 'band', share: 0.25 },
+    holzfaeller:{ name: 'Holzfäller', weights: { gatherWood: 1.5, plantField: 0.3, harvest: 0.6, mineStone: 0.4 }, hat: 'cap', share: 0.35 },
+    bauer:      { name: 'Bauer', weights: { plantField: 2, harvest: 2, gatherWood: 0.6, mineStone: 0.3 }, hat: 'straw', share: 0.3 },
+    handwerker: { name: 'Handwerker', weights: { build: 1.6, gatherWood: 1.1 }, hat: 'band', share: 0.2 },
+    steinmetz:  { name: 'Steinmetz', weights: { mineStone: 2, gatherWood: 0.6 }, hat: 'miner', share: 0.15 },
   },
   population: {
     max: 70,
@@ -323,6 +329,9 @@ const TILE_DEFS = {
   field: { name: 'Feld',          walkable: false },
   smithy:{ name: 'Schmiede',      walkable: false },
   market:{ name: 'Marktplatz',    walkable: false },
+  tower: { name: 'Wachturm',      walkable: false },
+  tavern:{ name: 'Taverne',       walkable: false },
+  temple:{ name: 'Tempel',        walkable: false },
   castle:{ name: 'Burg',          walkable: false },
   ford:  { name: 'Furt',          walkable: true  },
   ruin:  { name: 'Ruine',         walkable: false },
@@ -471,6 +480,7 @@ function generateMap(world, rng) {
   }
   for (const t of world.tiles) {
     if (t.type === 'tree') t.wood = r.treeWood;
+    if (t.type === 'rock') t.wood = r.rockStone; // Steinvorrat (im Feld 'wood' gespeichert)
     if (t.type === 'bush') t.berries = r.bushMaxBerries;
   }
   // Risse (Tore in eine andere Welt): weit weg, je weiter, desto gefährlicher
@@ -500,7 +510,7 @@ class Settlement {
     this.campTile.town = this;
     this.id = opts.id || 0; this.name = opts.name || 'Siedlung'; this.capital = !!opts.capital;
     this.color = opts.color || BANNERS[this.id % BANNERS.length]; this.leader = opts.leader || ''; this.founded = opts.founded || 1;
-    this.stock = { wood: 0, crystals: 0, food: 0, coins: 0 };
+    this.stock = { wood: 0, crystals: 0, food: 0, coins: 0, stone: 0 };
     this.trades = []; // letzte Handelsgeschäfte für die Anzeige
     this.buildings = [];
     this.site = null;
@@ -508,6 +518,9 @@ class Settlement {
   }
   get houses() { return this.buildings.filter(b => b.type === 'house'); }
   get smithy() { return this.buildings.find(b => b.type === 'smithy'); }
+  get towers() { return this.buildings.filter(b => b.type === 'tower'); }
+  get tavern() { return this.buildings.find(b => b.type === 'tavern'); }
+  get temple() { return this.buildings.find(b => b.type === 'temple'); }
   get market() { return this.buildings.find(b => b.type === 'market'); }
   get castle() { return this.buildings.find(b => b.type === 'castle'); }
   get members() { return this.sim.npcs.filter(n => n.town === this); }
@@ -532,21 +545,23 @@ class Settlement {
 
   update() {
     if (this.fieldCount === undefined || this.sim.minutes % 15 === 0) this.recount();
-    if (this.site) return;
-    // Schmiede, sobald es ein paar Häuser und Kristalle gibt – sonst Häuser
-    let next = this.capital && !this.smithy && this.houses.length >= 3 && this.stock.crystals >= 1 ? 'smithy' : 'house';
-    if (next === 'house' && this.capital && this.smithy && !this.market && this.houses.length >= 8) next = 'market';
-    if (this.capital && this.sim.kingdom && !this.castle && this.sim.minutes >= (this.nextCastleTry || 0)) next = 'castle';
-    if (next === 'house') { // nur bauen, wenn Betten gebraucht werden
-      const free = this.houses.reduce((a, h) => a + h.beds - h.residents.length, 0);
-      if (free >= 2) return;
-    }
-    if (this.canAfford(CONFIG.buildings[next].cost)) this.startConstruction(next);
+    if (this.site || this.sim.minutes % 10 !== 0) return;
+    // Wunschliste nach Wichtigkeit; gebaut wird das erste, das bezahlbar ist
+    const sim = this.sim, H = this.houses.length, free = this.houses.reduce((a, h) => a + h.beds - h.residents.length, 0), wants = [];
+    if (this.capital && sim.kingdom && !this.castle && sim.minutes >= (this.nextCastleTry || 0)) wants.push('castle');
+    if (this.capital && !this.smithy && H >= 3 && this.stock.crystals >= 1) wants.push('smithy');
+    if (this.capital && this.smithy && !this.market && H >= 8) wants.push('market');
+    if (sim.day >= CONFIG.monsters.fromDay && H >= 3 && this.towers.length < Math.ceil((H + 1) / 7)) wants.push('tower');
+    if (this.capital && !this.tavern && H >= 12) wants.push('tavern');
+    if (this.capital && !this.temple && H >= 16) wants.push('temple');
+    if (free < 2) wants.push('house');
+    this.stoneWanted = wants.some(t => (CONFIG.buildings[t].cost.stone || 0) > this.stock.stone);
+    for (const type of wants) if (this.canAfford(CONFIG.buildings[type].cost) && this.startConstruction(type)) return;
   }
 
   startConstruction(type) {
     const def = CONFIG.buildings[type];
-    const tile = type === 'castle' ? this.findCastleSpot() : this.findBuildSpot();
+    const tile = type === 'castle' ? this.findCastleSpot() : this.findBuildSpot(type === 'tower' ? 4 + Math.sqrt(this.houses.length) * 1.6 : 0);
     if (!tile) { if (type === 'castle') this.nextCastleTry = this.sim.minutes + 240; return false; }
     this.pay(def.cost);
     const tiles = type === 'castle' ? this.footprint(tile) : [tile];
@@ -609,7 +624,7 @@ class Settlement {
   }
 
   /** Freie Wiese nahe am Lager. Raster mit Abstand 2 hält Wege frei. */
-  findBuildSpot() {
+  findBuildSpot(minD = 0) {
     const { world, npcs } = this.sim;
     const c = this.camp, R = 30;
     if (this.sim.minutes < (this.nextSpotTry || 0)) return null;
@@ -623,7 +638,7 @@ class Settlement {
         const t = world.tile(x, y);
         if (!t || t.type !== 'grass') continue;
         const d = Math.hypot(dx, dy * 1.1);
-        if (d >= bestD) continue;
+        if (d >= bestD || d < minD) continue; // Wachtürme lieber am Ortsrand
         if (npcs.some(n => Math.round(n.x) === x && Math.round(n.y) === y)) continue;
         if (!DIRS.some(([ax, ay]) => world.walkable(x + ax, y + ay))) continue;
         if (DIRS.some(([ax, ay]) => world.inBounds(x + ax, y + ay) && reach[(y + ay) * world.w + x + ax])) { best = t; bestD = d; }
@@ -755,7 +770,7 @@ defineAction({
 defineAction({
   id: 'deliver', label: 'bringt Holz ins Lager', short: 'Abliefern', start: 'bringt Holz zum Lager', icon: '📦',
   score(n, sim) {
-    const w = n.inventory.wood;
+    const w = n.inventory.wood + (n.inventory.stone || 0);
     if (w >= CONFIG.npc.carryCapacity) return 45;
     if (w > 0 && !n.town.site && n.town.stock.wood + w >= houseCost()) return 48; // reicht schon fürs Haus
     return w > 0 ? 20 : 0;
@@ -769,11 +784,12 @@ defineAction({
     const res = sim.world.findAdjacent(n.x, n.y, t => t === n.town.campTile);
     if (!res) return null;
     return [move(res.path), act((n, sim) => {
-      const amount = n.inventory.wood;
-      n.town.stock.wood += amount;
-      n.inventory.wood = 0;
-      sim.float(n.town.camp.x, n.town.camp.y, `+${amount} 🪵`, '#f0b54a');
-      sim.log(`legt ${amount} Holz ins Lager (${n.town.stock.wood}/${houseCost()})`, n);
+      const amount = n.inventory.wood, stone = n.inventory.stone || 0;
+      n.town.stock.wood += amount; n.town.stock.stone += stone;
+      n.inventory.wood = 0; n.inventory.stone = 0;
+      sim.float(n.town.camp.x, n.town.camp.y, stone ? `+${stone} 🪨` : `+${amount} 🪵`, '#f0b54a');
+      if (amount) sim.log(`legt ${amount} Holz ins Lager (${n.town.stock.wood}/${houseCost()})`, n);
+      if (stone) sim.log(`bringt ${stone} Stein ins Lager (${n.town.stock.stone})`, n);
       return 'done';
     })];
   },
@@ -781,7 +797,7 @@ defineAction({
 
 defineAction({
   id: 'gatherWood', label: 'hackt Holz', short: 'Holz', start: 'geht Holz hacken', icon: '🪓',
-  score: (n, sim) => n.inventory.wood < CONFIG.npc.carryCapacity ? 30 + (n.town.stock.wood >= houseCost() * 0.6 ? 4 : 0) : 0,
+  score: (n, sim) => n.inventory.wood < CONFIG.npc.carryCapacity && !n.inventory.stone ? 30 + (n.town.stock.wood >= houseCost() * 0.6 ? 4 : 0) : 0,
   think(n, sim) {
     const need = Math.max(0, houseCost() - n.town.stock.wood - woodCarried(sim));
     if (n.town.site) return 'Fürs übernächste Haus brauchen wir auch Holz.';
@@ -1140,6 +1156,72 @@ function finishGate(n, gate, sim) {
 }
 
 defineAction({
+  id: 'mineStone', label: 'bricht Stein', short: 'Stein', start: 'geht zum Steinbruch', icon: '⛏️',
+  score(n, sim) {
+    if (n.inventory.wood || sim.isNight || (n.inventory.stone || 0) >= CONFIG.npc.carryCapacity) return 0;
+    return n.town.stoneWanted || n.town.stock.stone < 15 ? 31 : 6;
+  },
+  think: (n, sim) => n.town.stoneWanted ? 'Für die neuen Gebäude brauchen wir Stein. Ab in den Steinbruch!' : 'Ein Vorrat an Stein kann nie schaden.',
+  plan(n, sim) {
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'rock' && t.wood > 0, 6000);
+    if (!res) return null;
+    const rock = res.target;
+    return [move(res.path), act((n, sim, s) => {
+      if (rock.type !== 'rock' || rock.wood <= 0) return 'done';
+      rock.hitAt = performance.now();
+      if (s.t % CONFIG.resources.mineMinutes !== 0) return;
+      rock.wood--; n.inventory.stone = (n.inventory.stone || 0) + 1;
+      sim.float(rock.x, rock.y, '+1 🪨', '#d8d4cc');
+      n.gainXp('mining', 1);
+      if (rock.wood <= 0) { sim.world.setType(rock, 'grass'); sim.log('⛏️ hat einen Felsen ganz abgetragen.', n); }
+      if (n.inventory.stone >= CONFIG.npc.carryCapacity || rock.type !== 'rock') return 'done';
+    }, { work: true, face: rock, tool: 'pick' })];
+  },
+});
+
+defineAction({
+  id: 'visitTavern', label: 'sitzt in der Taverne', short: 'Taverne', start: 'geht in die Taverne', icon: '🍺',
+  score(n, sim) {
+    const tv = n.town.tavern, h = sim.hourFloat;
+    if (!tv || h < 18 || h >= 22.5 || n.town.stock.coins < 1 || sim.minutes - (n.lastTavern || -1e9) < 1200) return 0;
+    return 30 + (100 - n.social) * 0.3 + n.traits.gesellig * 10;
+  },
+  think: (n, sim) => pick(sim, ['Feierabend! Ein Krug in der Taverne wäre jetzt schön.', 'In der Taverne spielt heute bestimmt wieder Musik.', 'Mal hören, welche Geschichten die Abenteurer heute erzählen.']),
+  plan(n, sim) {
+    const tv = n.town.tavern;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === tv.tile, 5000);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t === 1) { n.lastTavern = sim.minutes; n.town.stock.coins = Math.max(0, n.town.stock.coins - 1); n.inside = tv; tv.guests = (tv.guests || 0) + 1; }
+      n.social = Math.min(100, n.social + 0.8); n.mood = Math.min(100, n.mood + 0.3);
+      if (s.t >= 60) return 'done';
+    })];
+  },
+  onEnd(n) { if (n.inside && n.inside.type === 'tavern') { n.inside.guests = Math.max(0, (n.inside.guests || 1) - 1); n.inside = null; } },
+});
+
+defineAction({
+  id: 'pray', label: 'betet im Tempel', short: 'Tempel', start: 'geht zum Tempel', icon: '🙏',
+  score(n, sim) {
+    const tp = n.town.temple;
+    if (!tp || sim.isNight || sim.minutes - (n.lastPray || -1e9) < 1440) return 0;
+    const need = Math.max(0, 55 - n.mood) + (n.hp < n.maxHp * 0.6 ? 30 : 0);
+    return need > 0 ? 25 + need * 0.6 : 0;
+  },
+  think: n => n.hp < n.maxHp * 0.6 ? 'Meine Wunden schmerzen. Im Tempel finde ich Heilung.' : 'Ich brauche einen Moment der Ruhe im Tempel.',
+  plan(n, sim) {
+    const tp = n.town.temple;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === tp.tile, 5000);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t === 1) n.lastPray = sim.minutes;
+      n.mood = Math.min(100, n.mood + 0.5); n.hp = Math.min(n.maxHp, n.hp + n.maxHp * 0.02);
+      if (s.t >= 40) return 'done';
+    }, { face: tp.tile })];
+  },
+});
+
+defineAction({
   id: 'visitMarket', label: 'bummelt über den Markt', short: 'Markt', start: 'geht auf den Markt', icon: '🛍️',
   score(n, sim) {
     const m = n.town.market;
@@ -1263,7 +1345,7 @@ class NPC {
     this.x = x; this.y = y; this.prevX = x; this.prevY = y;
     this.hunger = CONFIG.npc.startHunger;
     this.energy = CONFIG.npc.startEnergy;
-    this.inventory = { wood: 0 };  // später: food, coins, weapon ...
+    this.inventory = { wood: 0, stone: 0 };  // später: food, coins, weapon ...
     this.profession = 'settler';
     this.home = null;
     this.skills = {};              // Erfahrung je Tätigkeit → Grundlage fürs Level-System
@@ -1695,11 +1777,34 @@ class Simulation {
     const P = CONFIG.professions, counts = {};
     for (const n of this.npcs) counts[n.profession] = (counts[n.profession] || 0) + 1;
     let best = 'holzfaeller', gapBest = -Infinity;
-    for (const k of ['holzfaeller', 'bauer', 'handwerker']) {
+    for (const k of ['holzfaeller', 'bauer', 'handwerker', 'steinmetz']) {
       const gap = P[k].share - (counts[k] || 0) / this.npcs.length;
       if (gap > gapBest) { gapBest = gap; best = k; }
     }
     return best;
+  }
+
+  /** Wachtürme schießen auf Monster in Reichweite. */
+  updateTowers() {
+    if (!this.monsters.length) return;
+    const range = CONFIG.buildings.tower.range;
+    for (const tw of this.towns) for (const b of tw.towers) {
+      if ((b.cd = (b.cd || 0) - 1) > 0) continue;
+      let best = null, bd = range;
+      for (const m of this.monsters) { const d = Math.hypot(m.x - b.tile.x, m.y - b.tile.y); if (d < bd) { bd = d; best = m; } }
+      if (!best) continue;
+      b.cd = 3;
+      const dmg = Math.round(12 * (1 + this.day * 0.1));
+      best.hp -= dmg; best.hitAt = performance.now();
+      this.float(best.x, best.y - 0.3, `-${dmg}`, '#ffd166');
+      this.emit('towerShot', { from: b.tile, to: best });
+      if (best.hp <= 0) {
+        const M = MONSTERS[best.kind];
+        tw.stock.crystals += M.tier === 3 ? 2 : 1;
+        this.log(`🏹 Ein Wachturm von ${tw.name} erlegt einen ${M.name}! (+💎)`, null, true);
+        this.emit('monsterKilled', best);
+      }
+    }
   }
 
   /** Handel: Markttag, Karren zwischen den Orten, fahrender Händler. */
@@ -1910,6 +2015,7 @@ class Simulation {
     if (this.minutes % 1440 === 7 * 60) this.payTribute();
     for (const npc of this.npcs) npc.update(this);
     this.updateMonsters();
+    this.updateTowers();
     this.updateTrade();
     if (!this.guild && this.minutes % 60 === 0) {
       const aw = this.npcs.filter(n => n.awakened).sort((a, b) => b.level - a.level);
@@ -2459,6 +2565,70 @@ function drawCart(c, cart, s, now, px, py) {
   c.restore();
 }
 
+/** Wachturm: runder Steinturm mit Holz-Wehrgang, Dach und Fackel. */
+function drawTowerSprite(c, s) {
+  const ol = 'rgba(30,26,22,.5)', lw = Math.max(1, s * 0.014), r = 0.26 * s, top = -1.45 * s;
+  const g = c.createLinearGradient(-r, 0, r, 0); g.addColorStop(0, '#d4cec2'); g.addColorStop(0.6, '#a39d91'); g.addColorStop(1, '#76716a');
+  c.fillStyle = g; c.beginPath(); c.moveTo(-r * 1.1, 0); c.lineTo(-r, top); c.lineTo(r, top); c.lineTo(r * 1.1, 0); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(40,36,30,.25)'; c.lineWidth = Math.max(1, s * 0.01);
+  for (let y = -0.12 * s, k = 0; y > top; y -= 0.11 * s, k++) { c.beginPath(); c.moveTo(-r * 1.08, y); c.lineTo(r * 1.08, y); c.stroke(); for (let x = -r + (k % 2) * 0.07 * s; x < r; x += 0.14 * s) { c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + 0.11 * s); c.stroke(); } }
+  c.strokeStyle = ol; c.lineWidth = lw; c.beginPath(); c.moveTo(-r * 1.1, 0); c.lineTo(-r, top); c.lineTo(r, top); c.lineTo(r * 1.1, 0); c.stroke();
+  c.fillStyle = '#26323e'; c.fillRect(-0.04 * s, -0.75 * s, 0.08 * s, 0.16 * s);
+  c.fillStyle = '#4e301a'; c.beginPath(); c.moveTo(-0.08 * s, 0); c.lineTo(-0.08 * s, -0.2 * s); c.arc(0, -0.2 * s, 0.08 * s, Math.PI, 0); c.lineTo(0.08 * s, 0); c.fill();
+  // Wehrgang aus Holz
+  c.fillStyle = '#7a5230'; c.fillRect(-r * 1.45, top - 0.05 * s, r * 2.9, 0.1 * s);
+  c.fillStyle = '#8a6239'; for (let x = -r * 1.4; x < r * 1.4; x += 0.09 * s) c.fillRect(x, top - 0.2 * s, 0.035 * s, 0.16 * s);
+  c.fillStyle = '#6b4526'; c.fillRect(-r * 1.45, top - 0.22 * s, r * 2.9, 0.035 * s);
+  // Dach
+  c.beginPath(); c.moveTo(-r * 1.6, top - 0.22 * s); c.lineTo(0, top - 0.75 * s); c.lineTo(r * 1.6, top - 0.22 * s); c.closePath();
+  const rg = c.createLinearGradient(-r, 0, r, 0); rg.addColorStop(0, '#b0503a'); rg.addColorStop(1, '#6e2a1e'); c.fillStyle = rg; c.fill();
+  c.strokeStyle = ol; c.lineWidth = lw; c.stroke();
+  // Fackelhalter
+  c.fillStyle = '#3a2414'; c.fillRect(r * 1.0, -1.0 * s, 0.03 * s, 0.14 * s);
+  return { torch: [0.27, -1.04], top: -1.5 };
+}
+
+/** Taverne: breites Fachwerkhaus mit Schild, Fässern und Bank. */
+function drawTavernSprite(c, s) {
+  const meta = drawHouseSprite(c, s, 1, false);
+  const ol = 'rgba(40,28,20,.55)', lw = Math.max(1, s * 0.014);
+  // Wirtshausschild am Ausleger
+  c.strokeStyle = '#3a2414'; c.lineWidth = Math.max(1.5, s * 0.025); c.beginPath(); c.moveTo(-0.42 * s, -0.62 * s); c.lineTo(-0.66 * s, -0.62 * s); c.stroke();
+  c.fillStyle = '#7a5230'; c.fillRect(-0.68 * s, -0.6 * s, 0.22 * s, 0.17 * s); c.strokeStyle = ol; c.lineWidth = lw; c.strokeRect(-0.68 * s, -0.6 * s, 0.22 * s, 0.17 * s);
+  c.fillStyle = '#e8c45a'; c.fillRect(-0.62 * s, -0.56 * s, 0.09 * s, 0.1 * s); c.fillStyle = '#fff'; c.fillRect(-0.62 * s, -0.57 * s, 0.09 * s, 0.025 * s);
+  c.strokeStyle = '#e8c45a'; c.lineWidth = Math.max(1, s * 0.015); c.beginPath(); c.arc(-0.52 * s, -0.51 * s, 0.025 * s, -1.4, 1.4); c.stroke();
+  // Fässer und Bank
+  for (const [bx, by] of [[0.48, -0.02], [0.6, 0.0]]) { c.fillStyle = '#7a5230'; c.beginPath(); c.ellipse(bx * s, (by - 0.08) * s, 0.065 * s, 0.09 * s, 0, 0, TAU); c.fill(); c.strokeStyle = '#3b2a1e'; c.lineWidth = lw; c.stroke(); c.beginPath(); c.moveTo((bx - 0.065) * s, (by - 0.1) * s); c.lineTo((bx + 0.065) * s, (by - 0.1) * s); c.stroke(); }
+  c.fillStyle = '#8a6239'; c.fillRect(-0.4 * s, -0.08 * s, 0.22 * s, 0.035 * s); c.fillRect(-0.38 * s, -0.05 * s, 0.025 * s, 0.05 * s); c.fillRect(-0.21 * s, -0.05 * s, 0.025 * s, 0.05 * s);
+  return meta;
+}
+
+/** Tempel: weißer Stein, Treppe, Säulen und goldene Kuppel mit Sonnenzeichen. */
+function drawTempleSprite(c, s) {
+  const ol = 'rgba(40,36,30,.45)', lw = Math.max(1, s * 0.014);
+  // Treppe
+  for (let k = 0; k < 3; k++) { c.fillStyle = ['#e9e4d8', '#ddd6c6', '#cfc7b4'][k]; c.fillRect((-0.6 + k * 0.05) * s, (-0.06 - k * 0.06) * s, (1.2 - k * 0.1) * s, 0.06 * s); }
+  // Cella
+  const g = c.createLinearGradient(-0.5 * s, 0, 0.5 * s, 0); g.addColorStop(0, '#fbf8f0'); g.addColorStop(1, '#d9d2c2');
+  c.fillStyle = g; c.fillRect(-0.45 * s, -0.95 * s, 0.9 * s, 0.77 * s);
+  c.fillStyle = '#3a2f26'; c.beginPath(); c.moveTo(-0.11 * s, -0.18 * s); c.lineTo(-0.11 * s, -0.48 * s); c.arc(0, -0.48 * s, 0.11 * s, Math.PI, 0); c.lineTo(0.11 * s, -0.18 * s); c.fill();
+  // Säulen
+  for (const x of [-0.5, -0.3, 0.3, 0.5]) {
+    const cg = c.createLinearGradient((x - 0.04) * s, 0, (x + 0.04) * s, 0); cg.addColorStop(0, '#ffffff'); cg.addColorStop(1, '#bdb5a4');
+    c.fillStyle = cg; c.fillRect((x - 0.04) * s, -0.98 * s, 0.08 * s, 0.8 * s);
+    c.fillStyle = '#e9e4d8'; c.fillRect((x - 0.06) * s, -1.0 * s, 0.12 * s, 0.04 * s); c.fillRect((x - 0.06) * s, -0.2 * s, 0.12 * s, 0.03 * s);
+  }
+  // Giebel
+  c.fillStyle = '#efe9dc'; c.beginPath(); c.moveTo(-0.62 * s, -1.0 * s); c.lineTo(0, -1.25 * s); c.lineTo(0.62 * s, -1.0 * s); c.closePath(); c.fill(); c.strokeStyle = ol; c.lineWidth = lw; c.stroke();
+  // goldene Kuppel
+  const dg = c.createRadialGradient(-0.08 * s, -1.55 * s, 0.02 * s, 0, -1.4 * s, 0.32 * s); dg.addColorStop(0, '#fff3b0'); dg.addColorStop(0.5, '#f0c35a'); dg.addColorStop(1, '#a8781e');
+  c.fillStyle = '#e9e4d8'; c.fillRect(-0.24 * s, -1.32 * s, 0.48 * s, 0.1 * s);
+  c.fillStyle = dg; c.beginPath(); c.arc(0, -1.32 * s, 0.26 * s, Math.PI, 0); c.fill(); c.strokeStyle = ol; c.stroke();
+  c.strokeStyle = '#f0c35a'; c.lineWidth = Math.max(1, s * 0.02); c.beginPath(); c.moveTo(0, -1.58 * s); c.lineTo(0, -1.72 * s); c.stroke();
+  c.fillStyle = '#ffe28a'; c.beginPath(); c.arc(0, -1.76 * s, 0.05 * s, 0, TAU); c.fill();
+  return { glow: [0, -1.4] };
+}
+
 class Renderer {
   constructor(canvas, sim) {
     this.canvas = canvas;
@@ -2626,6 +2796,9 @@ class Renderer {
     S.bush = this.makeSprite(1.0, 0.95, 0.5, 0.85, drawBush);
     for (let v = 0; v < 2; v++) S['rock' + v] = this.makeSprite(1.0, 0.8, 0.5, 0.7, (c, s) => drawRock(c, s, v));
     for (let v = 0; v < 3; v++) S['ruin' + v] = this.makeSprite(1.0, 1.5, 0.45, 1.4, (c, s) => drawRuin(c, s, v));
+    S.tower = this.makeSprite(1.0, 2.3, 0.5, 2.2, drawTowerSprite);
+    S.tavern = this.makeSprite(1.7, 1.8, 0.75, 1.62, drawTavernSprite);
+    S.temple = this.makeSprite(1.5, 2.0, 0.75, 1.88, drawTempleSprite);
     S.market = this.makeSprite(1.8, 1.0, 0.85, 0.75, drawMarketSprite);
     S.smithy = this.makeSprite(1.5, 2.0, 0.75, 1.85, drawSmithySprite);
     for (let v = 0; v < ROOFS.length; v++) {
@@ -2679,7 +2852,7 @@ class Renderer {
 
   pathLevel(t) {
     if (!t) return 0;
-    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market') return 1;
+    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market' || t.type === 'tower' || t.type === 'tavern' || t.type === 'temple') return 1;
     return t.type === 'grass' ? Math.min(1, t.traffic / 50) : 0;
   }
 
@@ -2792,7 +2965,8 @@ class Renderer {
       else if (a.id === 'eat') arms = 'eat';
       else if (a.id === 'socialize') arms = 'talk';
       else if (a.id === 'forge') arms = 'build';
-      else if (a.id === 'plantField' || a.id === 'harvest' || a.id === 'searchRuin') arms = 'chop';
+      else if (a.id === 'plantField' || a.id === 'harvest' || a.id === 'searchRuin' || a.id === 'mineStone') arms = 'chop';
+      else if (a.id === 'pray') arms = 'pray';
       else if (a.id === 'fight') arms = 'fight';
     }
     let facing = n.facing || 1;
@@ -2913,6 +3087,8 @@ class Renderer {
       const k = hamT < 0.6 ? ease(hamT / 0.6) : hamT < 0.72 ? 1 - (hamT - 0.6) / 0.12 : 0;
       front = fk(1.0, lerp(0.15, 1.9, k)); tool = { kind: 'hammer', x: front.h.x, y: front.h.y, a: 1.0 + lerp(0.15, 1.9, k) };
       back = fk(0.85, 0.5);
+    } else if (pose.arms === 'pray') {
+      front = ik({ x: shoulder.x + 0.1 * U, y: shoulder.y + 0.06 * U }); back = ik({ x: shoulder.x + 0.085 * U, y: shoulder.y + 0.07 * U });
     } else if (pose.arms === 'eat') {
       const m = ease((Math.sin(t * 2.4) + 1) / 2);
       front = ik({ x: lerp(shoulder.x + 0.1 * U, head.x + 0.07 * U, m), y: lerp(shoulder.y + 0.13 * U, head.y + 0.05 * U, m) }); back = fk(0.1, 0.2);
@@ -3047,6 +3223,10 @@ class Renderer {
       c.fillStyle = '#b8342c'; c.beginPath(); c.ellipse(hx - 0.005 * U, hy - 0.03 * U, HR * 1.05, HR * 0.95, 0, Math.PI * 1.02, Math.PI * 1.98); c.closePath(); c.fill(); c.strokeStyle = ol; c.lineWidth = ow; c.stroke();
       c.fillStyle = '#8f2620'; c.fillRect(hx - HR * 1.05, hy - 0.04 * U, HR * 2.1, 0.025 * U);
       c.fillStyle = '#e9e2d4'; c.beginPath(); c.arc(hx - 0.01 * U, hy - 0.13 * U, 0.028 * U, 0, TAU); c.fill();
+    } else if (hat === 'miner') {
+      c.fillStyle = '#c9a43a'; c.beginPath(); c.ellipse(hx - 0.005 * U, hy - 0.03 * U, HR * 1.12, HR * 1.0, 0, Math.PI * 1.02, Math.PI * 1.98); c.closePath(); c.fill(); c.strokeStyle = ol; c.lineWidth = ow; c.stroke();
+      c.fillStyle = '#8a6e22'; c.fillRect(hx - HR * 1.15, hy - 0.04 * U, HR * 2.3, 0.022 * U);
+      c.fillStyle = '#fff3b0'; c.beginPath(); c.arc(hx + 0.05 * U, hy - 0.08 * U, 0.022 * U, 0, TAU); c.fill();
     } else if (hat === 'band') {
       c.fillStyle = '#3f6fb0'; c.fillRect(hx - 0.1 * U, hy - 0.06 * U, 0.2 * U, 0.026 * U);
     }
@@ -3071,7 +3251,8 @@ class Renderer {
       else {
         c.strokeStyle = '#8a6239'; c.lineWidth = 0.032 * U; c.beginPath(); c.moveTo(0, -0.07 * U); c.lineTo(0, 0.25 * U); c.stroke();
         c.fillStyle = '#aab3bb'; c.strokeStyle = ol; c.lineWidth = ow;
-        if (tool.kind === 'hoe') { c.beginPath(); c.moveTo(0, 0.21 * U); c.lineTo(0.12 * U, 0.25 * U); c.lineTo(0.11 * U, 0.28 * U); c.lineTo(0, 0.25 * U); c.fill(); }
+        if (tool.kind === 'pick') { c.strokeStyle = '#8a8f96'; c.lineWidth = 0.035 * U; c.beginPath(); c.moveTo(-0.1 * U, 0.17 * U); c.quadraticCurveTo(0, 0.25 * U, 0.12 * U, 0.17 * U); c.stroke(); }
+        else if (tool.kind === 'hoe') { c.beginPath(); c.moveTo(0, 0.21 * U); c.lineTo(0.12 * U, 0.25 * U); c.lineTo(0.11 * U, 0.28 * U); c.lineTo(0, 0.25 * U); c.fill(); }
         else if (tool.kind === 'sickle') { c.strokeStyle = '#c9ced4'; c.lineWidth = 0.025 * U; c.beginPath(); c.arc(0.06 * U, 0.21 * U, 0.08 * U, -2.6, 0.3); c.stroke(); }
         else if (tool.kind === 'axe') { c.beginPath(); c.moveTo(0, 0.13 * U); c.lineTo(0.13 * U, 0.09 * U); c.quadraticCurveTo(0.16 * U, 0.18 * U, 0.13 * U, 0.27 * U); c.lineTo(0, 0.23 * U); c.closePath(); c.fill(); c.stroke(); }
         else { c.fillRect(-0.05 * U, 0.18 * U, 0.14 * U, 0.07 * U); c.strokeRect(-0.05 * U, 0.18 * U, 0.14 * U, 0.07 * U); }
@@ -3192,7 +3373,7 @@ class Renderer {
     const r = this.canvas.getBoundingClientRect(), w = this.sim.world;
     const tx = Math.floor((clientX - r.left + this.camX) / this.ts), ty = Math.floor((clientY - r.top + this.camY) / this.ts);
     const here = w.tile(tx, ty), below = w.tile(tx, ty + 1);
-    const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy', 'market'].includes(t.type);
+    const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy', 'market', 'tower', 'tavern', 'temple'].includes(t.type);
     const pick = t => t && t.part ? t.part : t;
     for (let dy = 1; dy <= 3; dy++) { const t = w.tile(tx, ty + dy); if (t && t.type === 'castle' && (!here || here.type === 'grass')) return pick(t); }
     if (!tall(here) && tall(below)) return pick(below);
@@ -3208,7 +3389,7 @@ class Renderer {
       cv.width = w.w; cv.height = w.h;
       const ctx = cv.getContext('2d'), img = ctx.createImageData(w.w, w.h);
       const COL = { grass: [77, 122, 58], tree: [36, 80, 44], stump: [90, 110, 60], water: [47, 111, 159], ford: [90, 159, 192], bush: [60, 125, 63],
-        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
+        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], tower: [200, 195, 185], tavern: [190, 120, 60], temple: [250, 240, 200], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
       w.tiles.forEach((t, i) => {
         let col = COL[t.type] || COL.grass;
         if (t.type === 'grass' && t.traffic > 25) col = [138, 115, 80];
@@ -3475,6 +3656,7 @@ class Renderer {
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const t = sim.world.tile(x, y);
         if (t.type === 'tree') { const [bx, by] = this.treeBase(t, s); shadow(this.treeSprite(t), bx, by); }
+        else if (t.type === 'tower' || t.type === 'tavern' || t.type === 'temple') shadow(this.sprites[t.type], (x + 0.5) * s, (y + 0.92) * s);
         else if (t.type === 'smithy') shadow(this.sprites.smithy, (x + 0.5) * s, (y + 0.95) * s);
         else if (t.type === 'house') shadow(this.houseSprite(t), (x + 0.45) * s, (y + 0.92) * s);
         else if (t.type === 'castle' && t.part && t.y === t.part.y + 1 && t.x === t.part.x) shadow(this.sprites.castle, (x + 0.5) * s, (y + 0.95) * s);
@@ -3566,10 +3748,25 @@ class Renderer {
             break;
           }
           case 'camp': this.drawCamp(c, t, s, now); break;
-          case 'rock': { const sp = this.sprites['rock' + (t.shade < 0.5 ? 0 : 1)]; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.85) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
+          case 'rock': {
+            const sp = this.sprites['rock' + (t.shade < 0.5 ? 0 : 1)], k = sk * (0.55 + 0.45 * Math.min(1, (t.wood || CONFIG.resources.rockStone) / CONFIG.resources.rockStone));
+            const shake = t.hitAt && now - t.hitAt < 200 ? Math.sin(now / 20) * s * 0.02 : 0;
+            c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * k + shake, (y + 0.85) * s - sp.ay * k, sp.w * k, sp.h * k); break;
+          }
           case 'ruin': { const sp = this.sprites['ruin' + Math.min(2, Math.floor(t.shade * 3))]; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.9) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
           case 'gate': this.drawGate(c, t, s, now); break;
           case 'field': this.drawCrops(c, t, s, now); break;
+          case 'tower': case 'tavern': case 'temple': {
+            const sp = this.sprites[t.type], bx = (x + 0.5) * s, by = (y + 0.92) * s;
+            c.drawImage(sp.cv, bx - sp.ax * sk, by - sp.ay * sk, sp.w * sk, sp.h * sk);
+            if (t.type === 'tower') { // Fackel
+              const [tx, ty] = sp.meta.torch, fx = bx + tx * s, fy = by + ty * s, fh = s * 0.12 * (0.85 + Math.sin(now / 80 + x) * 0.15);
+              c.fillStyle = '#ff8a2a'; c.beginPath(); c.moveTo(fx - 0.03 * s, fy); c.quadraticCurveTo(fx, fy - fh * 1.4, fx + 0.03 * s, fy); c.fill();
+              c.fillStyle = '#ffe36b'; c.beginPath(); c.moveTo(fx - 0.015 * s, fy); c.quadraticCurveTo(fx, fy - fh * 0.8, fx + 0.015 * s, fy); c.fill();
+            }
+            if (t.type === 'temple' && Math.random() < 0.03) this.emit('spark', x + 0.5 + rand(-0.2, 0.2), y + 0.92 - 1.5, { vy: -0.3, life: 1.5, size: 0.02, rgb: '255,230,140' });
+            break;
+          }
           case 'market': { const sp = this.sprites.market; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.9) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
           case 'smithy': {
             const sp = this.sprites.smithy, bx = (x + 0.5) * s, by = (y + 0.95) * s;
@@ -3605,6 +3802,14 @@ class Renderer {
       }
     }
 
+    // Pfeile der Wachtürme
+    this.shots = (this.shots || []).filter(sh => now - sh.born < 350);
+    c.strokeStyle = '#f3e9d2'; c.lineWidth = Math.max(1.2, s * 0.025);
+    for (const sh of this.shots) {
+      const k = (now - sh.born) / 350, x0 = (sh.from.x + 0.5) * s, y0 = (sh.from.y - 0.55) * s, x1 = (sh.to.x + 0.5) * s, y1 = (sh.to.y + 0.5) * s;
+      const ax = x0 + (x1 - x0) * k, ay = y0 + (y1 - y0) * k - Math.sin(k * Math.PI) * s * 0.6, a = Math.atan2(y1 - y0, x1 - x0);
+      c.beginPath(); c.moveTo(ax - Math.cos(a) * s * 0.2, ay - Math.sin(a) * s * 0.2); c.lineTo(ax, ay); c.stroke();
+    }
     // 5) Partikel, Rauch
     this.emitAmbient(dt, x0, x1, y0, y1, this.nightAlpha(), drawn);
     this.updateParticles(dt);
@@ -3680,6 +3885,11 @@ class Renderer {
       const fl = 1 + Math.sin(now / 110) * 0.04 + Math.sin(now / 47) * 0.03;
       for (const tw of sim.towns) hole((tw.camp.x + 0.58) * s, (tw.camp.y + 0.55) * s, s * 4.2 * fl, 0.95);
       for (const b of sim.allHouses) if (b.residents.length) hole((b.tile.x + 0.5) * s, (b.tile.y + 0.6) * s, s * 1.8, 0.65);
+      for (const tw of sim.towns) for (const b of tw.buildings) {
+        if (b.type === 'tower') hole((b.tile.x + 0.77) * s, (b.tile.y - 0.1) * s, s * 2.2, 0.8);
+        else if (b.type === 'tavern') hole((b.tile.x + 0.5) * s, (b.tile.y + 0.6) * s, s * 2.4, 0.85);
+        else if (b.type === 'temple') hole((b.tile.x + 0.5) * s, (b.tile.y - 0.3) * s, s * 2.2, 0.7);
+      }
       const castle = sim.capital.castle; if (castle) hole((castle.tile.x + 0.5) * s, (castle.tile.y + 0.2) * s, s * 4, 0.85);
       for (const g of sim.world.gates) hole((g.x + 0.5) * s, (g.y + 0.3) * s, s * 2.6, 0.85);
       const sm = sim.capital.smithy; if (sm) hole((sm.tile.x + 0.5) * s, (sm.tile.y + 0.7) * s, s * 2, 0.8);
@@ -3706,6 +3916,8 @@ class Renderer {
         if (!b.residents.length) continue;
         for (const [wx, wy, ww, wh] of this.houseSprite(b.tile).meta.windows) c.fillRect((b.tile.x + 0.45 + wx - ww / 2) * s, (b.tile.y + 0.92 + wy - wh / 2) * s, ww * s, wh * s);
       }
+      const tav = sim.capital.tavern;
+      if (tav) for (const [wx, wy, ww, wh] of this.sprites.tavern.meta.windows) c.fillRect((tav.tile.x + 0.5 + wx - ww / 2) * s, (tav.tile.y + 0.92 + wy - wh / 2) * s, ww * s, wh * s);
       if (castle) for (const [wx, wy, ww, wh] of this.sprites.castle.meta.windows) c.fillRect((castle.tile.x + 0.5 + wx - ww / 2) * s, (castle.tile.y + 1.95 + wy - wh / 2) * s, ww * s, wh * s);
     }
     world();
@@ -3924,6 +4136,13 @@ class Sound {
       }
       this.nextCricket = t + 0.6 + Math.random() * 1.2;
     }
+    // Lautenmusik aus der Taverne am Abend
+    const tav = sim.capital && sim.capital.tavern, hr = sim.hourFloat;
+    if (tav && hr >= 18 && hr < 23 && Math.hypot(tav.tile.x - camTx, tav.tile.y - camTy) < 9 && t > (this.nextLute || 0)) {
+      const sc = [196, 220, 246.94, 293.66, 329.63, 392];
+      this.tone(sc[Math.floor(Math.random() * sc.length)], t, 0.9, 0.035, 'triangle');
+      this.nextLute = t + 0.25 + Math.random() * 0.45;
+    }
     // Knistern am Feuer
     if (fireNear > 0.1 && t > this.nextCrackle) {
       const src = a.createBufferSource(); src.buffer = this.noiseBuf;
@@ -4034,6 +4253,10 @@ function tileInfo(t) {
       return head('🌾', 'Getreidefeld', p >= 1 ? 'reif – bereit zur Ernte!' : `wächst … noch etwa ${Math.ceil((1 - p) * CONFIG.farming.growMinutes / 60)} Stunden`)
         + bar('Wachstum', p * 100, '#e6c45a') + `<div class="muted small">Eine Ernte bringt ${CONFIG.farming.harvestFood} Brot ins Lager.</div>`;
     }
+    case 'tower': return head('🗼', 'Wachturm', `Schießt nachts auf Monster im Umkreis von ${CONFIG.buildings.tower.range} Feldern`) + '<div class="thought">Oben brennt eine Fackel. Wer Wache hält, sieht die Risslinge schon von Weitem.</div>';
+    case 'tavern': { const b = t.building; return head('🍺', 'Taverne „Zum Goldenen Krug“', `${b.guests || 0} Gäste gerade · abends geöffnet`) + '<div class="thought">Lautenklänge, Lachen und Geschichten über die Risse. Ein Krug kostet eine Münze aus der Stadtkasse.</div>'; }
+    case 'temple': return head('⛩️', 'Tempel des Lichts', 'Hier heilen Wunden und schwere Herzen') + '<div class="thought">Weißer Stein und eine goldene Kuppel, die selbst nachts schimmert.</div>';
+    case 'rock': return head('🪨', 'Fels', `${t.wood || 0} Stein übrig – Steinmetze brechen ihn ab`) + bar('Stein', (t.wood || 0) / CONFIG.resources.rockStone * 100, '#a3a9ae');
     case 'market': {
       const tw = (t.building && t.building.town) || sim.capital, shoppers = sim.npcs.filter(n => n.task && n.task.actionId === 'visitMarket');
       return head('🛍️', `Marktplatz von ${esc(tw.name)}`, 'Markttag ist jeden Mittag – Überschuss wird zu Münzen.')
@@ -4124,7 +4347,7 @@ function updateHud() {
   const st = sim.settlement, cost = CONFIG.buildings.house.cost.wood;
   const site = st.site ? ` · 🔨 Bau ${Math.floor(st.site.progress / st.site.work * 100)} %` : '';
   const mon = sim.monsters.length ? ` · <span style="color:#ff6b6b">👹 ${sim.monsters.length}</span>` : '';
-  $('stats').innerHTML = `🪵 <b>${st.stock.wood}</b>/${cost} · 🍞 <b>${st.stock.food}</b> · 💎 <b>${st.stock.crystals}</b> · 🪙 <b>${st.stock.coins || 0}</b> · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}${mon}`
+  $('stats').innerHTML = `🪵 <b>${st.stock.wood}</b>/${cost} · 🍞 <b>${st.stock.food}</b> · 🪨 <b>${st.stock.stone || 0}</b> · 💎 <b>${st.stock.crystals}</b> · 🪙 <b>${st.stock.coins || 0}</b> · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}${mon}`
     + `<div class="goal"><i style="width:${Math.min(100, st.stock.wood / cost * 100)}%"></i></div>`;
 }
 
@@ -4162,6 +4385,7 @@ function startSim(s) {
   sim.on('system', msg => { if (ui.sysQueue.length < 6) ui.sysQueue.push(msg); });
   sim.on('levelup', n => { renderer.burst(n, 'levelup'); sound.levelUp(); buildRoster(); });
   sim.on('kingdom', () => { sound.levelUp(); setTimeout(() => sound.levelUp(), 300); setTimeout(() => sound.chime(), 700); });
+  sim.on('towerShot', e => renderer.shots = [...(renderer.shots || []), { ...e, to: { x: e.to.x, y: e.to.y }, born: performance.now() }]);
   sim.on('legendary', ({ n }) => { renderer.burst(n, 'legendary'); sound.levelUp(); setTimeout(() => sound.levelUp(), 250); });
   sim.on('awaken', n => { renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
   sim.on('npcAdded', buildRoster);

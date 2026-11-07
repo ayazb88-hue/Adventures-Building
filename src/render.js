@@ -454,6 +454,70 @@ function drawCart(c, cart, s, now, px, py) {
   c.restore();
 }
 
+/** Wachturm: runder Steinturm mit Holz-Wehrgang, Dach und Fackel. */
+function drawTowerSprite(c, s) {
+  const ol = 'rgba(30,26,22,.5)', lw = Math.max(1, s * 0.014), r = 0.26 * s, top = -1.45 * s;
+  const g = c.createLinearGradient(-r, 0, r, 0); g.addColorStop(0, '#d4cec2'); g.addColorStop(0.6, '#a39d91'); g.addColorStop(1, '#76716a');
+  c.fillStyle = g; c.beginPath(); c.moveTo(-r * 1.1, 0); c.lineTo(-r, top); c.lineTo(r, top); c.lineTo(r * 1.1, 0); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(40,36,30,.25)'; c.lineWidth = Math.max(1, s * 0.01);
+  for (let y = -0.12 * s, k = 0; y > top; y -= 0.11 * s, k++) { c.beginPath(); c.moveTo(-r * 1.08, y); c.lineTo(r * 1.08, y); c.stroke(); for (let x = -r + (k % 2) * 0.07 * s; x < r; x += 0.14 * s) { c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + 0.11 * s); c.stroke(); } }
+  c.strokeStyle = ol; c.lineWidth = lw; c.beginPath(); c.moveTo(-r * 1.1, 0); c.lineTo(-r, top); c.lineTo(r, top); c.lineTo(r * 1.1, 0); c.stroke();
+  c.fillStyle = '#26323e'; c.fillRect(-0.04 * s, -0.75 * s, 0.08 * s, 0.16 * s);
+  c.fillStyle = '#4e301a'; c.beginPath(); c.moveTo(-0.08 * s, 0); c.lineTo(-0.08 * s, -0.2 * s); c.arc(0, -0.2 * s, 0.08 * s, Math.PI, 0); c.lineTo(0.08 * s, 0); c.fill();
+  // Wehrgang aus Holz
+  c.fillStyle = '#7a5230'; c.fillRect(-r * 1.45, top - 0.05 * s, r * 2.9, 0.1 * s);
+  c.fillStyle = '#8a6239'; for (let x = -r * 1.4; x < r * 1.4; x += 0.09 * s) c.fillRect(x, top - 0.2 * s, 0.035 * s, 0.16 * s);
+  c.fillStyle = '#6b4526'; c.fillRect(-r * 1.45, top - 0.22 * s, r * 2.9, 0.035 * s);
+  // Dach
+  c.beginPath(); c.moveTo(-r * 1.6, top - 0.22 * s); c.lineTo(0, top - 0.75 * s); c.lineTo(r * 1.6, top - 0.22 * s); c.closePath();
+  const rg = c.createLinearGradient(-r, 0, r, 0); rg.addColorStop(0, '#b0503a'); rg.addColorStop(1, '#6e2a1e'); c.fillStyle = rg; c.fill();
+  c.strokeStyle = ol; c.lineWidth = lw; c.stroke();
+  // Fackelhalter
+  c.fillStyle = '#3a2414'; c.fillRect(r * 1.0, -1.0 * s, 0.03 * s, 0.14 * s);
+  return { torch: [0.27, -1.04], top: -1.5 };
+}
+
+/** Taverne: breites Fachwerkhaus mit Schild, Fässern und Bank. */
+function drawTavernSprite(c, s) {
+  const meta = drawHouseSprite(c, s, 1, false);
+  const ol = 'rgba(40,28,20,.55)', lw = Math.max(1, s * 0.014);
+  // Wirtshausschild am Ausleger
+  c.strokeStyle = '#3a2414'; c.lineWidth = Math.max(1.5, s * 0.025); c.beginPath(); c.moveTo(-0.42 * s, -0.62 * s); c.lineTo(-0.66 * s, -0.62 * s); c.stroke();
+  c.fillStyle = '#7a5230'; c.fillRect(-0.68 * s, -0.6 * s, 0.22 * s, 0.17 * s); c.strokeStyle = ol; c.lineWidth = lw; c.strokeRect(-0.68 * s, -0.6 * s, 0.22 * s, 0.17 * s);
+  c.fillStyle = '#e8c45a'; c.fillRect(-0.62 * s, -0.56 * s, 0.09 * s, 0.1 * s); c.fillStyle = '#fff'; c.fillRect(-0.62 * s, -0.57 * s, 0.09 * s, 0.025 * s);
+  c.strokeStyle = '#e8c45a'; c.lineWidth = Math.max(1, s * 0.015); c.beginPath(); c.arc(-0.52 * s, -0.51 * s, 0.025 * s, -1.4, 1.4); c.stroke();
+  // Fässer und Bank
+  for (const [bx, by] of [[0.48, -0.02], [0.6, 0.0]]) { c.fillStyle = '#7a5230'; c.beginPath(); c.ellipse(bx * s, (by - 0.08) * s, 0.065 * s, 0.09 * s, 0, 0, TAU); c.fill(); c.strokeStyle = '#3b2a1e'; c.lineWidth = lw; c.stroke(); c.beginPath(); c.moveTo((bx - 0.065) * s, (by - 0.1) * s); c.lineTo((bx + 0.065) * s, (by - 0.1) * s); c.stroke(); }
+  c.fillStyle = '#8a6239'; c.fillRect(-0.4 * s, -0.08 * s, 0.22 * s, 0.035 * s); c.fillRect(-0.38 * s, -0.05 * s, 0.025 * s, 0.05 * s); c.fillRect(-0.21 * s, -0.05 * s, 0.025 * s, 0.05 * s);
+  return meta;
+}
+
+/** Tempel: weißer Stein, Treppe, Säulen und goldene Kuppel mit Sonnenzeichen. */
+function drawTempleSprite(c, s) {
+  const ol = 'rgba(40,36,30,.45)', lw = Math.max(1, s * 0.014);
+  // Treppe
+  for (let k = 0; k < 3; k++) { c.fillStyle = ['#e9e4d8', '#ddd6c6', '#cfc7b4'][k]; c.fillRect((-0.6 + k * 0.05) * s, (-0.06 - k * 0.06) * s, (1.2 - k * 0.1) * s, 0.06 * s); }
+  // Cella
+  const g = c.createLinearGradient(-0.5 * s, 0, 0.5 * s, 0); g.addColorStop(0, '#fbf8f0'); g.addColorStop(1, '#d9d2c2');
+  c.fillStyle = g; c.fillRect(-0.45 * s, -0.95 * s, 0.9 * s, 0.77 * s);
+  c.fillStyle = '#3a2f26'; c.beginPath(); c.moveTo(-0.11 * s, -0.18 * s); c.lineTo(-0.11 * s, -0.48 * s); c.arc(0, -0.48 * s, 0.11 * s, Math.PI, 0); c.lineTo(0.11 * s, -0.18 * s); c.fill();
+  // Säulen
+  for (const x of [-0.5, -0.3, 0.3, 0.5]) {
+    const cg = c.createLinearGradient((x - 0.04) * s, 0, (x + 0.04) * s, 0); cg.addColorStop(0, '#ffffff'); cg.addColorStop(1, '#bdb5a4');
+    c.fillStyle = cg; c.fillRect((x - 0.04) * s, -0.98 * s, 0.08 * s, 0.8 * s);
+    c.fillStyle = '#e9e4d8'; c.fillRect((x - 0.06) * s, -1.0 * s, 0.12 * s, 0.04 * s); c.fillRect((x - 0.06) * s, -0.2 * s, 0.12 * s, 0.03 * s);
+  }
+  // Giebel
+  c.fillStyle = '#efe9dc'; c.beginPath(); c.moveTo(-0.62 * s, -1.0 * s); c.lineTo(0, -1.25 * s); c.lineTo(0.62 * s, -1.0 * s); c.closePath(); c.fill(); c.strokeStyle = ol; c.lineWidth = lw; c.stroke();
+  // goldene Kuppel
+  const dg = c.createRadialGradient(-0.08 * s, -1.55 * s, 0.02 * s, 0, -1.4 * s, 0.32 * s); dg.addColorStop(0, '#fff3b0'); dg.addColorStop(0.5, '#f0c35a'); dg.addColorStop(1, '#a8781e');
+  c.fillStyle = '#e9e4d8'; c.fillRect(-0.24 * s, -1.32 * s, 0.48 * s, 0.1 * s);
+  c.fillStyle = dg; c.beginPath(); c.arc(0, -1.32 * s, 0.26 * s, Math.PI, 0); c.fill(); c.strokeStyle = ol; c.stroke();
+  c.strokeStyle = '#f0c35a'; c.lineWidth = Math.max(1, s * 0.02); c.beginPath(); c.moveTo(0, -1.58 * s); c.lineTo(0, -1.72 * s); c.stroke();
+  c.fillStyle = '#ffe28a'; c.beginPath(); c.arc(0, -1.76 * s, 0.05 * s, 0, TAU); c.fill();
+  return { glow: [0, -1.4] };
+}
+
 class Renderer {
   constructor(canvas, sim) {
     this.canvas = canvas;
@@ -621,6 +685,9 @@ class Renderer {
     S.bush = this.makeSprite(1.0, 0.95, 0.5, 0.85, drawBush);
     for (let v = 0; v < 2; v++) S['rock' + v] = this.makeSprite(1.0, 0.8, 0.5, 0.7, (c, s) => drawRock(c, s, v));
     for (let v = 0; v < 3; v++) S['ruin' + v] = this.makeSprite(1.0, 1.5, 0.45, 1.4, (c, s) => drawRuin(c, s, v));
+    S.tower = this.makeSprite(1.0, 2.3, 0.5, 2.2, drawTowerSprite);
+    S.tavern = this.makeSprite(1.7, 1.8, 0.75, 1.62, drawTavernSprite);
+    S.temple = this.makeSprite(1.5, 2.0, 0.75, 1.88, drawTempleSprite);
     S.market = this.makeSprite(1.8, 1.0, 0.85, 0.75, drawMarketSprite);
     S.smithy = this.makeSprite(1.5, 2.0, 0.75, 1.85, drawSmithySprite);
     for (let v = 0; v < ROOFS.length; v++) {
@@ -674,7 +741,7 @@ class Renderer {
 
   pathLevel(t) {
     if (!t) return 0;
-    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market') return 1;
+    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market' || t.type === 'tower' || t.type === 'tavern' || t.type === 'temple') return 1;
     return t.type === 'grass' ? Math.min(1, t.traffic / 50) : 0;
   }
 
@@ -787,7 +854,8 @@ class Renderer {
       else if (a.id === 'eat') arms = 'eat';
       else if (a.id === 'socialize') arms = 'talk';
       else if (a.id === 'forge') arms = 'build';
-      else if (a.id === 'plantField' || a.id === 'harvest' || a.id === 'searchRuin') arms = 'chop';
+      else if (a.id === 'plantField' || a.id === 'harvest' || a.id === 'searchRuin' || a.id === 'mineStone') arms = 'chop';
+      else if (a.id === 'pray') arms = 'pray';
       else if (a.id === 'fight') arms = 'fight';
     }
     let facing = n.facing || 1;
@@ -908,6 +976,8 @@ class Renderer {
       const k = hamT < 0.6 ? ease(hamT / 0.6) : hamT < 0.72 ? 1 - (hamT - 0.6) / 0.12 : 0;
       front = fk(1.0, lerp(0.15, 1.9, k)); tool = { kind: 'hammer', x: front.h.x, y: front.h.y, a: 1.0 + lerp(0.15, 1.9, k) };
       back = fk(0.85, 0.5);
+    } else if (pose.arms === 'pray') {
+      front = ik({ x: shoulder.x + 0.1 * U, y: shoulder.y + 0.06 * U }); back = ik({ x: shoulder.x + 0.085 * U, y: shoulder.y + 0.07 * U });
     } else if (pose.arms === 'eat') {
       const m = ease((Math.sin(t * 2.4) + 1) / 2);
       front = ik({ x: lerp(shoulder.x + 0.1 * U, head.x + 0.07 * U, m), y: lerp(shoulder.y + 0.13 * U, head.y + 0.05 * U, m) }); back = fk(0.1, 0.2);
@@ -1042,6 +1112,10 @@ class Renderer {
       c.fillStyle = '#b8342c'; c.beginPath(); c.ellipse(hx - 0.005 * U, hy - 0.03 * U, HR * 1.05, HR * 0.95, 0, Math.PI * 1.02, Math.PI * 1.98); c.closePath(); c.fill(); c.strokeStyle = ol; c.lineWidth = ow; c.stroke();
       c.fillStyle = '#8f2620'; c.fillRect(hx - HR * 1.05, hy - 0.04 * U, HR * 2.1, 0.025 * U);
       c.fillStyle = '#e9e2d4'; c.beginPath(); c.arc(hx - 0.01 * U, hy - 0.13 * U, 0.028 * U, 0, TAU); c.fill();
+    } else if (hat === 'miner') {
+      c.fillStyle = '#c9a43a'; c.beginPath(); c.ellipse(hx - 0.005 * U, hy - 0.03 * U, HR * 1.12, HR * 1.0, 0, Math.PI * 1.02, Math.PI * 1.98); c.closePath(); c.fill(); c.strokeStyle = ol; c.lineWidth = ow; c.stroke();
+      c.fillStyle = '#8a6e22'; c.fillRect(hx - HR * 1.15, hy - 0.04 * U, HR * 2.3, 0.022 * U);
+      c.fillStyle = '#fff3b0'; c.beginPath(); c.arc(hx + 0.05 * U, hy - 0.08 * U, 0.022 * U, 0, TAU); c.fill();
     } else if (hat === 'band') {
       c.fillStyle = '#3f6fb0'; c.fillRect(hx - 0.1 * U, hy - 0.06 * U, 0.2 * U, 0.026 * U);
     }
@@ -1066,7 +1140,8 @@ class Renderer {
       else {
         c.strokeStyle = '#8a6239'; c.lineWidth = 0.032 * U; c.beginPath(); c.moveTo(0, -0.07 * U); c.lineTo(0, 0.25 * U); c.stroke();
         c.fillStyle = '#aab3bb'; c.strokeStyle = ol; c.lineWidth = ow;
-        if (tool.kind === 'hoe') { c.beginPath(); c.moveTo(0, 0.21 * U); c.lineTo(0.12 * U, 0.25 * U); c.lineTo(0.11 * U, 0.28 * U); c.lineTo(0, 0.25 * U); c.fill(); }
+        if (tool.kind === 'pick') { c.strokeStyle = '#8a8f96'; c.lineWidth = 0.035 * U; c.beginPath(); c.moveTo(-0.1 * U, 0.17 * U); c.quadraticCurveTo(0, 0.25 * U, 0.12 * U, 0.17 * U); c.stroke(); }
+        else if (tool.kind === 'hoe') { c.beginPath(); c.moveTo(0, 0.21 * U); c.lineTo(0.12 * U, 0.25 * U); c.lineTo(0.11 * U, 0.28 * U); c.lineTo(0, 0.25 * U); c.fill(); }
         else if (tool.kind === 'sickle') { c.strokeStyle = '#c9ced4'; c.lineWidth = 0.025 * U; c.beginPath(); c.arc(0.06 * U, 0.21 * U, 0.08 * U, -2.6, 0.3); c.stroke(); }
         else if (tool.kind === 'axe') { c.beginPath(); c.moveTo(0, 0.13 * U); c.lineTo(0.13 * U, 0.09 * U); c.quadraticCurveTo(0.16 * U, 0.18 * U, 0.13 * U, 0.27 * U); c.lineTo(0, 0.23 * U); c.closePath(); c.fill(); c.stroke(); }
         else { c.fillRect(-0.05 * U, 0.18 * U, 0.14 * U, 0.07 * U); c.strokeRect(-0.05 * U, 0.18 * U, 0.14 * U, 0.07 * U); }
@@ -1187,7 +1262,7 @@ class Renderer {
     const r = this.canvas.getBoundingClientRect(), w = this.sim.world;
     const tx = Math.floor((clientX - r.left + this.camX) / this.ts), ty = Math.floor((clientY - r.top + this.camY) / this.ts);
     const here = w.tile(tx, ty), below = w.tile(tx, ty + 1);
-    const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy', 'market'].includes(t.type);
+    const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy', 'market', 'tower', 'tavern', 'temple'].includes(t.type);
     const pick = t => t && t.part ? t.part : t;
     for (let dy = 1; dy <= 3; dy++) { const t = w.tile(tx, ty + dy); if (t && t.type === 'castle' && (!here || here.type === 'grass')) return pick(t); }
     if (!tall(here) && tall(below)) return pick(below);
@@ -1203,7 +1278,7 @@ class Renderer {
       cv.width = w.w; cv.height = w.h;
       const ctx = cv.getContext('2d'), img = ctx.createImageData(w.w, w.h);
       const COL = { grass: [77, 122, 58], tree: [36, 80, 44], stump: [90, 110, 60], water: [47, 111, 159], ford: [90, 159, 192], bush: [60, 125, 63],
-        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
+        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], tower: [200, 195, 185], tavern: [190, 120, 60], temple: [250, 240, 200], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
       w.tiles.forEach((t, i) => {
         let col = COL[t.type] || COL.grass;
         if (t.type === 'grass' && t.traffic > 25) col = [138, 115, 80];
@@ -1470,6 +1545,7 @@ class Renderer {
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const t = sim.world.tile(x, y);
         if (t.type === 'tree') { const [bx, by] = this.treeBase(t, s); shadow(this.treeSprite(t), bx, by); }
+        else if (t.type === 'tower' || t.type === 'tavern' || t.type === 'temple') shadow(this.sprites[t.type], (x + 0.5) * s, (y + 0.92) * s);
         else if (t.type === 'smithy') shadow(this.sprites.smithy, (x + 0.5) * s, (y + 0.95) * s);
         else if (t.type === 'house') shadow(this.houseSprite(t), (x + 0.45) * s, (y + 0.92) * s);
         else if (t.type === 'castle' && t.part && t.y === t.part.y + 1 && t.x === t.part.x) shadow(this.sprites.castle, (x + 0.5) * s, (y + 0.95) * s);
@@ -1561,10 +1637,25 @@ class Renderer {
             break;
           }
           case 'camp': this.drawCamp(c, t, s, now); break;
-          case 'rock': { const sp = this.sprites['rock' + (t.shade < 0.5 ? 0 : 1)]; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.85) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
+          case 'rock': {
+            const sp = this.sprites['rock' + (t.shade < 0.5 ? 0 : 1)], k = sk * (0.55 + 0.45 * Math.min(1, (t.wood || CONFIG.resources.rockStone) / CONFIG.resources.rockStone));
+            const shake = t.hitAt && now - t.hitAt < 200 ? Math.sin(now / 20) * s * 0.02 : 0;
+            c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * k + shake, (y + 0.85) * s - sp.ay * k, sp.w * k, sp.h * k); break;
+          }
           case 'ruin': { const sp = this.sprites['ruin' + Math.min(2, Math.floor(t.shade * 3))]; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.9) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
           case 'gate': this.drawGate(c, t, s, now); break;
           case 'field': this.drawCrops(c, t, s, now); break;
+          case 'tower': case 'tavern': case 'temple': {
+            const sp = this.sprites[t.type], bx = (x + 0.5) * s, by = (y + 0.92) * s;
+            c.drawImage(sp.cv, bx - sp.ax * sk, by - sp.ay * sk, sp.w * sk, sp.h * sk);
+            if (t.type === 'tower') { // Fackel
+              const [tx, ty] = sp.meta.torch, fx = bx + tx * s, fy = by + ty * s, fh = s * 0.12 * (0.85 + Math.sin(now / 80 + x) * 0.15);
+              c.fillStyle = '#ff8a2a'; c.beginPath(); c.moveTo(fx - 0.03 * s, fy); c.quadraticCurveTo(fx, fy - fh * 1.4, fx + 0.03 * s, fy); c.fill();
+              c.fillStyle = '#ffe36b'; c.beginPath(); c.moveTo(fx - 0.015 * s, fy); c.quadraticCurveTo(fx, fy - fh * 0.8, fx + 0.015 * s, fy); c.fill();
+            }
+            if (t.type === 'temple' && Math.random() < 0.03) this.emit('spark', x + 0.5 + rand(-0.2, 0.2), y + 0.92 - 1.5, { vy: -0.3, life: 1.5, size: 0.02, rgb: '255,230,140' });
+            break;
+          }
           case 'market': { const sp = this.sprites.market; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.9) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
           case 'smithy': {
             const sp = this.sprites.smithy, bx = (x + 0.5) * s, by = (y + 0.95) * s;
@@ -1600,6 +1691,14 @@ class Renderer {
       }
     }
 
+    // Pfeile der Wachtürme
+    this.shots = (this.shots || []).filter(sh => now - sh.born < 350);
+    c.strokeStyle = '#f3e9d2'; c.lineWidth = Math.max(1.2, s * 0.025);
+    for (const sh of this.shots) {
+      const k = (now - sh.born) / 350, x0 = (sh.from.x + 0.5) * s, y0 = (sh.from.y - 0.55) * s, x1 = (sh.to.x + 0.5) * s, y1 = (sh.to.y + 0.5) * s;
+      const ax = x0 + (x1 - x0) * k, ay = y0 + (y1 - y0) * k - Math.sin(k * Math.PI) * s * 0.6, a = Math.atan2(y1 - y0, x1 - x0);
+      c.beginPath(); c.moveTo(ax - Math.cos(a) * s * 0.2, ay - Math.sin(a) * s * 0.2); c.lineTo(ax, ay); c.stroke();
+    }
     // 5) Partikel, Rauch
     this.emitAmbient(dt, x0, x1, y0, y1, this.nightAlpha(), drawn);
     this.updateParticles(dt);
@@ -1675,6 +1774,11 @@ class Renderer {
       const fl = 1 + Math.sin(now / 110) * 0.04 + Math.sin(now / 47) * 0.03;
       for (const tw of sim.towns) hole((tw.camp.x + 0.58) * s, (tw.camp.y + 0.55) * s, s * 4.2 * fl, 0.95);
       for (const b of sim.allHouses) if (b.residents.length) hole((b.tile.x + 0.5) * s, (b.tile.y + 0.6) * s, s * 1.8, 0.65);
+      for (const tw of sim.towns) for (const b of tw.buildings) {
+        if (b.type === 'tower') hole((b.tile.x + 0.77) * s, (b.tile.y - 0.1) * s, s * 2.2, 0.8);
+        else if (b.type === 'tavern') hole((b.tile.x + 0.5) * s, (b.tile.y + 0.6) * s, s * 2.4, 0.85);
+        else if (b.type === 'temple') hole((b.tile.x + 0.5) * s, (b.tile.y - 0.3) * s, s * 2.2, 0.7);
+      }
       const castle = sim.capital.castle; if (castle) hole((castle.tile.x + 0.5) * s, (castle.tile.y + 0.2) * s, s * 4, 0.85);
       for (const g of sim.world.gates) hole((g.x + 0.5) * s, (g.y + 0.3) * s, s * 2.6, 0.85);
       const sm = sim.capital.smithy; if (sm) hole((sm.tile.x + 0.5) * s, (sm.tile.y + 0.7) * s, s * 2, 0.8);
@@ -1701,6 +1805,8 @@ class Renderer {
         if (!b.residents.length) continue;
         for (const [wx, wy, ww, wh] of this.houseSprite(b.tile).meta.windows) c.fillRect((b.tile.x + 0.45 + wx - ww / 2) * s, (b.tile.y + 0.92 + wy - wh / 2) * s, ww * s, wh * s);
       }
+      const tav = sim.capital.tavern;
+      if (tav) for (const [wx, wy, ww, wh] of this.sprites.tavern.meta.windows) c.fillRect((tav.tile.x + 0.5 + wx - ww / 2) * s, (tav.tile.y + 0.92 + wy - wh / 2) * s, ww * s, wh * s);
       if (castle) for (const [wx, wy, ww, wh] of this.sprites.castle.meta.windows) c.fillRect((castle.tile.x + 0.5 + wx - ww / 2) * s, (castle.tile.y + 1.95 + wy - wh / 2) * s, ww * s, wh * s);
     }
     world();

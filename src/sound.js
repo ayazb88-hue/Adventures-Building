@@ -111,6 +111,13 @@ class Sound {
       }
       this.nextCricket = t + 0.6 + Math.random() * 1.2;
     }
+    // Lautenmusik aus der Taverne am Abend
+    const tav = sim.capital && sim.capital.tavern, hr = sim.hourFloat;
+    if (tav && hr >= 18 && hr < 23 && Math.hypot(tav.tile.x - camTx, tav.tile.y - camTy) < 9 && t > (this.nextLute || 0)) {
+      const sc = [196, 220, 246.94, 293.66, 329.63, 392];
+      this.tone(sc[Math.floor(Math.random() * sc.length)], t, 0.9, 0.035, 'triangle');
+      this.nextLute = t + 0.25 + Math.random() * 0.45;
+    }
     // Knistern am Feuer
     if (fireNear > 0.1 && t > this.nextCrackle) {
       const src = a.createBufferSource(); src.buffer = this.noiseBuf;

@@ -38,12 +38,17 @@ const CONFIG = {
     berryRegrowMinutes: 80,
     eatMinutes: 5,
     berryFood: 15,
-    bushDensity: 0.022,     // Anteil der Kacheln mit Beerensträuchern
+    bushDensity: 0.022,
+    rockStone: 8,           // Stein pro Felsen
+    mineMinutes: 25,        // Minuten pro Stein     // Anteil der Kacheln mit Beerensträuchern
   },
   buildings: {
     house:  { name: 'Haus', cost: { wood: 20 }, work: 240, beds: 2 },
     smithy: { name: 'Schmiede', cost: { wood: 30 }, work: 360, beds: 0 },
     market: { name: 'Marktplatz', cost: { wood: 25 }, work: 240, beds: 0 },
+    tower:  { name: 'Wachturm', cost: { wood: 10, stone: 15 }, work: 240, beds: 0, range: 6.5 },
+    tavern: { name: 'Taverne', cost: { wood: 25, stone: 10, coins: 20 }, work: 300, beds: 0 },
+    temple: { name: 'Tempel', cost: { wood: 15, stone: 30, coins: 40 }, work: 420, beds: 0 },
     castle: { name: 'Burg', cost: { wood: 80, crystals: 6 }, work: 600, beds: 4, size: 3 },
   },
   farming: { growMinutes: 1440, harvestFood: 6, foodPerMeal: 40, plantMinutes: 40, harvestMinutes: 20 },
@@ -51,9 +56,10 @@ const CONFIG = {
   // Berufe der Arbeiter: Gewichte verändern, welche Tätigkeit bevorzugt wird; hat = Kopfbedeckung
   professions: {
     settler:    { name: 'Siedler', weights: {}, hat: null },
-    holzfaeller:{ name: 'Holzfäller', weights: { gatherWood: 1.5, plantField: 0.3, harvest: 0.6 }, hat: 'cap', share: 0.4 },
-    bauer:      { name: 'Bauer', weights: { plantField: 2, harvest: 2, gatherWood: 0.6 }, hat: 'straw', share: 0.35 },
-    handwerker: { name: 'Handwerker', weights: { build: 1.6, gatherWood: 1.1 }, hat: 'band', share: 0.25 },
+    holzfaeller:{ name: 'Holzfäller', weights: { gatherWood: 1.5, plantField: 0.3, harvest: 0.6, mineStone: 0.4 }, hat: 'cap', share: 0.35 },
+    bauer:      { name: 'Bauer', weights: { plantField: 2, harvest: 2, gatherWood: 0.6, mineStone: 0.3 }, hat: 'straw', share: 0.3 },
+    handwerker: { name: 'Handwerker', weights: { build: 1.6, gatherWood: 1.1 }, hat: 'band', share: 0.2 },
+    steinmetz:  { name: 'Steinmetz', weights: { mineStone: 2, gatherWood: 0.6 }, hat: 'miner', share: 0.15 },
   },
   population: {
     max: 70,
@@ -160,6 +166,9 @@ const TILE_DEFS = {
   field: { name: 'Feld',          walkable: false },
   smithy:{ name: 'Schmiede',      walkable: false },
   market:{ name: 'Marktplatz',    walkable: false },
+  tower: { name: 'Wachturm',      walkable: false },
+  tavern:{ name: 'Taverne',       walkable: false },
+  temple:{ name: 'Tempel',        walkable: false },
   castle:{ name: 'Burg',          walkable: false },
   ford:  { name: 'Furt',          walkable: true  },
   ruin:  { name: 'Ruine',         walkable: false },
@@ -308,6 +317,7 @@ function generateMap(world, rng) {
   }
   for (const t of world.tiles) {
     if (t.type === 'tree') t.wood = r.treeWood;
+    if (t.type === 'rock') t.wood = r.rockStone; // Steinvorrat (im Feld 'wood' gespeichert)
     if (t.type === 'bush') t.berries = r.bushMaxBerries;
   }
   // Risse (Tore in eine andere Welt): weit weg, je weiter, desto gefährlicher
@@ -337,7 +347,7 @@ class Settlement {
     this.campTile.town = this;
     this.id = opts.id || 0; this.name = opts.name || 'Siedlung'; this.capital = !!opts.capital;
     this.color = opts.color || BANNERS[this.id % BANNERS.length]; this.leader = opts.leader || ''; this.founded = opts.founded || 1;
-    this.stock = { wood: 0, crystals: 0, food: 0, coins: 0 };
+    this.stock = { wood: 0, crystals: 0, food: 0, coins: 0, stone: 0 };
     this.trades = []; // letzte Handelsgeschäfte für die Anzeige
     this.buildings = [];
     this.site = null;
@@ -345,6 +355,9 @@ class Settlement {
   }
   get houses() { return this.buildings.filter(b => b.type === 'house'); }
   get smithy() { return this.buildings.find(b => b.type === 'smithy'); }
+  get towers() { return this.buildings.filter(b => b.type === 'tower'); }
+  get tavern() { return this.buildings.find(b => b.type === 'tavern'); }
+  get temple() { return this.buildings.find(b => b.type === 'temple'); }
   get market() { return this.buildings.find(b => b.type === 'market'); }
   get castle() { return this.buildings.find(b => b.type === 'castle'); }
   get members() { return this.sim.npcs.filter(n => n.town === this); }
@@ -369,21 +382,23 @@ class Settlement {
 
   update() {
     if (this.fieldCount === undefined || this.sim.minutes % 15 === 0) this.recount();
-    if (this.site) return;
-    // Schmiede, sobald es ein paar Häuser und Kristalle gibt – sonst Häuser
-    let next = this.capital && !this.smithy && this.houses.length >= 3 && this.stock.crystals >= 1 ? 'smithy' : 'house';
-    if (next === 'house' && this.capital && this.smithy && !this.market && this.houses.length >= 8) next = 'market';
-    if (this.capital && this.sim.kingdom && !this.castle && this.sim.minutes >= (this.nextCastleTry || 0)) next = 'castle';
-    if (next === 'house') { // nur bauen, wenn Betten gebraucht werden
-      const free = this.houses.reduce((a, h) => a + h.beds - h.residents.length, 0);
-      if (free >= 2) return;
-    }
-    if (this.canAfford(CONFIG.buildings[next].cost)) this.startConstruction(next);
+    if (this.site || this.sim.minutes % 10 !== 0) return;
+    // Wunschliste nach Wichtigkeit; gebaut wird das erste, das bezahlbar ist
+    const sim = this.sim, H = this.houses.length, free = this.houses.reduce((a, h) => a + h.beds - h.residents.length, 0), wants = [];
+    if (this.capital && sim.kingdom && !this.castle && sim.minutes >= (this.nextCastleTry || 0)) wants.push('castle');
+    if (this.capital && !this.smithy && H >= 3 && this.stock.crystals >= 1) wants.push('smithy');
+    if (this.capital && this.smithy && !this.market && H >= 8) wants.push('market');
+    if (sim.day >= CONFIG.monsters.fromDay && H >= 3 && this.towers.length < Math.ceil((H + 1) / 7)) wants.push('tower');
+    if (this.capital && !this.tavern && H >= 12) wants.push('tavern');
+    if (this.capital && !this.temple && H >= 16) wants.push('temple');
+    if (free < 2) wants.push('house');
+    this.stoneWanted = wants.some(t => (CONFIG.buildings[t].cost.stone || 0) > this.stock.stone);
+    for (const type of wants) if (this.canAfford(CONFIG.buildings[type].cost) && this.startConstruction(type)) return;
   }
 
   startConstruction(type) {
     const def = CONFIG.buildings[type];
-    const tile = type === 'castle' ? this.findCastleSpot() : this.findBuildSpot();
+    const tile = type === 'castle' ? this.findCastleSpot() : this.findBuildSpot(type === 'tower' ? 4 + Math.sqrt(this.houses.length) * 1.6 : 0);
     if (!tile) { if (type === 'castle') this.nextCastleTry = this.sim.minutes + 240; return false; }
     this.pay(def.cost);
     const tiles = type === 'castle' ? this.footprint(tile) : [tile];
@@ -446,7 +461,7 @@ class Settlement {
   }
 
   /** Freie Wiese nahe am Lager. Raster mit Abstand 2 hält Wege frei. */
-  findBuildSpot() {
+  findBuildSpot(minD = 0) {
     const { world, npcs } = this.sim;
     const c = this.camp, R = 30;
     if (this.sim.minutes < (this.nextSpotTry || 0)) return null;
@@ -460,7 +475,7 @@ class Settlement {
         const t = world.tile(x, y);
         if (!t || t.type !== 'grass') continue;
         const d = Math.hypot(dx, dy * 1.1);
-        if (d >= bestD) continue;
+        if (d >= bestD || d < minD) continue; // Wachtürme lieber am Ortsrand
         if (npcs.some(n => Math.round(n.x) === x && Math.round(n.y) === y)) continue;
         if (!DIRS.some(([ax, ay]) => world.walkable(x + ax, y + ay))) continue;
         if (DIRS.some(([ax, ay]) => world.inBounds(x + ax, y + ay) && reach[(y + ay) * world.w + x + ax])) { best = t; bestD = d; }

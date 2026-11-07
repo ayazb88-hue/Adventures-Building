@@ -97,6 +97,10 @@ function tileInfo(t) {
       return head('🌾', 'Getreidefeld', p >= 1 ? 'reif – bereit zur Ernte!' : `wächst … noch etwa ${Math.ceil((1 - p) * CONFIG.farming.growMinutes / 60)} Stunden`)
         + bar('Wachstum', p * 100, '#e6c45a') + `<div class="muted small">Eine Ernte bringt ${CONFIG.farming.harvestFood} Brot ins Lager.</div>`;
     }
+    case 'tower': return head('🗼', 'Wachturm', `Schießt nachts auf Monster im Umkreis von ${CONFIG.buildings.tower.range} Feldern`) + '<div class="thought">Oben brennt eine Fackel. Wer Wache hält, sieht die Risslinge schon von Weitem.</div>';
+    case 'tavern': { const b = t.building; return head('🍺', 'Taverne „Zum Goldenen Krug“', `${b.guests || 0} Gäste gerade · abends geöffnet`) + '<div class="thought">Lautenklänge, Lachen und Geschichten über die Risse. Ein Krug kostet eine Münze aus der Stadtkasse.</div>'; }
+    case 'temple': return head('⛩️', 'Tempel des Lichts', 'Hier heilen Wunden und schwere Herzen') + '<div class="thought">Weißer Stein und eine goldene Kuppel, die selbst nachts schimmert.</div>';
+    case 'rock': return head('🪨', 'Fels', `${t.wood || 0} Stein übrig – Steinmetze brechen ihn ab`) + bar('Stein', (t.wood || 0) / CONFIG.resources.rockStone * 100, '#a3a9ae');
     case 'market': {
       const tw = (t.building && t.building.town) || sim.capital, shoppers = sim.npcs.filter(n => n.task && n.task.actionId === 'visitMarket');
       return head('🛍️', `Marktplatz von ${esc(tw.name)}`, 'Markttag ist jeden Mittag – Überschuss wird zu Münzen.')
@@ -187,7 +191,7 @@ function updateHud() {
   const st = sim.settlement, cost = CONFIG.buildings.house.cost.wood;
   const site = st.site ? ` · 🔨 Bau ${Math.floor(st.site.progress / st.site.work * 100)} %` : '';
   const mon = sim.monsters.length ? ` · <span style="color:#ff6b6b">👹 ${sim.monsters.length}</span>` : '';
-  $('stats').innerHTML = `🪵 <b>${st.stock.wood}</b>/${cost} · 🍞 <b>${st.stock.food}</b> · 💎 <b>${st.stock.crystals}</b> · 🪙 <b>${st.stock.coins || 0}</b> · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}${mon}`
+  $('stats').innerHTML = `🪵 <b>${st.stock.wood}</b>/${cost} · 🍞 <b>${st.stock.food}</b> · 🪨 <b>${st.stock.stone || 0}</b> · 💎 <b>${st.stock.crystals}</b> · 🪙 <b>${st.stock.coins || 0}</b> · 🏠 <b>${st.houses.length}</b> · 👥 <b>${sim.npcs.length}</b>${site}${mon}`
     + `<div class="goal"><i style="width:${Math.min(100, st.stock.wood / cost * 100)}%"></i></div>`;
 }
 
@@ -225,6 +229,7 @@ function startSim(s) {
   sim.on('system', msg => { if (ui.sysQueue.length < 6) ui.sysQueue.push(msg); });
   sim.on('levelup', n => { renderer.burst(n, 'levelup'); sound.levelUp(); buildRoster(); });
   sim.on('kingdom', () => { sound.levelUp(); setTimeout(() => sound.levelUp(), 300); setTimeout(() => sound.chime(), 700); });
+  sim.on('towerShot', e => renderer.shots = [...(renderer.shots || []), { ...e, to: { x: e.to.x, y: e.to.y }, born: performance.now() }]);
   sim.on('legendary', ({ n }) => { renderer.burst(n, 'legendary'); sound.levelUp(); setTimeout(() => sound.levelUp(), 250); });
   sim.on('awaken', n => { renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
   sim.on('npcAdded', buildRoster);
