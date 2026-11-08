@@ -9,6 +9,8 @@ Alles liegt unter `faecher/<fach>/`:
 - `uebungen/` – Übungsblätter und Lösungen
 - `notizen/` – von dir erzeugt: `themen.md` (Klausur-Analyse), `fortschritt.md`, `lernplan.md`, Probeklausuren
 
+**Google Drive:** Steht in `notizen/quellen.md` eine Drive-ID, lies die Datei direkt mit dem Google-Drive-Connector (`read_file_content`). Originale (Prüfungen, Skripte) nie ins Repo kopieren – sie sind urheberrechtlich geschützt; ins Repo kommen nur eigene Zusammenfassungen.
+
 PDFs liest du mit dem Read-Tool (bei mehr als 10 Seiten seitenweise über `pages`). Bilder/Scans liest du direkt.
 
 ## Wie du unterrichtest

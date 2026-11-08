@@ -1,0 +1,8 @@
+# Original-Prüfungen und Skripte sind urheberrechtlich geschützt (DIHK u. a.) –
+# nur lokal halten, nie ins Repo pushen.
+faecher/*/altklausuren/*
+faecher/*/skript/*
+faecher/*/uebungen/*
+!faecher/*/altklausuren/.gitkeep
+!faecher/*/skript/.gitkeep
+!faecher/*/uebungen/.gitkeep
