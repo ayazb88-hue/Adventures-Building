@@ -23,9 +23,10 @@ const BERRY_SPOTS = [[-0.2, -0.24], [0.17, -0.3], [0.02, -0.16], [-0.07, -0.44],
 const TAU = Math.PI * 2;
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const rand = (a, b) => a + Math.random() * (b - a);
-function shadeHex(hex, amt) {
+function shadeHex(hex, amt) { // nimmt '#rrggbb' oder 'rgb(r, g, b)'
+  const f = v => clamp(Math.round(v + amt), 0, 255);
+  if (hex[0] !== '#') { const m = hex.match(/\d+(\.\d+)?/g) || [0, 0, 0]; return `rgb(${f(+m[0])}, ${f(+m[1])}, ${f(+m[2])})`; }
   const n = parseInt(hex.slice(1), 16);
-  const f = v => clamp(v + amt, 0, 255);
   return `rgb(${f(n >> 16)}, ${f((n >> 8) & 255)}, ${f(n & 255)})`;
 }
 
