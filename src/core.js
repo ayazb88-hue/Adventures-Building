@@ -542,9 +542,17 @@ class Settlement {
   }
 
   /** Freie Wiese nahe am Lager. Raster mit Abstand 2 hält Wege frei. */
+  /** Dorfplatz: ein fester freier Bauplatz nahe dem Lager, auf dem nie gebaut wird (Linde → Brunnen → Zierbrunnen). */
+  get plaza() {
+    const w = this.sim.world, c = this.camp, ok = q => q && q.type === 'grass';
+    if (this._plaza && ok(this._plaza)) return this._plaza;
+    this._plaza = null;
+    for (const r of [2, 4]) for (const [dx, dy] of [[r, r], [-r, r], [r, -r], [-r, -r], [0, r], [r, 0], [0, -r], [-r, 0]]) { const q = w.tile(c.x + dx, c.y + dy); if (ok(q)) return (this._plaza = q); }
+    return null;
+  }
   findBuildSpot(minD = 0) {
     const { world, npcs } = this.sim;
-    const c = this.camp, R = 30;
+    const c = this.camp, R = 30, plaza = this.plaza;
     if (this.sim.minutes < (this.nextSpotTry || 0)) return null;
     const reach = new Uint8Array(world.w * world.h);
     world.bfs(c.x, c.y + 1, (x, y) => { reach[y * world.w + x] = 1; return null; });
@@ -554,7 +562,7 @@ class Settlement {
         const dx = x - c.x, dy = y - c.y;
         if (dx % 2 !== 0 || dy % 2 !== 0 || (dx === 0 && dy === 0)) continue;
         const t = world.tile(x, y);
-        if (!t || t.type !== 'grass') continue;
+        if (!t || t.type !== 'grass' || t === plaza) continue;
         const d = Math.hypot(dx, dy * 1.1);
         if (d >= bestD || d < minD) continue; // Wachtürme lieber am Ortsrand
         if (npcs.some(n => Math.round(n.x) === x && Math.round(n.y) === y)) continue;

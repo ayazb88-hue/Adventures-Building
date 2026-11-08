@@ -248,6 +248,7 @@ function findFieldGrowth(sim, town) {
     if (!t || t.type !== 'grass' || t.traffic > 24 || (t.reserved && sim.minutes - t.reserved < 120)) continue;
     const d = Math.hypot(x - c.x, y - c.y);
     if (d < 7 || d >= bd) continue;
+    if (sim.towns.some(tw => tw._plaza === t)) continue;
     const nb = DIRS.map(([dx, dy]) => w.tile(x + dx, y + dy));
     const f = nb.find(q => q && q.type === 'field');
     if (!f || nb.some(q => q && NO_FIELD_NEXT.has(q.type)) || fieldGroupSize(w, f, maxGroup) >= maxGroup) continue;
