@@ -765,7 +765,11 @@ class Renderer {
           else { fn(cx, cy, 1, 0, 0); for (const [dx, dy] of links) for (let k = 1; k <= n / 2; k++) fn(cx + dx * s * 0.5 * k / (n / 2), cy + dy * s * 0.5 * k / (n / 2), dx, dy, k); }
         };
         if (!paved && fine && p > 0.35) along((px, py) => { if (R() < 0.6) { c.fillStyle = R() < 0.5 ? 'rgba(90,70,45,.6)' : 'rgba(200,185,150,.7)'; c.beginPath(); c.ellipse(px + (R() - 0.5) * s * 0.18, py + (R() - 0.5) * s * 0.18, s * 0.025, s * 0.018, 0, 0, TAU); c.fill(); } }, 6);
-        if (paved && s >= 14) { // Kopfsteine, entlang des Weges ausgerichtet
+        if (paved && t.type === 'grass' && t.traffic >= 180) { // Hauptstraße: breiter, helle Steinplatten mit Fugen
+          draw('#c4bdac', 0.36);
+          if (s >= 14) { c.strokeStyle = 'rgba(110,100,85,.45)'; c.lineWidth = Math.max(1, s * 0.01);
+            along((px, py, dx, dy) => { const a = Math.atan2(dy, dx), w2 = s * 0.27; c.beginPath(); c.moveTo(px - Math.sin(a) * w2, py + Math.cos(a) * w2); c.lineTo(px + Math.sin(a) * w2, py - Math.cos(a) * w2); c.stroke(); }, 6); }
+        } else if (paved && s >= 14) { // Kopfsteine, entlang des Weges ausgerichtet
           const w2 = s * (0.11 + p * 0.1);
           c.strokeStyle = 'rgba(60,55,48,.35)'; c.lineWidth = Math.max(1, s * 0.008);
           along((px, py, dx, dy, k) => {
@@ -1515,7 +1519,10 @@ class Renderer {
     if (!this.plazas) { this.plazas = new Map(); for (const tw of this.sim.towns) { const q = tw.plaza; if (q) this.plazas.set(q.y * 4096 + q.x, tw); } }
     let p = null;
     const pt = this.plazas.get(key);
-    if (pt) p = { kind: pt.houses.length >= 12 || (pt.capital && this.sim.kingdom) ? 'fountain' : pt.houses.length >= 5 ? 'well' : 'linde', ox: 0, oy: 0 };
+    const isB = (dx, dy, ty) => { const q = w.tile(t.x + dx, t.y + dy); return q && (ty ? q.type === ty : q.type === 'house'); };
+    if (!pt && r < 0.45 && ((isB(1, 0) && isB(-1, 0)) || (isB(0, 1) && isB(0, -1)))) p = { kind: 'laundry', ax: isB(1, 0) && isB(-1, 0) ? 1 : 0, ox: 0, oy: 0 };
+    else if (!pt && r < 0.7 && DIRS.some(([dx, dy]) => isB(dx, dy, 'market'))) { const [dx, dy] = DIRS.find(([dx, dy]) => isB(dx, dy, 'market')); p = { kind: 'stall', ox: -dx * 0.12, oy: -dy * 0.12, col: ['#e5484d', '#3f86d8', '#e0a030', '#5aa843'][h & 3] }; }
+    else if (pt) p = { kind: pt.houses.length >= 12 || (pt.capital && this.sim.kingdom) ? 'fountain' : pt.houses.length >= 5 ? 'well' : 'linde', ox: 0, oy: 0 };
     else {
       const nbH = DIRS.find(([dx, dy]) => { const q = w.tile(t.x + dx, t.y + dy); return q && q.building && q.type !== 'field'; }), paved = this.paved(t), pl = this.pathLevel(t);
       const near = nbH || DIRS.some(([dx, dy]) => this.paved(w.tile(t.x + dx, t.y + dy) || t));
@@ -1581,6 +1588,23 @@ class Renderer {
         c.fillStyle = '#8f897c'; c.beginPath(); c.ellipse(bx, by, u * 0.16, u * 0.07, 0, 0, TAU); c.fill(); c.fillStyle = '#5a4a32'; c.beginPath(); c.ellipse(bx, by, u * 0.12, u * 0.05, 0, 0, TAU); c.fill();
         c.fillStyle = '#5a3a22'; c.fillRect(bx - u * 0.02, by - u * 0.35, u * 0.04, u * 0.35);
         for (const [dx, dy, r, col] of [[0, -0.5, 0.2, '#3f7d34'], [-0.08, -0.45, 0.13, '#4f9a3c'], [0.09, -0.47, 0.12, '#4f9a3c'], [0.02, -0.58, 0.11, '#6fbf4c']]) { c.fillStyle = col; c.beginPath(); c.arc(bx + dx * u, by + dy * u, r * u, 0, TAU); c.fill(); }
+        break;
+      }
+      case 'laundry': { // Wäscheleine quer über die Gasse
+        const e1 = p.ax ? [-0.5, 0] : [0, -0.5], e2 = p.ax ? [0.5, 0] : [0, 0.5], H = u * 0.62;
+        const P1 = [bx + isoX(...e1) * u, by + isoY(...e1) * u - H], P2 = [bx + isoX(...e2) * u, by + isoY(...e2) * u - H], sag = u * 0.1;
+        c.strokeStyle = '#e8e2d0'; c.lineWidth = Math.max(1, u * 0.012); c.beginPath(); c.moveTo(...P1); c.quadraticCurveTo((P1[0] + P2[0]) / 2, (P1[1] + P2[1]) / 2 + sag * 2, ...P2); c.stroke();
+        const cols = ['#f4f1ec', '#7aa8d8', '#e8a0b0', '#f0d080', '#a8d890'];
+        for (let k = 1; k <= 4; k++) { const q = k / 5, lx = P1[0] + (P2[0] - P1[0]) * q, ly = P1[1] + (P2[1] - P1[1]) * q + sag * 4 * q * (1 - q), sw = Math.sin(now / 500 + k + x) * u * 0.015;
+          c.fillStyle = cols[(k + x + y) % 5]; c.beginPath(); c.moveTo(lx - u * 0.04, ly); c.lineTo(lx + u * 0.04, ly); c.lineTo(lx + u * 0.035 + sw, ly + u * (k % 2 ? 0.12 : 0.09)); c.lineTo(lx - u * 0.035 + sw, ly + u * (k % 2 ? 0.12 : 0.09)); c.closePath(); c.fill(); }
+        break;
+      }
+      case 'stall': { // Marktstand mit gestreiftem Dach und Waren
+        sh(0.2, 0.07); c.fillStyle = '#7a5230'; c.fillRect(bx - u * 0.17, by - u * 0.42, u * 0.025, u * 0.42); c.fillRect(bx + u * 0.145, by - u * 0.42, u * 0.025, u * 0.42);
+        c.fillStyle = '#a8784a'; c.fillRect(bx - u * 0.18, by - u * 0.17, u * 0.36, u * 0.1); c.strokeRect(bx - u * 0.18, by - u * 0.17, u * 0.36, u * 0.1);
+        for (let k = 0; k < 5; k++) { c.fillStyle = ['#e5484d', '#f0c040', '#7ac050', '#e08030', '#c070d0'][(k + x) % 5]; c.beginPath(); c.arc(bx - u * 0.13 + k * u * 0.065, by - u * 0.19, u * 0.03, 0, TAU); c.fill(); }
+        for (let k = 0; k < 4; k++) { c.fillStyle = k % 2 ? '#f4f1ec' : p.col; c.beginPath(); c.moveTo(bx - u * 0.22 + k * u * 0.11, by - u * 0.42); c.lineTo(bx - u * 0.11 + k * u * 0.11, by - u * 0.42); c.lineTo(bx - u * 0.1 + k * u * 0.11, by - u * 0.34); c.lineTo(bx - u * 0.21 + k * u * 0.11, by - u * 0.34); c.closePath(); c.fill(); }
+        c.strokeStyle = ol; c.strokeRect(bx - u * 0.22, by - u * 0.42, u * 0.44, u * 0.08);
         break;
       }
       case 'linde': { // Dorflinde mit Rundbank
@@ -1790,12 +1814,22 @@ class Renderer {
       const pose = this.pose(n);
       const off = pose.moving ? 0 : (n.id % 5 - 2) * 0.14; // Stehende etwas verteilen
       let an = this.anim.get(n.id);
-      if (!an) { an = { x: fx, y: fy, dist: 0 }; this.anim.set(n.id, an); }
+      if (!an) { an = { x: fx, y: fy, dist: 0, sx: fx, sy: fy, lx: 0, ly: 0, dx: 0, dy: 0 }; this.anim.set(n.id, an); }
       const dd = Math.hypot(fx - an.x, fy - an.y);
-      if (dd < 1) an.dist += dd;
+      if (dd >= 1) { an.sx = fx; an.sy = fy; an.lx = an.ly = 0; } // Sprung (z. B. aus dem Haus) → nicht gleiten
+      // Realistische Bewegung: weich hinterherziehen (runde Kurven, sanftes Anlaufen/Abbremsen) …
+      const k = 1 - Math.exp(-dt * 7), ox0 = an.sx, oy0 = an.sy;
+      an.sx += (fx - an.sx) * k; an.sy += (fy - an.sy) * k;
+      const ex = fx - an.sx, ey = fy - an.sy, el = Math.hypot(ex, ey); if (el > 0.4) { an.sx = fx - ex / el * 0.4; an.sy = fy - ey / el * 0.4; }
+      // … und rechts gehen: Entgegenkommende weichen einander aus
+      an.dx = an.dx * 0.85 + (fx - an.x) * 0.15; an.dy = an.dy * 0.85 + (fy - an.y) * 0.15;
+      const dl = Math.hypot(an.dx, an.dy), mv = pose.moving && dl > 0.0005, kl = 1 - Math.exp(-dt * 4);
+      an.lx += ((mv ? -an.dy / dl * 0.13 : 0) - an.lx) * kl; an.ly += ((mv ? an.dx / dl * 0.13 : 0) - an.ly) * kl;
+      const step = Math.hypot(an.sx - ox0, an.sy - oy0); if (step < 1) an.dist += step;
       an.x = fx; an.y = fy;
-      const e = { n, px: (fx + 0.5 + off) * s, py: (fy + 0.5) * s, fy, d: fx + fy, pose, phase: an.dist / 0.75 * TAU };
-      const r = depth(fx, fy);
+      const qx = an.sx + an.lx, qy = an.sy + an.ly;
+      const e = { n, px: (qx + 0.5 + off) * s, py: (qy + 0.5) * s, fy: qy, d: qx + qy, pose, phase: an.dist / 0.75 * TAU };
+      const r = depth(qx, qy);
       (rows.get(r) || rows.set(r, []).get(r)).push(e);
       drawn.push(e);
     }

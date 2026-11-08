@@ -1213,8 +1213,8 @@ class NPC {
   }
 
   moveAlong(step, sim) {
-    if (!step.smooth) { step.smooth = true; step.path = smoothPath(sim.world, this.x, this.y, step.path); }
-    let budget = this.speed;
+    if (!step.smooth) { step.smooth = true; step.path = smoothPath(sim.world, this.x, this.y, step.path); step.mt = 0; }
+    let budget = this.speed * Math.min(1, 0.55 + (step.mt = (step.mt || 0) + 1) * 0.15); // anlaufen statt sofort volle Geschwindigkeit
     while (budget > 0 && step.path.length) {
       const next = step.path[0];
       if (!sim.world.walkable(next.x, next.y)) return 'fail'; // Weg verbaut → neu planen
@@ -1224,7 +1224,7 @@ class NPC {
       if (d <= budget) {
         this.x = next.x; this.y = next.y; budget -= d; step.path.shift();
         for (const t of next.via || [sim.world.tile(next.x, next.y)]) // Trampelpfade dort, wo wirklich gelaufen wird
-          if (t.traffic < 400) { t.traffic++; if (t.traffic % 8 === 0 && t.traffic <= 64) sim.world.dirtyTiles.add(t); }
+          if (t.traffic < 400) { t.traffic++; if ((t.traffic % 8 === 0 && t.traffic <= 64) || t.traffic === 180) sim.world.dirtyTiles.add(t); }
       } else { this.x += dx / d * budget; this.y += dy / d * budget; budget = 0; }
     }
     return step.path.length ? undefined : 'done';
