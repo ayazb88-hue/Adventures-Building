@@ -3433,6 +3433,18 @@ function drawCanopy(c, s, blobs, hue, L, rng) {
     g.addColorStop(1, `hsl(${hue + 4}, 40%, ${L - 7}%)`);
     c.fillStyle = g; c.beginPath(); c.arc(x * s, y * s, r * s, 0, TAU); c.fill();
   }
+  // scharfe Blattbüschel: Licht oben links, Schatten unten rechts
+  for (const [x, y, r] of blobs) {
+    for (let i = 0; i < 16; i++) {
+      const a = rng() * TAU, d = Math.sqrt(rng()) * r * 0.9, lx = x + Math.cos(a) * d, ly = y + Math.sin(a) * d * 0.9;
+      const lit = (-(lx - x) - (ly - y)) / (r * 1.4); // -1 … 1
+      c.fillStyle = `hsl(${hue - 4 + lit * -6}, ${46 + lit * 6}%, ${L + 2 + lit * 13}%)`;
+      c.beginPath(); c.ellipse(lx * s, ly * s, s * 0.055, s * 0.038, a, 0, TAU); c.fill();
+      c.strokeStyle = `hsla(${hue + 6}, 45%, ${L - 14}%, .55)`; c.lineWidth = Math.max(0.6, s * 0.008); c.stroke();
+    }
+  }
+  c.strokeStyle = `hsla(${hue + 6}, 45%, ${L - 20}%, .7)`; c.lineWidth = Math.max(1, s * 0.016); // Umriss der Krone
+  for (const [x, y, r] of blobs) { c.beginPath(); c.arc(x * s, y * s, r * s, Math.PI * 0.15, Math.PI * 0.95); c.stroke(); }
   c.fillStyle = `hsla(${hue - 15}, 60%, ${L + 26}%, .5)`;
   const cy = blobs[0][1];
   for (let i = 0; i < 14; i++) {
@@ -3448,6 +3460,8 @@ function drawOak(c, s, v) {
   c.fillStyle = tg;
   c.beginPath(); c.moveTo(-s * 0.14, 0); c.quadraticCurveTo(-s * 0.06, -s * 0.05, -s * 0.06, -s * 0.62);
   c.lineTo(s * 0.06, -s * 0.62); c.quadraticCurveTo(s * 0.06, -s * 0.05, s * 0.14, 0); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(30,18,8,.55)'; c.lineWidth = Math.max(1, s * 0.012); c.stroke();
+  for (let k = 0; k < 5; k++) { const bx = (-0.04 + k * 0.02) * s; c.beginPath(); c.moveTo(bx, -s * (0.05 + rng() * 0.1)); c.lineTo(bx + s * 0.005, -s * (0.3 + rng() * 0.25)); c.stroke(); }
   drawCanopy(c, s, [[0, -1.0, 0.44], [-0.3, -0.85, 0.3], [0.3, -0.86, 0.3], [-0.16, -1.28, 0.3], [0.18, -1.25, 0.29],
     [0, -0.78, 0.32], [-0.38, -1.05, 0.22], [0.38, -1.08, 0.22]], 100 + v * 9, 30 + (v % 2) * 4, rng);
 }
@@ -3462,6 +3476,9 @@ function drawPine(c, s, v) {
     c.fillStyle = g; c.beginPath(); c.moveTo(0, top * s); c.lineTo(wdt * s, yb * s);
     for (let k = 0; k <= 6; k++) c.lineTo((wdt - k * (2 * wdt / 6)) * s, (yb + (k % 2 ? 0.06 : 0)) * s);
     c.closePath(); c.fill();
+    c.strokeStyle = `hsla(150, 40%, ${dark - 8}%, .8)`; c.lineWidth = Math.max(1, s * 0.014); c.stroke();
+    c.strokeStyle = `hsla(130, 40%, ${dark + 24}%, .55)`; c.lineWidth = Math.max(0.8, s * 0.01); // Nadeln im Licht
+    for (let k = 1; k < 6; k++) { const f = k / 6, px = -wdt * s * (1 - f) * 0.9, py = (top + (yb - top) * f) * s; c.beginPath(); c.moveTo(px, py); c.lineTo(px - s * 0.04, py + s * 0.05); c.stroke(); }
   }
 }
 
@@ -3862,10 +3879,13 @@ class Renderer {
     let ch = this.chunks.get(key);
     if (ch) { ch.used = now; if (ch.ts === this.ts || now - this.zoomAt < 180 || this.chunkBudget <= 0) return ch; }
     this.chunkBudget--;
-    const CH = 16, s = this.ts, k = Math.min(this.dpr, 2048 / (CH * s));
+    // Block direkt in der Rautenansicht zeichnen (scharf, ohne spätere Verzerrung)
+    const CH = 16, s = this.ts, x0w = cx * CH * s, y0w = cy * CH * s, x1w = x0w + CH * s, y1w = y0w + CH * s;
+    const minX = isoX(x0w, y1w), maxX = isoX(x1w, y0w), minY = isoY(x0w, y0w), maxY = isoY(x1w, y1w);
+    const k = Math.min(this.dpr, 3000 / (maxX - minX));
     const cv = ch ? ch.cv : document.createElement('canvas');
-    cv.width = Math.ceil(CH * s * k); cv.height = Math.ceil(CH * s * k);
-    ch = { cv, ts: s, k, cx, cy, used: now };
+    cv.width = Math.ceil((maxX - minX) * k) + 2; cv.height = Math.ceil((maxY - minY) * k) + 2;
+    ch = { cv, ts: s, k, cx, cy, used: now, minX, minY };
     this.chunks.set(key, ch);
     this.paintChunk(ch, null);
     if (this.chunks.size > 48) {
@@ -3876,11 +3896,12 @@ class Renderer {
   }
 
   paintChunk(ch, only) {
-    const CH = 16, s = ch.ts, c = ch.cv.getContext('2d'), w = this.sim.world;
-    c.setTransform(ch.k, 0, 0, ch.k, -ch.cx * CH * s * ch.k, -ch.cy * CH * s * ch.k); c.lineCap = 'round';
+    const CH = 16, s = ch.ts, c = ch.cv.getContext('2d'), w = this.sim.world, k = ch.k;
+    c.setTransform(k * ISO_X, k * ISO_Y, -k * ISO_X, k * ISO_Y, -ch.minX * k + 1, -ch.minY * k + 1); c.lineCap = 'round';
     if (only) { for (const t of only) this.drawGroundTile(c, t, s); return; }
-    for (let y = ch.cy * CH; y < Math.min(w.h, (ch.cy + 1) * CH); y++)
-      for (let x = ch.cx * CH; x < Math.min(w.w, (ch.cx + 1) * CH); x++) this.drawGroundTile(c, w.tile(x, y), s);
+    // ein Rand aus Nachbar-Kacheln verhindert feine Nähte zwischen den Blöcken
+    for (let y = Math.max(0, ch.cy * CH - 1); y < Math.min(w.h, (ch.cy + 1) * CH + 1); y++)
+      for (let x = Math.max(0, ch.cx * CH - 1); x < Math.min(w.w, (ch.cx + 1) * CH + 1); x++) this.drawGroundTile(c, w.tile(x, y), s);
   }
 
   refreshDirtyGround() {
@@ -3907,6 +3928,7 @@ class Renderer {
   drawGroundTile(c, t, s) {
     const world = this.sim.world, x = t.x * s, y = t.y * s, i = t.y * world.w + t.x;
     const e = 0.75; // leicht überlappen, damit keine Kanten sichtbar werden
+    const R = mulberry32(((t.x * 73856093) ^ (t.y * 19349663)) >>> 0), fine = s >= 14; // fester Zufall je Kachel für scharfe Details
     c.save(); c.beginPath(); c.rect(x - e, y - e, s + 2 * e, s + 2 * e); c.clip();
     if (t.type === 'field') { // gepflügte Erde mit Furchen
       const g = c.createLinearGradient(x, y, x, y + s); g.addColorStop(0, '#7a5a3a'); g.addColorStop(1, '#5e4329');
@@ -3915,6 +3937,7 @@ class Renderer {
       c.strokeStyle = 'rgba(40,25,12,.45)'; c.lineWidth = Math.max(1, s * 0.025);
       for (let k = 0; k < 4; k++) { const yy = y + s * (0.22 + k * 0.2); c.beginPath(); c.moveTo(x + s * 0.09, yy); c.lineTo(x + s * 0.91, yy); c.stroke(); }
       c.strokeStyle = '#8a6a42'; c.lineWidth = Math.max(1, s * 0.03); c.strokeRect(x + s * 0.05, y + s * 0.08, s * 0.9, s * 0.86);
+      if (fine) for (let k = 0; k < 22; k++) { c.fillStyle = R() < 0.5 ? 'rgba(40,25,12,.45)' : 'rgba(170,130,80,.5)'; c.fillRect(x + s * (0.08 + R() * 0.84), y + s * (0.1 + R() * 0.8), s * 0.03, s * 0.022); }
     } else if (t.type === 'ford') { // flaches Wasser mit Trittsteinen
       c.fillStyle = 'hsl(195, 45%, 52%)'; c.fillRect(x - e, y - e, s + 2 * e, s + 2 * e);
       c.fillStyle = '#9b958a';
@@ -3931,6 +3954,8 @@ class Renderer {
         g.addColorStop(0, 'rgba(140, 215, 200, .6)'); g.addColorStop(1, 'rgba(140, 215, 200, 0)');
         c.fillStyle = g; c.fillRect(x, y, s, s);
       }
+      if (fine) { c.strokeStyle = 'rgba(200,235,255,.35)'; c.lineWidth = Math.max(1, s * 0.018);
+        for (let k = 0; k < 3; k++) { const px = x + s * (0.15 + R() * 0.7), py = y + s * (0.15 + R() * 0.7), w2 = s * (0.06 + R() * 0.06); c.beginPath(); c.moveTo(px - w2, py); c.quadraticCurveTo(px, py - w2 * 0.6, px + w2, py); c.stroke(); } }
     } else {
       // einheitliche Grundfarbe; Abwechslung kommt aus den weichen Flecken (keine Kachelkanten)
       c.fillStyle = 'hsl(100, 40%, 35%)'; c.fillRect(x - e, y - e, s + 2 * e, s + 2 * e);
@@ -3940,12 +3965,14 @@ class Renderer {
         g.addColorStop(0, `rgba(${col}, ${b.a * 1.2})`); g.addColorStop(1, `rgba(${col}, 0)`);
         c.fillStyle = g; c.fillRect((b.x - b.r) * s, (b.y - b.r) * s, b.r * 2 * s, b.r * 2 * s);
       }
-      if (t.type === 'tree') {
-        const g = c.createRadialGradient(x + s / 2, y + s * 0.7, 0, x + s / 2, y + s * 0.7, s * 0.7);
-        g.addColorStop(0, 'rgba(10,35,10,.22)'); g.addColorStop(1, 'rgba(10,35,10,0)');
-        c.fillStyle = g; c.fillRect(x - s * 0.2, y, s * 1.4, s * 1.4);
+      if (fine) { // scharfe Sprenkel: helle und dunkle Grastupfer
+        for (let k = 0; k < 26; k++) { const l = R() < 0.5; c.fillStyle = l ? 'rgba(170,215,110,.55)' : 'rgba(20,55,20,.45)'; c.fillRect(x + R() * s, y + R() * s, s * (0.025 + R() * 0.02), s * 0.025); }
       }
-      // Sandufer
+      if (t.type === 'tree') { // Waldboden: dunkler, mit Laub
+        c.fillStyle = 'rgba(20,40,15,.32)'; c.fillRect(x - e, y - e, s + 2 * e, s + 2 * e);
+        if (fine) for (let k = 0; k < 14; k++) { c.fillStyle = ['#7a5a2a', '#a8642a', '#5a4020', '#8a7a3a'][Math.floor(R() * 4)]; c.beginPath(); c.ellipse(x + R() * s, y + R() * s, s * 0.035, s * 0.02, R() * 3, 0, TAU); c.fill(); }
+      }
+      // Sandufer (mit Körnung)
       for (const [dx, dy] of DIRS) {
         const nb = world.tile(t.x + dx, t.y + dy);
         if (!nb || nb.type !== 'water') continue;
@@ -3953,6 +3980,10 @@ class Renderer {
         const g = dx ? c.createLinearGradient(ex, 0, ex - dx * s * 0.4, 0) : c.createLinearGradient(0, ey, 0, ey - dy * s * 0.4);
         g.addColorStop(0, 'rgba(222, 204, 150, 1)'); g.addColorStop(0.5, 'rgba(222, 204, 150, .7)'); g.addColorStop(1, 'rgba(222, 204, 150, 0)');
         c.fillStyle = g; c.fillRect(x, y, s, s);
+        if (fine) for (let k = 0; k < 16; k++) {
+          const along = R(), depth = R() * 0.25, px = dx ? ex - dx * depth * s : x + along * s, py = dx ? y + along * s : ey - dy * depth * s;
+          c.fillStyle = R() < 0.5 ? 'rgba(150,120,70,.55)' : 'rgba(255,245,210,.7)'; c.fillRect(px, py, s * 0.022, s * 0.022);
+        }
       }
       // Gärten neben Wohnhäusern
       const gd = t.type === 'grass' && this.gardenDir(t);
@@ -3972,6 +4003,12 @@ class Renderer {
       if (p > 0.15) {
         const cx = x + s / 2, cy = y + s / 2, paved = p >= 0.55 && this.paved(t);
         const dirt = q => paved ? '#a39d90' : `rgb(${Math.round(92 + 56 * q)}, ${Math.round(124 - 8 * q)}, ${Math.round(58 + 18 * q)})`; // Gras → Erde
+        if (!paved) for (const [dx, dy] of DIRS) { // dunkler Wegrand
+          const q = Math.min(p, this.pathLevel(world.tile(t.x + dx, t.y + dy)));
+          if (q <= 0.15) continue;
+          c.strokeStyle = 'rgba(60,45,20,.28)'; c.lineWidth = s * (0.28 + q * 0.2);
+          c.beginPath(); c.moveTo(cx, cy); c.lineTo(cx + dx * s * 0.5, cy + dy * s * 0.5); c.stroke();
+        }
         for (const [dx, dy] of DIRS) {
           const q = Math.min(p, this.pathLevel(world.tile(t.x + dx, t.y + dy)));
           if (q <= 0.15) continue;
@@ -3980,6 +4017,10 @@ class Renderer {
         }
         c.fillStyle = dirt(p);
         c.beginPath(); c.arc(cx, cy, s * (t.type === 'grass' ? 0.11 + p * 0.1 : 0.46), 0, TAU); c.fill();
+        if (!paved && fine && p > 0.35) for (let k = 0; k < 7; k++) { // Kiesel und Spuren im Weg
+          const px = cx + (R() - 0.5) * s * 0.4, py = cy + (R() - 0.5) * s * 0.4;
+          c.fillStyle = R() < 0.5 ? 'rgba(90,70,45,.6)' : 'rgba(200,185,150,.7)'; c.beginPath(); c.ellipse(px, py, s * 0.025, s * 0.018, 0, 0, TAU); c.fill();
+        }
         if (paved && s >= 14) { // Kopfsteine
           const cob = (px, py, k) => { c.fillStyle = k % 3 === 0 ? '#b8b2a4' : k % 3 === 1 ? '#8f897c' : '#a7a194'; c.fillRect(px - s * 0.045, py - s * 0.035, s * 0.09, s * 0.07); };
           c.strokeStyle = 'rgba(60,55,48,.35)'; c.lineWidth = Math.max(1, s * 0.008);
@@ -3994,12 +4035,18 @@ class Renderer {
         }
       }
       // Grashalme und Blumen
-      if (t.type === 'grass' && p < 0.5 && s >= 14) {
+      if (t.type === 'grass' && p < 0.85 && s >= 14) {
         c.lineWidth = Math.max(1, s * 0.025);
         for (const [bx, by, bh, lean, tone] of this.blades[i]) {
-          c.strokeStyle = tone > 0.5 ? 'rgba(150, 200, 95, .35)' : 'rgba(25, 65, 25, .3)';
+          c.strokeStyle = tone > 0.5 ? 'rgba(160, 210, 100, .7)' : 'rgba(25, 65, 25, .6)';
           const px = x + bx * s, py = y + by * s;
           c.beginPath(); c.moveTo(px, py); c.quadraticCurveTo(px + lean * s * 0.05, py - bh * s * 0.6, px + lean * s * 0.1, py - bh * s); c.stroke();
+        }
+        for (let k = 0; k < 3; k++) { // Grasbüschel
+          const px = x + R() * s, py = y + R() * s;
+          c.strokeStyle = 'rgba(30,70,25,.85)'; c.lineWidth = Math.max(1, s * 0.022);
+          for (const a of [-0.5, 0, 0.5]) { c.beginPath(); c.moveTo(px, py); c.lineTo(px + Math.sin(a) * s * 0.06, py - Math.cos(a) * s * 0.08); c.stroke(); }
+          c.fillStyle = 'rgba(180,225,110,.9)'; c.fillRect(px - s * 0.012, py - s * 0.085, s * 0.02, s * 0.02);
         }
         const fl = this.flowers[i];
         if (fl) for (const [fx, fy] of fl) {
@@ -4802,9 +4849,12 @@ class Renderer {
     const CH = 16, detail = s >= 14; // weit herausgezoomt: weniger Details
     for (let cy = Math.floor(Math.max(0, y0) / CH); cy <= Math.floor(y1 / CH); cy++)
       for (let cx = Math.floor(Math.max(0, x0) / CH); cx <= Math.floor(x1 / CH); cx++) {
-        const ch = this.chunk(cx, cy);
-        c.drawImage(ch.cv, cx * CH * s, cy * CH * s, CH * s + 0.6, CH * s + 0.6);
+        const ch = this.chunk(cx, cy), z = s / ch.ts;
+        screen();
+        if (z === 1 && ch.k === dpr) c.drawImage(ch.cv, Math.round((ch.minX - 1 / ch.k - this.camX) * dpr), Math.round((ch.minY - 1 / ch.k - this.camY) * dpr)); // pixelgenau
+        else c.drawImage(ch.cv, ((ch.minX - 1 / ch.k) * z - this.camX) * dpr, ((ch.minY - 1 / ch.k) * z - this.camY) * dpr, ch.cv.width / ch.k * z * dpr, ch.cv.height / ch.k * z * dpr);
       }
+    world();
 
     // 2) Wasser in Bewegung
     c.lineWidth = Math.max(1, s * 0.03);
