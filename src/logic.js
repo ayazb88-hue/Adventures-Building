@@ -972,6 +972,16 @@ class NPC {
  * 7) SIMULATION: Zeit, Wetter, Wachstum, Ereignisse, Log, Speichern
  * ===================================================================== */
 const TILE_TYPES = Object.keys(TILE_DEFS);
+const SAVE_VERSION = 5;
+// Reihenfolge der Geländearten in älteren Spielständen (dort wurden Kacheln als Nummer gespeichert)
+const BASE_TYPES = ['grass', 'tree', 'stump', 'water', 'bush', 'camp', 'site', 'house', 'rock'];
+const OLD_TYPE_LISTS = {
+  2: [[...BASE_TYPES, 'ford', 'ruin', 'gate']],
+  3: [[...BASE_TYPES, 'field', 'smithy', 'ford', 'ruin', 'gate']],
+  4: [[...BASE_TYPES, 'field', 'smithy', 'castle', 'ford', 'ruin', 'gate'],
+      [...BASE_TYPES, 'field', 'smithy', 'market', 'castle', 'ford', 'ruin', 'gate'],
+      [...BASE_TYPES, 'field', 'smithy', 'market', 'tower', 'tavern', 'temple', 'castle', 'ford', 'ruin', 'gate']],
+};
 const WEATHER_TEXT = { 'bewölkt': '☁️ Wolken ziehen auf.', regen: '🌧️ Es beginnt zu regnen.', klar: '🌤️ Der Himmel klart auf.' };
 
 class Simulation {
@@ -1382,7 +1392,7 @@ class Simulation {
   serialize() {
     const st = this.settlement;
     return {
-      v: 4, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock,
+      v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock,
         site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work } })),
       guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
@@ -1410,9 +1420,19 @@ class Simulation {
     this.minutes = d.minutes;
     this.weather = d.weather || 'klar';
     this.rng = mulberry32((this.seed ^ d.minutes) >>> 0);
+    // Welche Typenliste gehört zu diesem Spielstand? Neue Stände bringen sie mit; bei alten erkennen wir sie
+    // daran, dass Risse und Furten (aus der Welt-Nummer bekannt) richtig herauskommen müssen.
+    let types = d.types;
+    if (!types) {
+      const cands = OLD_TYPE_LISTS[d.v] || [TILE_TYPES], fords = w.tiles.filter(t => t.type === 'ford');
+      const score = list => w.gates.filter(g => list[d.tiles[g.y * w.w + g.x][0]] === 'gate').length * 10
+        + fords.filter(t => list[d.tiles[t.y * w.w + t.x][0]] === 'ford').length;
+      types = cands.reduce((b, l) => (score(l) >= score(b) ? l : b), cands[0]);
+    }
+    if (!d.towns) d.towns = [{ name: 'Erstes Lager', capital: true, x: w.camp.x, y: w.camp.y, stock: d.stock || {}, site: d.site || null }]; // vor dem Königreich
     d.tiles.forEach((a, i) => {
       const t = w.tiles[i];
-      t.type = TILE_TYPES[a[0]] || 'grass'; t.wood = a[1]; t.berries = a[2]; t.timer = a[3]; t.traffic = a[4] || 0; t.building = null;
+      t.type = types[a[0]] || 'grass'; t.wood = a[1]; t.berries = a[2]; t.timer = a[3]; t.traffic = a[4] || 0; t.building = null;
     });
     this.kingdom = d.kingdom || null;
     this.towns = (d.towns || []).map((t, i) => {

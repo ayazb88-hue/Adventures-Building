@@ -858,6 +858,7 @@ class Renderer {
       else if (a.id === 'pray') arms = 'pray';
       else if (a.id === 'fight') arms = 'fight';
     }
+    if (n.cheerUntil > performance.now() && !n.sleeping && !n.inside) return { moving: false, arms: 'cheer', facing: n.facing || 1, step: null, view: 'down' };
     let facing = n.facing || 1;
     if (!moving && step && step.face) { const dx = step.face.x - n.x; if (Math.abs(dx) > 0.1) facing = dx > 0 ? 1 : -1; }
     // Ansicht: beim Laufen nach oben/unten Rücken/Gesicht, im Stand ohne Arbeit zum Betrachter
@@ -1192,6 +1193,7 @@ class Renderer {
   }
 
   drawAnimal(c, a, s) {
+    if (this.pixelChars) { drawPixelCreature(c, a.kind, (a.x + 0.5) * s, (a.y + 0.8) * s, s, a.facing, a.moving ? Math.floor(a.phase) & 3 : 0, false, false, a.antlers); return; }
     const x = (a.x + 0.5) * s, y = (a.y + 0.8) * s;
     c.save(); c.translate(x, y); c.scale(a.facing, 1); c.lineCap = 'round';
     c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(0, 0, s * 0.2, s * 0.05, 0, 0, TAU); c.fill();
@@ -1682,7 +1684,10 @@ class Renderer {
           if (e.monster) {
             const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s;
             c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(mx, my, s * 0.3, s * 0.08, 0, 0, TAU); c.fill();
-            c.save(); c.translate(mx, my); drawMonsterShape(c, m, s, now); c.restore();
+            if (this.pixelChars) {
+              const moving = Math.hypot(m.x - m.prevX, m.y - m.prevY) > 0.001, fr = moving ? Math.floor(now / 150) & 3 : 0;
+              drawPixelCreature(c, m.kind, mx, my, s, m.facing, fr, m.attackAt && now - m.attackAt < 300, m.hitAt && now - m.hitAt < 140);
+            } else { c.save(); c.translate(mx, my); drawMonsterShape(c, m, s, now); c.restore(); }
             const bw = s * 0.7, by = my - s * (m.kind === 'aschegolem' ? 1.15 : 0.75);
             c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(mx - bw / 2, by, bw, Math.max(3, s * 0.07));
             c.fillStyle = '#e04848'; c.fillRect(mx - bw / 2, by, bw * Math.max(0, m.hp / m.maxHp), Math.max(3, s * 0.07));

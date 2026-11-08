@@ -2,7 +2,8 @@
  * 9) OBERFLÄCHE: HUD, Log, Siedlerliste, Steckbrief, Speichern, Ton
  * ===================================================================== */
 const $ = id => document.getElementById(id);
-const SAVE_KEY = 'siedlung-save-v4';
+const SAVE_KEY = 'siedlung-save'; // bleibt gleich – die Version steht im Spielstand selbst
+const OLD_SAVE_KEYS = ['siedlung-save-v4', 'siedlung-save-v3', 'siedlung-save-v2'];
 const SOUND_KEY = 'siedlung-sound';
 const STYLE_KEY = 'siedlung-figuren';
 const ui = { speed: 1, selected: null, selTile: null, accum: 0, confirmNew: 0, sysQueue: [], sysUntil: 0 };
@@ -151,7 +152,7 @@ function updateInspector() {
   const skills = Object.entries(n.skills).map(([k, v]) => `${SKILL_NAMES[k] || k} ${v}`).join(' · ') || 'noch keine';
   box.innerHTML = `
     <div class="insp-head">
-      <span class="dot big" style="background:${n.color}"></span>
+      <canvas class="portrait" width="72" height="72" aria-label="Porträt"></canvas>
       <div><b>${esc(n.name)}</b><div class="tags">${n.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div></div>
       <div class="mood" title="Laune">${n.moodEmoji}</div>
     </div>
@@ -166,6 +167,7 @@ function updateInspector() {
     <div class="sec"><h4>❤️ Beziehungen</h4>${rels.length ? rels.map(r => `<span class="rel"><span class="dot" style="background:${r.o.color}"></span>${esc(r.o.name)} · ${relLabel(r.v)}</span>`).join('') : '<span class="muted">noch niemanden kennengelernt</span>'}</div>
     <div class="sec"><h4>📜 Erinnerungen</h4>${n.memories.length ? `<ul>${n.memories.slice(0, 5).map(m => `<li><span class="muted">T${m.day} ${m.clock}</span> ${esc(m.text)}</li>`).join('')}</ul>` : '<span class="muted">noch keine</span>'}</div>
     <div class="sec"><h4>⭐ Erfahrung</h4>${skills}</div>`;
+  drawPortrait(box.querySelector('.portrait'), n);
   bindLinks(box);
 }
 
@@ -221,18 +223,65 @@ function saveGame() {
 }
 
 function loadGame() {
-  try { const raw = store(SAVE_KEY); const d = raw && JSON.parse(raw); return d && d.v === 4 ? d : null; } catch (e) { return null; }
+  for (const key of [SAVE_KEY, ...OLD_SAVE_KEYS]) {
+    try { const raw = store(key); const d = raw && JSON.parse(raw); if (d && d.v >= 2 && d.v <= SAVE_VERSION) return d; } catch (e) { /* weiter mit dem nächsten */ }
+  }
+  return null;
+}
+
+/** Großes Pixel-Porträt (Kopf und Schultern) im Steckbrief. */
+function drawPortrait(cv, n) {
+  if (!cv) return;
+  const c = cv.getContext('2d'), col = n.awakened && n.cls ? CLASSES[n.cls].color : n.color;
+  const g = c.createLinearGradient(0, 0, 0, 72); g.addColorStop(0, '#1b2a3a'); g.addColorStop(1, '#0e151d');
+  c.fillStyle = g; c.fillRect(0, 0, 72, 72);
+  c.fillStyle = col; c.globalAlpha = 0.35; c.beginPath(); c.arc(36, 40, 30, 0, TAU); c.fill(); c.globalAlpha = 1;
+  const f = pixFrame(n, { arms: 'none', moving: false, facing: 1, view: 'down' }, 0, performance.now());
+  c.imageSmoothingEnabled = false;
+  c.drawImage(f, 8, 2, 24, 24, 0, 0, 72, 72);
+}
+
+/** Kleines Fenster für Sichern/Laden (ohne prompt/alert). */
+function openModal(title, text, value, okLabel, onOk) {
+  $('modalTitle').textContent = title; $('modalText').textContent = text;
+  const area = $('modalArea'); area.value = value || ''; area.readOnly = !onOk;
+  $('modalOk').hidden = !onOk; $('modalOk').textContent = okLabel || 'OK';
+  $('modalOk').onclick = () => onOk && onOk(area.value);
+  $('modal').hidden = false;
+  if (value) { area.focus(); area.select(); }
+}
+
+function exportGame() {
+  const code = 'SIEDLUNG:' + btoa(unescape(encodeURIComponent(JSON.stringify(sim.serialize()))));
+  const show = () => openModal('📤 Spielstand sichern', 'Kopiere diesen Text und bewahre ihn auf (z. B. in deinen Notizen). Mit „📥 Laden“ kannst du die Welt auf jedem Gerät fortsetzen.', code);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code).then(() => openModal('📤 Spielstand gesichert', `In die Zwischenablage kopiert (${Math.round(code.length / 1024)} KB). Füge ihn in deine Notizen ein, um ihn aufzubewahren.`, code), show);
+  } else show();
+}
+
+function importGame() {
+  openModal('📥 Spielstand laden', 'Füge hier einen gesicherten Spielstand ein. Deine aktuelle Welt wird dabei ersetzt.', '', 'Laden', text => {
+    try {
+      const raw = text.trim().replace(/^SIEDLUNG:/, '');
+      const d = JSON.parse(raw.startsWith('{') ? raw : decodeURIComponent(escape(atob(raw))));
+      if (!d || !d.v || d.v > SAVE_VERSION || !d.tiles) throw new Error('kein Spielstand');
+      startSim(new Simulation(d.seed, d));
+      sim.log('📥 Spielstand übernommen – willkommen zurück!', null, true);
+      saveGame();
+      $('modal').hidden = true;
+    } catch (e) { $('modalText').textContent = '⚠️ Das hat nicht geklappt: Der Text ist kein vollständiger Spielstand. Bitte den ganzen Text einfügen.'; }
+  });
 }
 
 function startSim(s) {
   sim = s;
   sim.on('log', e => { renderLog(); if (e.event && /fertig|kommt neu|Freunde/.test(e.text)) sound.chime(); });
   sim.on('system', msg => { if (ui.sysQueue.length < 6) ui.sysQueue.push(msg); });
-  sim.on('levelup', n => { renderer.burst(n, 'levelup'); sound.levelUp(); buildRoster(); });
+  sim.on('levelup', n => { n.cheerUntil = performance.now() + 2200; renderer.burst(n, 'levelup'); sound.levelUp(); buildRoster(); });
   sim.on('kingdom', () => { sound.levelUp(); setTimeout(() => sound.levelUp(), 300); setTimeout(() => sound.chime(), 700); });
   sim.on('towerShot', e => renderer.shots = [...(renderer.shots || []), { ...e, to: { x: e.to.x, y: e.to.y }, born: performance.now() }]);
   sim.on('legendary', ({ n }) => { renderer.burst(n, 'legendary'); sound.levelUp(); setTimeout(() => sound.levelUp(), 250); });
-  sim.on('awaken', n => { renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
+  sim.on('awaken', n => { n.cheerUntil = performance.now() + 2200; renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
   sim.on('npcAdded', buildRoster);
   sim.on('chop', t => {
     const cx = (renderer.camX + renderer.viewW / 2) / renderer.ts, cy = (renderer.camY + renderer.viewH / 2) / renderer.ts;
@@ -289,6 +338,9 @@ document.querySelectorAll('#speed button').forEach(b => b.addEventListener('clic
 document.querySelectorAll('#zoomBtns [data-z]').forEach(b => b.addEventListener('click', () => renderer.setZoom(renderer.ts * Number(b.dataset.z))));
 $('homeBtn').addEventListener('click', () => { select(null); const c = sim.world.camp; renderer.centerOn(c.x + 0.5, c.y + 0.5); });
 $('soundBtn').addEventListener('click', () => setSound(!sound.on));
+$('exportBtn').addEventListener('click', exportGame);
+$('importBtn').addEventListener('click', importGame);
+$('modalClose').addEventListener('click', () => { $('modal').hidden = true; });
 const applyStyle = () => { renderer.pixelChars = store(STYLE_KEY) !== 'vektor'; $('styleBtn').textContent = renderer.pixelChars ? '🎨 Figuren: Pixel' : '🎨 Figuren: Gezeichnet'; };
 $('styleBtn').addEventListener('click', () => { store(STYLE_KEY, renderer.pixelChars ? 'vektor' : 'pixel'); applyStyle(); });
 $('newWorld').addEventListener('click', () => {

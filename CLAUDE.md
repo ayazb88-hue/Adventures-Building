@@ -30,7 +30,8 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
   | `src/ui.js` | HUD, Log, Steckbriefe, Hauptschleife, Start |
 - Bauen: `python3 build.py --check` (baut `index.html` und prüft die Syntax).
 - Testen: `node tools/simtest.js 14 7,42` (simuliert Welten, meldet Fehler, abgeschnittene Siedler und Kennzahlen). Vor jedem Commit ausführen.
-- Spielstand: `SAVE_KEY` und `v` in `serialize()` erhöhen, wenn sich das Speicherformat ändert.
+- **Spielstände nie verwerfen**: `SAVE_KEY` bleibt gleich; bei Formatänderungen `SAVE_VERSION` erhöhen und in `applySave()` eine Übertragung für alte Stände schreiben (fehlende Felder mit Standardwerten füllen). Neue Geländearten in `TILE_DEFS` **nur hinten anhängen** – Spielstände speichern ihre Typenliste (`types`) mit, alte Listen stehen in `OLD_TYPE_LISTS`.
+- Spieler können ihren Stand über „📤 Sichern / 📥 Laden“ als Text mitnehmen; das Format muss dafür abwärtskompatibel bleiben.
 - Leistung: Ziel 60–70 Siedler bei ≥ 40 Bildern/s auf dem Handy. Keine Suche über die ganze Karte in jeder Minute; fehlgeschlagene Pläne werden pausiert (`n.cool`).
 - Wege müssen frei bleiben: Häuser und Felder liegen auf dem Raster mit Abstand 2 um das Lager.
 

@@ -85,6 +85,7 @@ function pixFrame(n, pose, phase, now) {
   else if (arms === 'fight') q = 'f' + Math.floor(((t / 0.75) % 1) * 6);
   else if (arms === 'eat') q = 'e' + Math.floor(((t / 2.6) % 1) * 4);
   else if (arms === 'talk') q = 't' + Math.floor(((t / 1.4) % 1) * 4);
+  else if (arms === 'cheer') q = 'j' + (Math.floor(t * 5) & 1);
   else q = (now + n.id * 913) % 3900 < 150 ? 'ib' : 'i' + (Math.floor(t * 1.2) & 1);
   const view = n.sleeping ? 'side' : pose.view || 'side';
   const gearKey = SLOTS.map(sl => g[sl] ? g[sl].kind[0] + g[sl].rarity : '-').join('');
@@ -339,7 +340,7 @@ function pixPaintFront(c, n, view, q, load) {
   const pr = (x, y, w, h, col) => { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); };
   const tpl = (rows, ox, oy, pal) => { for (let r = 0; r < rows.length; r++) for (let k = 0; k < rows[r].length; k++) { const col = pal[rows[r][k]]; if (col) { c.fillStyle = col; c.fillRect(ox + k, oy + r, 1, 1); } } };
   const walking = q[0] === 'w', fr = +q.slice(1) || 0, s1 = walking ? Math.sin(fr / 8 * TAU) : 0;
-  const bob = walking ? Math.round(Math.abs(s1)) : (q === 'i1' ? 1 : 0);
+  const cheer = q[0] === 'j', bob = walking ? Math.round(Math.abs(s1)) : cheer ? (q === 'j1' ? 3 : 0) : (q === 'i1' ? 1 : 0);
   const hipY = FY - 10 - bob, shY = hipY - 8, hx = FX - 6, hy = shY - 11;
   const boot = dark => g.boots ? P.sh(pixHex(METAL[g.boots.rarity]), dark ? -90 : -60) : (dark ? '#22170f' : '#3b2a1e');
   // Umhang hinten (Vorderansicht: an den Seiten sichtbar)
@@ -381,6 +382,7 @@ function pixPaintFront(c, n, view, q, load) {
   // Arme an den Seiten, schwingen beim Gehen
   const swing = walking ? Math.round(s1 * 2) : 0;
   for (const [ax, sw, dark] of [[FX - 8, swing, true], [FX + 6, -swing, false]]) {
+    if (cheer) { pr(ax, shY - 7, 2, 8, dark ? P.SHD : P.SH); pr(ax, shY - 9, 2, 2, dark ? P.SKD : P.SK); continue; } // Arme hoch!
     pr(ax, shY + 1, 2, 7 + sw, dark ? P.SHD : P.SH);
     pr(ax, shY + 8 + sw, 2, 2, dark ? P.SKD : P.SK);
   }
@@ -468,3 +470,74 @@ Renderer.prototype.drawSettlerPixel = function (c, n, px, py, s, now, pose, phas
   }
 };
 
+/* ---- Monster und Tiere in Pixel-Art ------------------------------------ */
+function pixKit(c) {
+  const pr = (x, y, w, h, col) => { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); };
+  const pl = (x0, y0, x1, y1, w, col) => {
+    c.fillStyle = col; x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, o = Math.floor(w / 2);
+    let err = dx + dy;
+    for (let k = 0; k < 200; k++) { c.fillRect(x0 - o, y0 - o, w, w); if (x0 === x1 && y0 === y1) break; const e2 = 2 * err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; } }
+  };
+  const el = (cx, cy, rx, ry, col) => { c.fillStyle = col; for (let y = -ry; y <= ry; y++) { const w = Math.round(rx * Math.sqrt(Math.max(0, 1 - (y / (ry + 0.5)) ** 2))); c.fillRect(Math.round(cx - w), Math.round(cy + y), w * 2, 1); } };
+  return { pr, pl, el };
+}
+
+function pixCreature(kind, frame, attack, flash, antlers) {
+  const key = `${kind}|${frame}|${attack ? 1 : 0}|${flash ? 1 : 0}|${antlers ? 1 : 0}`;
+  let cv = pixCache.get(key);
+  if (cv) return cv;
+  cv = document.createElement('canvas'); cv.width = PIX.W; cv.height = PIX.H;
+  const c = cv.getContext('2d'), { pr, pl, el } = pixKit(c), FX = PIX.FX, FY = PIX.FY;
+  const step = [0, 1, 0, -1][frame & 3];
+  if (kind === 'rissling') { // kleiner Kobold aus dem Riss
+    const hop = [0, 2, 3, 1][frame & 3], y = FY - hop;
+    pl(FX - 5, y - 6, FX - 10, y - 11, 1, '#3a2350'); pr(FX - 11, y - 13, 2, 2, '#3a2350');
+    pr(FX - 3, y - 2, 2, 2, '#2a1838'); pr(FX + 1, y - 2, 2, 2, '#2a1838');
+    el(FX, y - 7, 6, 5, '#5b3a86'); el(FX - 1, y - 6, 5, 3, '#4a2d70'); pr(FX + 1, y - 11, 3, 1, '#8a5ac0');
+    pr(FX - 4, y - 14, 1, 3, '#2a1838'); pr(FX - 3, y - 15, 1, 1, '#2a1838'); pr(FX + 3, y - 14, 1, 3, '#2a1838'); pr(FX + 4, y - 15, 1, 1, '#2a1838');
+    pr(FX + 1, y - 9, 2, 2, '#ffe14a'); pr(FX + 4, y - 9, 2, 2, '#ffe14a'); pr(FX + 2, y - 9, 1, 1, '#140c0a'); pr(FX + 5, y - 9, 1, 1, '#140c0a');
+    pr(FX + 2, y - 5, 3, 1, '#2a1838');
+    pr(FX + 5 + (attack ? 3 : 0), y - 7, 3, 2, '#4a2d70'); pr(FX + 7 + (attack ? 3 : 0), y - 8, 1, 1, '#e8e2d0');
+  } else if (kind === 'schattenwolf') { // dunkler Wolf mit roten Augen
+    for (const [lx, o] of [[-7, 0], [-4, 2], [5, 2], [8, 0]]) { const off = [0, 2, 0, -2][(frame + o) & 3]; pl(FX + lx, FY - 6, FX + lx + off, FY - 1, 2, lx < 0 && o ? '#151820' : '#1b1f29'); }
+    pl(FX - 10, FY - 10, FX - 15, FY - 14 + step, 2, '#2d3446');
+    el(FX - 1, FY - 9, 10, 4, '#2d3446'); el(FX - 2, FY - 8, 9, 2, '#1b1f29'); pr(FX - 6, FY - 13, 9, 1, '#4a5570');
+    const hx = FX + 10 + (attack ? 2 : 0);
+    el(hx, FY - 12, 4, 3, '#2d3446'); pr(hx + 3, FY - 12, 4, 2, '#2d3446'); pr(hx - 2, FY - 17, 2, 3, '#1b1f29'); pr(hx + 1, FY - 17, 2, 3, '#1b1f29');
+    pr(hx + 1, FY - 13, 2, 1, '#ff3b3b'); pr(hx + 6, FY - 12, 1, 1, '#0b0d12');
+    if (attack) { pr(hx + 3, FY - 10, 4, 1, '#7a1a1a'); pr(hx + 4, FY - 10, 1, 1, '#ffffff'); pr(hx + 6, FY - 10, 1, 1, '#ffffff'); }
+  } else if (kind === 'aschegolem') { // Steinriese mit Lavarissen
+    const st = [0, 1, 0, 1][frame & 3];
+    pr(FX - 8, FY - 6, 6, 6 - st, '#3e3833'); pr(FX + 2, FY - 6, 6, 6 - (1 - st), '#3e3833');
+    c.fillStyle = '#5a534c'; for (let y = FY - 25; y < FY - 5; y++) { const w = 9 + Math.round((y - (FY - 25)) / 20 * 2); c.fillRect(FX - w, y, w * 2, 1); }
+    pr(FX - 11, FY - 25, 5, 20, '#45403a');
+    pr(FX - 4, FY - 31, 8, 7, '#4a443e'); pr(FX - 4, FY - 31, 3, 7, '#3a3530');
+    pr(FX + 1, FY - 29, 2, 2, '#ff9a2a');
+    for (const [a, b, d, e] of [[-4, -22, 1, -16], [1, -16, -3, -10], [5, -20, 3, -12]]) pl(FX + a, FY + b, FX + d, FY + e, 1, '#ff7a1a');
+    pr(FX - 14, FY - 24, 4, 14, '#3e3833');
+    if (attack) pr(FX + 10, FY - 34, 4, 12, '#3e3833'); else pr(FX + 10, FY - 24, 4, 14, '#3e3833');
+  } else if (kind === 'deer') {
+    for (const [lx, o] of [[-6, 0], [-4, 2], [4, 2], [6, 0]]) { const off = [0, 1, 0, -1][(frame + o) & 3]; pl(FX + lx, FY - 7, FX + lx + off, FY - 1, 1, '#6b4a2c'); }
+    el(FX, FY - 10, 8, 3, '#9a6a3c'); el(FX - 1, FY - 9, 7, 1, '#7a5230'); pr(FX - 9, FY - 11, 2, 2, '#f3e6d0');
+    pl(FX + 6, FY - 12, FX + 9, FY - 17, 2, '#9a6a3c'); el(FX + 10, FY - 18, 3, 2, '#a06e40'); pr(FX + 8, FY - 21, 1, 2, '#7a5230');
+    pr(FX + 11, FY - 19, 1, 1, '#1d1410'); pr(FX + 13, FY - 18, 1, 1, '#2a1d14');
+    if (antlers) { pl(FX + 9, FY - 21, FX + 7, FY - 26, 1, '#d9c39a'); pl(FX + 8, FY - 24, FX + 5, FY - 25, 1, '#d9c39a'); pl(FX + 11, FY - 21, FX + 13, FY - 26, 1, '#d9c39a'); }
+  } else if (kind === 'rabbit') {
+    const hop = [0, 2, 3, 1][frame & 3], y = FY - hop;
+    el(FX, y - 4, 4, 3, '#9c8a76'); el(FX - 1, y - 3, 3, 1, '#857462'); el(FX + 4, y - 7, 2, 2, '#9c8a76');
+    pr(FX + 3, y - 12, 1, 4, '#9c8a76'); pr(FX + 5, y - 12, 1, 4, '#8a7864'); pr(FX + 5, y - 8, 1, 1, '#1d1410');
+    pr(FX - 5, y - 5, 2, 2, '#ffffff');
+  }
+  pixOutline(c);
+  if (flash) { c.globalCompositeOperation = 'source-atop'; c.fillStyle = 'rgba(255,255,255,.75)'; c.fillRect(0, 0, PIX.W, PIX.H); c.globalCompositeOperation = 'source-over'; }
+  if (pixCache.size > 1500) pixCache.delete(pixCache.keys().next().value);
+  pixCache.set(key, cv);
+  return cv;
+}
+
+/** Pixel-Kreatur zeichnen: Füße bei (x, y), Blickrichtung facing. */
+function drawPixelCreature(c, kind, x, y, s, facing, frame, attack, flash, antlers) {
+  const cv = pixCreature(kind, frame, attack, flash, antlers), k = (0.66 * s) / 26;
+  c.save(); c.imageSmoothingEnabled = false; c.translate(x, y); c.scale(facing * k, k); c.drawImage(cv, -PIX.FX, -PIX.FY); c.restore();
+}

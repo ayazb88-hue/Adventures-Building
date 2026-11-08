@@ -85,6 +85,16 @@
   .slot { display: flex; flex-direction: column; padding: 5px 8px; border-radius: 8px; background: #ffffff0a; border: 1px solid #ffffff14; font-size: 12px; min-width: 0; }
   .slot small { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
   .slot b { font-size: 12.5px; overflow-wrap: anywhere; }
+  #modal { position: fixed; inset: 0; z-index: 50; background: #000a; display: flex; align-items: center; justify-content: center; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  #modal[hidden] { display: none; }
+  #modal .box { width: min(100%, 460px); background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; box-shadow: 0 10px 40px #000a; }
+  #modal h3 { margin: 0 0 6px; font-size: 16px; }
+  #modal p { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+  #modal textarea { width: 100%; height: 120px; resize: vertical; background: #0b120e; color: var(--text); border: 1px solid var(--border); border-radius: 8px; font: 11px/1.3 ui-monospace, monospace; padding: 8px; }
+  .modal-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  .modal-row button { height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); font-weight: 600; }
+  #modalOk { background: var(--accent); color: #2a1d05; border-color: var(--accent); }
+  .portrait { width: 72px; height: 72px; border-radius: 12px; border: 2px solid #ffffff22; image-rendering: pixelated; flex: none; }
   .quest { font-size: 13px; padding: 6px 8px; border-radius: 8px; background: #f0b54a1a; border: 1px solid #f0b54a55; }
   .quest.done { opacity: .7; text-decoration: line-through; }
   .hint { text-align: center; color: var(--muted); font-size: 12px; margin: 8px 0 0; }
@@ -155,9 +165,20 @@
   <footer>
     <span id="seedInfo"></span>
     <span id="saveInfo"></span>
+    <button id="exportBtn">📤 Sichern</button>
+    <button id="importBtn">📥 Laden</button>
     <button id="styleBtn">🎨 Figuren: Pixel</button>
     <button id="newWorld">🌍 Neue Welt</button>
   </footer>
+</div>
+
+<div id="modal" hidden>
+  <div class="box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <h3 id="modalTitle"></h3>
+    <p id="modalText"></p>
+    <textarea id="modalArea" spellcheck="false" aria-label="Spielstand"></textarea>
+    <div class="modal-row"><button id="modalOk">OK</button><button id="modalClose">Schließen</button></div>
+  </div>
 </div>
 
 <script>
@@ -1623,6 +1644,16 @@ class NPC {
  * 7) SIMULATION: Zeit, Wetter, Wachstum, Ereignisse, Log, Speichern
  * ===================================================================== */
 const TILE_TYPES = Object.keys(TILE_DEFS);
+const SAVE_VERSION = 5;
+// Reihenfolge der Geländearten in älteren Spielständen (dort wurden Kacheln als Nummer gespeichert)
+const BASE_TYPES = ['grass', 'tree', 'stump', 'water', 'bush', 'camp', 'site', 'house', 'rock'];
+const OLD_TYPE_LISTS = {
+  2: [[...BASE_TYPES, 'ford', 'ruin', 'gate']],
+  3: [[...BASE_TYPES, 'field', 'smithy', 'ford', 'ruin', 'gate']],
+  4: [[...BASE_TYPES, 'field', 'smithy', 'castle', 'ford', 'ruin', 'gate'],
+      [...BASE_TYPES, 'field', 'smithy', 'market', 'castle', 'ford', 'ruin', 'gate'],
+      [...BASE_TYPES, 'field', 'smithy', 'market', 'tower', 'tavern', 'temple', 'castle', 'ford', 'ruin', 'gate']],
+};
 const WEATHER_TEXT = { 'bewölkt': '☁️ Wolken ziehen auf.', regen: '🌧️ Es beginnt zu regnen.', klar: '🌤️ Der Himmel klart auf.' };
 
 class Simulation {
@@ -2033,7 +2064,7 @@ class Simulation {
   serialize() {
     const st = this.settlement;
     return {
-      v: 4, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock,
+      v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock,
         site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work } })),
       guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
@@ -2061,9 +2092,19 @@ class Simulation {
     this.minutes = d.minutes;
     this.weather = d.weather || 'klar';
     this.rng = mulberry32((this.seed ^ d.minutes) >>> 0);
+    // Welche Typenliste gehört zu diesem Spielstand? Neue Stände bringen sie mit; bei alten erkennen wir sie
+    // daran, dass Risse und Furten (aus der Welt-Nummer bekannt) richtig herauskommen müssen.
+    let types = d.types;
+    if (!types) {
+      const cands = OLD_TYPE_LISTS[d.v] || [TILE_TYPES], fords = w.tiles.filter(t => t.type === 'ford');
+      const score = list => w.gates.filter(g => list[d.tiles[g.y * w.w + g.x][0]] === 'gate').length * 10
+        + fords.filter(t => list[d.tiles[t.y * w.w + t.x][0]] === 'ford').length;
+      types = cands.reduce((b, l) => (score(l) >= score(b) ? l : b), cands[0]);
+    }
+    if (!d.towns) d.towns = [{ name: 'Erstes Lager', capital: true, x: w.camp.x, y: w.camp.y, stock: d.stock || {}, site: d.site || null }]; // vor dem Königreich
     d.tiles.forEach((a, i) => {
       const t = w.tiles[i];
-      t.type = TILE_TYPES[a[0]] || 'grass'; t.wood = a[1]; t.berries = a[2]; t.timer = a[3]; t.traffic = a[4] || 0; t.building = null;
+      t.type = types[a[0]] || 'grass'; t.wood = a[1]; t.berries = a[2]; t.timer = a[3]; t.traffic = a[4] || 0; t.building = null;
     });
     this.kingdom = d.kingdom || null;
     this.towns = (d.towns || []).map((t, i) => {
@@ -2971,6 +3012,7 @@ class Renderer {
       else if (a.id === 'pray') arms = 'pray';
       else if (a.id === 'fight') arms = 'fight';
     }
+    if (n.cheerUntil > performance.now() && !n.sleeping && !n.inside) return { moving: false, arms: 'cheer', facing: n.facing || 1, step: null, view: 'down' };
     let facing = n.facing || 1;
     if (!moving && step && step.face) { const dx = step.face.x - n.x; if (Math.abs(dx) > 0.1) facing = dx > 0 ? 1 : -1; }
     // Ansicht: beim Laufen nach oben/unten Rücken/Gesicht, im Stand ohne Arbeit zum Betrachter
@@ -3305,6 +3347,7 @@ class Renderer {
   }
 
   drawAnimal(c, a, s) {
+    if (this.pixelChars) { drawPixelCreature(c, a.kind, (a.x + 0.5) * s, (a.y + 0.8) * s, s, a.facing, a.moving ? Math.floor(a.phase) & 3 : 0, false, false, a.antlers); return; }
     const x = (a.x + 0.5) * s, y = (a.y + 0.8) * s;
     c.save(); c.translate(x, y); c.scale(a.facing, 1); c.lineCap = 'round';
     c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(0, 0, s * 0.2, s * 0.05, 0, 0, TAU); c.fill();
@@ -3795,7 +3838,10 @@ class Renderer {
           if (e.monster) {
             const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s;
             c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(mx, my, s * 0.3, s * 0.08, 0, 0, TAU); c.fill();
-            c.save(); c.translate(mx, my); drawMonsterShape(c, m, s, now); c.restore();
+            if (this.pixelChars) {
+              const moving = Math.hypot(m.x - m.prevX, m.y - m.prevY) > 0.001, fr = moving ? Math.floor(now / 150) & 3 : 0;
+              drawPixelCreature(c, m.kind, mx, my, s, m.facing, fr, m.attackAt && now - m.attackAt < 300, m.hitAt && now - m.hitAt < 140);
+            } else { c.save(); c.translate(mx, my); drawMonsterShape(c, m, s, now); c.restore(); }
             const bw = s * 0.7, by = my - s * (m.kind === 'aschegolem' ? 1.15 : 0.75);
             c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(mx - bw / 2, by, bw, Math.max(3, s * 0.07));
             c.fillStyle = '#e04848'; c.fillRect(mx - bw / 2, by, bw * Math.max(0, m.hp / m.maxHp), Math.max(3, s * 0.07));
@@ -4115,6 +4161,7 @@ function pixFrame(n, pose, phase, now) {
   else if (arms === 'fight') q = 'f' + Math.floor(((t / 0.75) % 1) * 6);
   else if (arms === 'eat') q = 'e' + Math.floor(((t / 2.6) % 1) * 4);
   else if (arms === 'talk') q = 't' + Math.floor(((t / 1.4) % 1) * 4);
+  else if (arms === 'cheer') q = 'j' + (Math.floor(t * 5) & 1);
   else q = (now + n.id * 913) % 3900 < 150 ? 'ib' : 'i' + (Math.floor(t * 1.2) & 1);
   const view = n.sleeping ? 'side' : pose.view || 'side';
   const gearKey = SLOTS.map(sl => g[sl] ? g[sl].kind[0] + g[sl].rarity : '-').join('');
@@ -4369,7 +4416,7 @@ function pixPaintFront(c, n, view, q, load) {
   const pr = (x, y, w, h, col) => { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); };
   const tpl = (rows, ox, oy, pal) => { for (let r = 0; r < rows.length; r++) for (let k = 0; k < rows[r].length; k++) { const col = pal[rows[r][k]]; if (col) { c.fillStyle = col; c.fillRect(ox + k, oy + r, 1, 1); } } };
   const walking = q[0] === 'w', fr = +q.slice(1) || 0, s1 = walking ? Math.sin(fr / 8 * TAU) : 0;
-  const bob = walking ? Math.round(Math.abs(s1)) : (q === 'i1' ? 1 : 0);
+  const cheer = q[0] === 'j', bob = walking ? Math.round(Math.abs(s1)) : cheer ? (q === 'j1' ? 3 : 0) : (q === 'i1' ? 1 : 0);
   const hipY = FY - 10 - bob, shY = hipY - 8, hx = FX - 6, hy = shY - 11;
   const boot = dark => g.boots ? P.sh(pixHex(METAL[g.boots.rarity]), dark ? -90 : -60) : (dark ? '#22170f' : '#3b2a1e');
   // Umhang hinten (Vorderansicht: an den Seiten sichtbar)
@@ -4411,6 +4458,7 @@ function pixPaintFront(c, n, view, q, load) {
   // Arme an den Seiten, schwingen beim Gehen
   const swing = walking ? Math.round(s1 * 2) : 0;
   for (const [ax, sw, dark] of [[FX - 8, swing, true], [FX + 6, -swing, false]]) {
+    if (cheer) { pr(ax, shY - 7, 2, 8, dark ? P.SHD : P.SH); pr(ax, shY - 9, 2, 2, dark ? P.SKD : P.SK); continue; } // Arme hoch!
     pr(ax, shY + 1, 2, 7 + sw, dark ? P.SHD : P.SH);
     pr(ax, shY + 8 + sw, 2, 2, dark ? P.SKD : P.SK);
   }
@@ -4498,6 +4546,77 @@ Renderer.prototype.drawSettlerPixel = function (c, n, px, py, s, now, pose, phas
   }
 };
 
+/* ---- Monster und Tiere in Pixel-Art ------------------------------------ */
+function pixKit(c) {
+  const pr = (x, y, w, h, col) => { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); };
+  const pl = (x0, y0, x1, y1, w, col) => {
+    c.fillStyle = col; x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, o = Math.floor(w / 2);
+    let err = dx + dy;
+    for (let k = 0; k < 200; k++) { c.fillRect(x0 - o, y0 - o, w, w); if (x0 === x1 && y0 === y1) break; const e2 = 2 * err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; } }
+  };
+  const el = (cx, cy, rx, ry, col) => { c.fillStyle = col; for (let y = -ry; y <= ry; y++) { const w = Math.round(rx * Math.sqrt(Math.max(0, 1 - (y / (ry + 0.5)) ** 2))); c.fillRect(Math.round(cx - w), Math.round(cy + y), w * 2, 1); } };
+  return { pr, pl, el };
+}
+
+function pixCreature(kind, frame, attack, flash, antlers) {
+  const key = `${kind}|${frame}|${attack ? 1 : 0}|${flash ? 1 : 0}|${antlers ? 1 : 0}`;
+  let cv = pixCache.get(key);
+  if (cv) return cv;
+  cv = document.createElement('canvas'); cv.width = PIX.W; cv.height = PIX.H;
+  const c = cv.getContext('2d'), { pr, pl, el } = pixKit(c), FX = PIX.FX, FY = PIX.FY;
+  const step = [0, 1, 0, -1][frame & 3];
+  if (kind === 'rissling') { // kleiner Kobold aus dem Riss
+    const hop = [0, 2, 3, 1][frame & 3], y = FY - hop;
+    pl(FX - 5, y - 6, FX - 10, y - 11, 1, '#3a2350'); pr(FX - 11, y - 13, 2, 2, '#3a2350');
+    pr(FX - 3, y - 2, 2, 2, '#2a1838'); pr(FX + 1, y - 2, 2, 2, '#2a1838');
+    el(FX, y - 7, 6, 5, '#5b3a86'); el(FX - 1, y - 6, 5, 3, '#4a2d70'); pr(FX + 1, y - 11, 3, 1, '#8a5ac0');
+    pr(FX - 4, y - 14, 1, 3, '#2a1838'); pr(FX - 3, y - 15, 1, 1, '#2a1838'); pr(FX + 3, y - 14, 1, 3, '#2a1838'); pr(FX + 4, y - 15, 1, 1, '#2a1838');
+    pr(FX + 1, y - 9, 2, 2, '#ffe14a'); pr(FX + 4, y - 9, 2, 2, '#ffe14a'); pr(FX + 2, y - 9, 1, 1, '#140c0a'); pr(FX + 5, y - 9, 1, 1, '#140c0a');
+    pr(FX + 2, y - 5, 3, 1, '#2a1838');
+    pr(FX + 5 + (attack ? 3 : 0), y - 7, 3, 2, '#4a2d70'); pr(FX + 7 + (attack ? 3 : 0), y - 8, 1, 1, '#e8e2d0');
+  } else if (kind === 'schattenwolf') { // dunkler Wolf mit roten Augen
+    for (const [lx, o] of [[-7, 0], [-4, 2], [5, 2], [8, 0]]) { const off = [0, 2, 0, -2][(frame + o) & 3]; pl(FX + lx, FY - 6, FX + lx + off, FY - 1, 2, lx < 0 && o ? '#151820' : '#1b1f29'); }
+    pl(FX - 10, FY - 10, FX - 15, FY - 14 + step, 2, '#2d3446');
+    el(FX - 1, FY - 9, 10, 4, '#2d3446'); el(FX - 2, FY - 8, 9, 2, '#1b1f29'); pr(FX - 6, FY - 13, 9, 1, '#4a5570');
+    const hx = FX + 10 + (attack ? 2 : 0);
+    el(hx, FY - 12, 4, 3, '#2d3446'); pr(hx + 3, FY - 12, 4, 2, '#2d3446'); pr(hx - 2, FY - 17, 2, 3, '#1b1f29'); pr(hx + 1, FY - 17, 2, 3, '#1b1f29');
+    pr(hx + 1, FY - 13, 2, 1, '#ff3b3b'); pr(hx + 6, FY - 12, 1, 1, '#0b0d12');
+    if (attack) { pr(hx + 3, FY - 10, 4, 1, '#7a1a1a'); pr(hx + 4, FY - 10, 1, 1, '#ffffff'); pr(hx + 6, FY - 10, 1, 1, '#ffffff'); }
+  } else if (kind === 'aschegolem') { // Steinriese mit Lavarissen
+    const st = [0, 1, 0, 1][frame & 3];
+    pr(FX - 8, FY - 6, 6, 6 - st, '#3e3833'); pr(FX + 2, FY - 6, 6, 6 - (1 - st), '#3e3833');
+    c.fillStyle = '#5a534c'; for (let y = FY - 25; y < FY - 5; y++) { const w = 9 + Math.round((y - (FY - 25)) / 20 * 2); c.fillRect(FX - w, y, w * 2, 1); }
+    pr(FX - 11, FY - 25, 5, 20, '#45403a');
+    pr(FX - 4, FY - 31, 8, 7, '#4a443e'); pr(FX - 4, FY - 31, 3, 7, '#3a3530');
+    pr(FX + 1, FY - 29, 2, 2, '#ff9a2a');
+    for (const [a, b, d, e] of [[-4, -22, 1, -16], [1, -16, -3, -10], [5, -20, 3, -12]]) pl(FX + a, FY + b, FX + d, FY + e, 1, '#ff7a1a');
+    pr(FX - 14, FY - 24, 4, 14, '#3e3833');
+    if (attack) pr(FX + 10, FY - 34, 4, 12, '#3e3833'); else pr(FX + 10, FY - 24, 4, 14, '#3e3833');
+  } else if (kind === 'deer') {
+    for (const [lx, o] of [[-6, 0], [-4, 2], [4, 2], [6, 0]]) { const off = [0, 1, 0, -1][(frame + o) & 3]; pl(FX + lx, FY - 7, FX + lx + off, FY - 1, 1, '#6b4a2c'); }
+    el(FX, FY - 10, 8, 3, '#9a6a3c'); el(FX - 1, FY - 9, 7, 1, '#7a5230'); pr(FX - 9, FY - 11, 2, 2, '#f3e6d0');
+    pl(FX + 6, FY - 12, FX + 9, FY - 17, 2, '#9a6a3c'); el(FX + 10, FY - 18, 3, 2, '#a06e40'); pr(FX + 8, FY - 21, 1, 2, '#7a5230');
+    pr(FX + 11, FY - 19, 1, 1, '#1d1410'); pr(FX + 13, FY - 18, 1, 1, '#2a1d14');
+    if (antlers) { pl(FX + 9, FY - 21, FX + 7, FY - 26, 1, '#d9c39a'); pl(FX + 8, FY - 24, FX + 5, FY - 25, 1, '#d9c39a'); pl(FX + 11, FY - 21, FX + 13, FY - 26, 1, '#d9c39a'); }
+  } else if (kind === 'rabbit') {
+    const hop = [0, 2, 3, 1][frame & 3], y = FY - hop;
+    el(FX, y - 4, 4, 3, '#9c8a76'); el(FX - 1, y - 3, 3, 1, '#857462'); el(FX + 4, y - 7, 2, 2, '#9c8a76');
+    pr(FX + 3, y - 12, 1, 4, '#9c8a76'); pr(FX + 5, y - 12, 1, 4, '#8a7864'); pr(FX + 5, y - 8, 1, 1, '#1d1410');
+    pr(FX - 5, y - 5, 2, 2, '#ffffff');
+  }
+  pixOutline(c);
+  if (flash) { c.globalCompositeOperation = 'source-atop'; c.fillStyle = 'rgba(255,255,255,.75)'; c.fillRect(0, 0, PIX.W, PIX.H); c.globalCompositeOperation = 'source-over'; }
+  if (pixCache.size > 1500) pixCache.delete(pixCache.keys().next().value);
+  pixCache.set(key, cv);
+  return cv;
+}
+
+/** Pixel-Kreatur zeichnen: Füße bei (x, y), Blickrichtung facing. */
+function drawPixelCreature(c, kind, x, y, s, facing, frame, attack, flash, antlers) {
+  const cv = pixCreature(kind, frame, attack, flash, antlers), k = (0.66 * s) / 26;
+  c.save(); c.imageSmoothingEnabled = false; c.translate(x, y); c.scale(facing * k, k); c.drawImage(cv, -PIX.FX, -PIX.FY); c.restore();
+}
 /* =====================================================================
  * 8b) KLANG – alles live erzeugt (Web Audio), keine Dateien
  * Musik: weiche Pentatonik-Töne mit Hall. Natur: Wind, Vögel am Tag,
@@ -4633,7 +4752,8 @@ class Sound {
  * 9) OBERFLÄCHE: HUD, Log, Siedlerliste, Steckbrief, Speichern, Ton
  * ===================================================================== */
 const $ = id => document.getElementById(id);
-const SAVE_KEY = 'siedlung-save-v4';
+const SAVE_KEY = 'siedlung-save'; // bleibt gleich – die Version steht im Spielstand selbst
+const OLD_SAVE_KEYS = ['siedlung-save-v4', 'siedlung-save-v3', 'siedlung-save-v2'];
 const SOUND_KEY = 'siedlung-sound';
 const STYLE_KEY = 'siedlung-figuren';
 const ui = { speed: 1, selected: null, selTile: null, accum: 0, confirmNew: 0, sysQueue: [], sysUntil: 0 };
@@ -4782,7 +4902,7 @@ function updateInspector() {
   const skills = Object.entries(n.skills).map(([k, v]) => `${SKILL_NAMES[k] || k} ${v}`).join(' · ') || 'noch keine';
   box.innerHTML = `
     <div class="insp-head">
-      <span class="dot big" style="background:${n.color}"></span>
+      <canvas class="portrait" width="72" height="72" aria-label="Porträt"></canvas>
       <div><b>${esc(n.name)}</b><div class="tags">${n.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div></div>
       <div class="mood" title="Laune">${n.moodEmoji}</div>
     </div>
@@ -4797,6 +4917,7 @@ function updateInspector() {
     <div class="sec"><h4>❤️ Beziehungen</h4>${rels.length ? rels.map(r => `<span class="rel"><span class="dot" style="background:${r.o.color}"></span>${esc(r.o.name)} · ${relLabel(r.v)}</span>`).join('') : '<span class="muted">noch niemanden kennengelernt</span>'}</div>
     <div class="sec"><h4>📜 Erinnerungen</h4>${n.memories.length ? `<ul>${n.memories.slice(0, 5).map(m => `<li><span class="muted">T${m.day} ${m.clock}</span> ${esc(m.text)}</li>`).join('')}</ul>` : '<span class="muted">noch keine</span>'}</div>
     <div class="sec"><h4>⭐ Erfahrung</h4>${skills}</div>`;
+  drawPortrait(box.querySelector('.portrait'), n);
   bindLinks(box);
 }
 
@@ -4852,18 +4973,65 @@ function saveGame() {
 }
 
 function loadGame() {
-  try { const raw = store(SAVE_KEY); const d = raw && JSON.parse(raw); return d && d.v === 4 ? d : null; } catch (e) { return null; }
+  for (const key of [SAVE_KEY, ...OLD_SAVE_KEYS]) {
+    try { const raw = store(key); const d = raw && JSON.parse(raw); if (d && d.v >= 2 && d.v <= SAVE_VERSION) return d; } catch (e) { /* weiter mit dem nächsten */ }
+  }
+  return null;
+}
+
+/** Großes Pixel-Porträt (Kopf und Schultern) im Steckbrief. */
+function drawPortrait(cv, n) {
+  if (!cv) return;
+  const c = cv.getContext('2d'), col = n.awakened && n.cls ? CLASSES[n.cls].color : n.color;
+  const g = c.createLinearGradient(0, 0, 0, 72); g.addColorStop(0, '#1b2a3a'); g.addColorStop(1, '#0e151d');
+  c.fillStyle = g; c.fillRect(0, 0, 72, 72);
+  c.fillStyle = col; c.globalAlpha = 0.35; c.beginPath(); c.arc(36, 40, 30, 0, TAU); c.fill(); c.globalAlpha = 1;
+  const f = pixFrame(n, { arms: 'none', moving: false, facing: 1, view: 'down' }, 0, performance.now());
+  c.imageSmoothingEnabled = false;
+  c.drawImage(f, 8, 2, 24, 24, 0, 0, 72, 72);
+}
+
+/** Kleines Fenster für Sichern/Laden (ohne prompt/alert). */
+function openModal(title, text, value, okLabel, onOk) {
+  $('modalTitle').textContent = title; $('modalText').textContent = text;
+  const area = $('modalArea'); area.value = value || ''; area.readOnly = !onOk;
+  $('modalOk').hidden = !onOk; $('modalOk').textContent = okLabel || 'OK';
+  $('modalOk').onclick = () => onOk && onOk(area.value);
+  $('modal').hidden = false;
+  if (value) { area.focus(); area.select(); }
+}
+
+function exportGame() {
+  const code = 'SIEDLUNG:' + btoa(unescape(encodeURIComponent(JSON.stringify(sim.serialize()))));
+  const show = () => openModal('📤 Spielstand sichern', 'Kopiere diesen Text und bewahre ihn auf (z. B. in deinen Notizen). Mit „📥 Laden“ kannst du die Welt auf jedem Gerät fortsetzen.', code);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code).then(() => openModal('📤 Spielstand gesichert', `In die Zwischenablage kopiert (${Math.round(code.length / 1024)} KB). Füge ihn in deine Notizen ein, um ihn aufzubewahren.`, code), show);
+  } else show();
+}
+
+function importGame() {
+  openModal('📥 Spielstand laden', 'Füge hier einen gesicherten Spielstand ein. Deine aktuelle Welt wird dabei ersetzt.', '', 'Laden', text => {
+    try {
+      const raw = text.trim().replace(/^SIEDLUNG:/, '');
+      const d = JSON.parse(raw.startsWith('{') ? raw : decodeURIComponent(escape(atob(raw))));
+      if (!d || !d.v || d.v > SAVE_VERSION || !d.tiles) throw new Error('kein Spielstand');
+      startSim(new Simulation(d.seed, d));
+      sim.log('📥 Spielstand übernommen – willkommen zurück!', null, true);
+      saveGame();
+      $('modal').hidden = true;
+    } catch (e) { $('modalText').textContent = '⚠️ Das hat nicht geklappt: Der Text ist kein vollständiger Spielstand. Bitte den ganzen Text einfügen.'; }
+  });
 }
 
 function startSim(s) {
   sim = s;
   sim.on('log', e => { renderLog(); if (e.event && /fertig|kommt neu|Freunde/.test(e.text)) sound.chime(); });
   sim.on('system', msg => { if (ui.sysQueue.length < 6) ui.sysQueue.push(msg); });
-  sim.on('levelup', n => { renderer.burst(n, 'levelup'); sound.levelUp(); buildRoster(); });
+  sim.on('levelup', n => { n.cheerUntil = performance.now() + 2200; renderer.burst(n, 'levelup'); sound.levelUp(); buildRoster(); });
   sim.on('kingdom', () => { sound.levelUp(); setTimeout(() => sound.levelUp(), 300); setTimeout(() => sound.chime(), 700); });
   sim.on('towerShot', e => renderer.shots = [...(renderer.shots || []), { ...e, to: { x: e.to.x, y: e.to.y }, born: performance.now() }]);
   sim.on('legendary', ({ n }) => { renderer.burst(n, 'legendary'); sound.levelUp(); setTimeout(() => sound.levelUp(), 250); });
-  sim.on('awaken', n => { renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
+  sim.on('awaken', n => { n.cheerUntil = performance.now() + 2200; renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
   sim.on('npcAdded', buildRoster);
   sim.on('chop', t => {
     const cx = (renderer.camX + renderer.viewW / 2) / renderer.ts, cy = (renderer.camY + renderer.viewH / 2) / renderer.ts;
@@ -4920,6 +5088,9 @@ document.querySelectorAll('#speed button').forEach(b => b.addEventListener('clic
 document.querySelectorAll('#zoomBtns [data-z]').forEach(b => b.addEventListener('click', () => renderer.setZoom(renderer.ts * Number(b.dataset.z))));
 $('homeBtn').addEventListener('click', () => { select(null); const c = sim.world.camp; renderer.centerOn(c.x + 0.5, c.y + 0.5); });
 $('soundBtn').addEventListener('click', () => setSound(!sound.on));
+$('exportBtn').addEventListener('click', exportGame);
+$('importBtn').addEventListener('click', importGame);
+$('modalClose').addEventListener('click', () => { $('modal').hidden = true; });
 const applyStyle = () => { renderer.pixelChars = store(STYLE_KEY) !== 'vektor'; $('styleBtn').textContent = renderer.pixelChars ? '🎨 Figuren: Pixel' : '🎨 Figuren: Gezeichnet'; };
 $('styleBtn').addEventListener('click', () => { store(STYLE_KEY, renderer.pixelChars ? 'vektor' : 'pixel'); applyStyle(); });
 $('newWorld').addEventListener('click', () => {
