@@ -25,6 +25,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
   | `src/core.js` | `CONFIG`, Klassen, Fähigkeiten, Ausrüstung, Welt + Kartengenerierung, `Settlement` |
   | `src/logic.js` | Aktionen (Utility-KI), NPC, Simulation (Monster, Königreich, Speichern) |
   | `src/render.js` | Grafik: Sprites, Gebäude, Licht, Partikel, Minikarte (gezeichnete Figuren als Alternative) |
+  | `src/iso.js` | Isometrische Gebäude: Bausteine (`isoKit`: Wände, Satteldach, Walmdach, Rundturm, Zinnen, Fenster, Türen, Fachwerk, Mauerwerk) und alle Gebäude (`isoHouse`, `isoCastle`, `isoSmithy` …). Ursprung = Mitte der Grundfläche |
   | `src/pixel.js` | Pixel-Art-Figuren (Standard): Posen auf 40×40-Raster, Kopf-/Haar-Vorlagen, Umriss, Bild-Cache |
   | `src/story.js` | Handlung: Kapitel der Chronik, Hauptfigur, Rivale + Duelle, Boss „Kronenfresser“, Lebensziele, Spieler-Gedanken, Tagebuch |
   | `src/sound.js` | Live erzeugter Klang |

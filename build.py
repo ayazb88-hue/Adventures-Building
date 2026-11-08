@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-PARTS = ['head.html', 'core.js', 'logic.js', 'story.js', 'render.js', 'pixel.js', 'sound.js', 'rift.js', 'scene.js', 'ui.js']
+PARTS = ['head.html', 'core.js', 'logic.js', 'story.js', 'render.js', 'iso.js', 'pixel.js', 'sound.js', 'rift.js', 'scene.js', 'ui.js']
 
 out = ''.join((ROOT / 'src' / p).read_text(encoding='utf-8') for p in PARTS) + '</script>\n</body>\n</html>\n'
 (ROOT / 'index.html').write_text(out, encoding='utf-8')
