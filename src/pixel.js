@@ -528,7 +528,7 @@ function pixCreature(kind, frame, attack, flash, antlers) {
     el(FX, y - 4, 4, 3, '#9c8a76'); el(FX - 1, y - 3, 3, 1, '#857462'); el(FX + 4, y - 7, 2, 2, '#9c8a76');
     pr(FX + 3, y - 12, 1, 4, '#9c8a76'); pr(FX + 5, y - 12, 1, 4, '#8a7864'); pr(FX + 5, y - 8, 1, 1, '#1d1410');
     pr(FX - 5, y - 5, 2, 2, '#ffffff');
-  }
+  } else if (kind.startsWith('pet_') || kind === 'huhn' || kind === 'kuh') pixPet(kind.replace('pet_', ''), frame, pr, pl, el, FX, FY);
   pixOutline(c);
   if (flash) { c.globalCompositeOperation = 'source-atop'; c.fillStyle = 'rgba(255,255,255,.75)'; c.fillRect(0, 0, PIX.W, PIX.H); c.globalCompositeOperation = 'source-over'; }
   if (pixCache.size > 1500) pixCache.delete(pixCache.keys().next().value);
@@ -537,6 +537,56 @@ function pixCreature(kind, frame, attack, flash, antlers) {
 }
 
 /** Pixel-Kreatur zeichnen: Füße bei (x, y), Blickrichtung facing. */
+/** Haustiere und Hoftiere: kleine, runde Pixel-Figuren. */
+const PET_PAL = { wolf: ['#9aa3ad', '#6c747e', '#e6e9ec'], fuchs: ['#e0782e', '#a8521c', '#fff4e6'], hund: ['#a77a4e', '#7a5434', '#f0dcc0'], katze: ['#7c7c88', '#55555f', '#d8d8e0'] };
+function pixPet(kind, frame, pr, pl, el, FX, FY) {
+  const f = frame & 3, step = [0, 1, 0, -1][f];
+  if (PET_PAL[kind]) { // Vierbeiner
+    const [b, d, l] = PET_PAL[kind];
+    for (const [lx, o] of [[-4, 0], [-2, 2], [2, 2], [4, 0]]) { const off = [0, 1, 0, -1][(f + o) & 3]; pl(FX + lx, FY - 4, FX + lx + off, FY - 1, 1, d); }
+    if (kind === 'katze') pl(FX - 5, FY - 6, FX - 8, FY - 11 - step, 1, b); // Schwanz nach oben
+    else if (kind === 'fuchs') { el(FX - 7, FY - 6 + step, 3, 2, b); pr(FX - 10, FY - 6 + step, 2, 2, l); }
+    else pl(FX - 5, FY - 6, FX - 8, FY - 8 + step, 2, b);
+    el(FX, FY - 6, 5, 2, b); el(FX, FY - 5, 3, 1, l);
+    const hx = FX + 5, hy = FY - 9;
+    el(hx, hy, 3, 3, b); pr(hx + 2, hy, 3, 2, kind === 'katze' ? b : l);
+    pr(hx - 2, hy - 4, 2, 2, kind === 'hund' ? d : b); pr(hx + 1, hy - 4, 2, 2, kind === 'hund' ? d : b);
+    if (kind === 'hund') { pr(hx - 3, hy - 2, 1, 3, d); }
+    pr(hx + 1, hy - 1, 1, 1, '#1a1410'); pr(hx + 4, hy, 1, 1, '#1a1410');
+    if (kind === 'wolf') pr(hx + 1, hy - 1, 1, 1, '#4ab0ff');
+  } else if (kind === 'eule') { // schwebt und flattert
+    const up = [0, -1, -2, -1][f], y = FY - 8 + up;
+    const wing = f % 2 ? 3 : 1;
+    pr(FX - 6, y - 3, 2, wing + 2, '#6b4a2e'); pr(FX + 4, y - 3, 2, wing + 2, '#6b4a2e');
+    el(FX, y - 3, 4, 4, '#8a6440'); el(FX, y - 2, 2, 2, '#e8d6b4');
+    pr(FX - 2, y - 6, 2, 2, '#fff2a0'); pr(FX + 1, y - 6, 2, 2, '#fff2a0'); pr(FX - 1, y - 6, 1, 1, '#1a1410'); pr(FX + 2, y - 6, 1, 1, '#1a1410');
+    pr(FX, y - 4, 1, 1, '#e0a030'); pr(FX - 3, y - 8, 1, 1, '#6b4a2e'); pr(FX + 3, y - 8, 1, 1, '#6b4a2e');
+  } else if (kind === 'hase') { // Kristallhase mit leuchtendem Stein
+    const hop = [0, 2, 3, 1][f], y = FY - hop;
+    el(FX, y - 4, 4, 3, '#bfe8ff'); el(FX + 4, y - 7, 2, 2, '#bfe8ff');
+    pr(FX + 3, y - 12, 1, 4, '#bfe8ff'); pr(FX + 5, y - 12, 1, 4, '#9fd4f5'); pr(FX + 5, y - 8, 1, 1, '#1d1410');
+    pr(FX - 1, y - 8, 2, 2, '#5ad0ff'); pr(FX - 1, y - 8, 1, 1, '#ffffff');
+  } else if (kind === 'drache') { // kleiner roter Drache mit Flügeln
+    const up = [0, -1, -2, -1][f], y = FY - 7 + up, wing = f % 2 ? -4 : -1;
+    pl(FX - 1, y - 4, FX - 6, y - 4 + wing, 2, '#7a1e1e'); pl(FX + 1, y - 4, FX - 3, y - 6 + wing, 2, '#9a2a2a');
+    pl(FX - 4, y - 1, FX - 9, y + 1 - step, 1, '#b8332a');
+    el(FX, y - 2, 4, 2, '#c8402e'); el(FX, y - 1, 2, 1, '#f0b060');
+    el(FX + 5, y - 5, 2, 2, '#c8402e'); pr(FX + 6, y - 5, 2, 1, '#c8402e');
+    pr(FX + 4, y - 8, 1, 2, '#f0d080'); pr(FX + 6, y - 6, 1, 1, '#ffe14a');
+  } else if (kind === 'huhn') {
+    const peck = f === 2 ? 2 : 0;
+    el(FX, FY - 4, 3, 2, '#f4f0e6'); pr(FX - 4, FY - 6, 2, 2, '#e8e2d0');
+    pr(FX + 2, FY - 8 + peck, 2, 3, '#f4f0e6'); pr(FX + 2, FY - 9 + peck, 2, 1, '#d83a2a'); pr(FX + 4, FY - 7 + peck, 1, 1, '#e8a030'); pr(FX + 3, FY - 8 + peck, 1, 1, '#1a1410');
+    pr(FX - 1, FY - 2, 1, 2, '#e8a030'); pr(FX + 1, FY - 2, 1, 2, '#e8a030');
+  } else if (kind === 'kuh') {
+    for (const lx of [-6, -3, 4, 7]) pr(FX + lx, FY - 5, 2, 5, '#e8e4dc');
+    el(FX, FY - 9, 9, 4, '#f4f0e8'); el(FX - 3, FY - 10, 3, 2, '#2a2420'); el(FX + 3, FY - 8, 2, 2, '#2a2420');
+    pl(FX - 9, FY - 10, FX - 11, FY - 5 + (f % 2), 1, '#d8d0c4');
+    const hx = FX + 10 + (f === 2 ? 1 : 0), hy = FY - 10 + (f === 2 ? 3 : 0);
+    el(hx, hy, 3, 3, '#f4f0e8'); pr(hx + 1, hy + 1, 3, 2, '#f0b8b0'); pr(hx - 2, hy - 4, 1, 2, '#d8c8a0'); pr(hx + 2, hy - 4, 1, 2, '#d8c8a0'); pr(hx, hy - 1, 1, 1, '#1a1410');
+  }
+}
+
 function drawPixelCreature(c, kind, x, y, s, facing, frame, attack, flash, antlers) {
   const cv = pixCreature(kind, frame, attack, flash, antlers), k = (0.66 * s) / 26;
   c.save(); c.imageSmoothingEnabled = false; c.translate(x, y); c.scale(facing * k, k); c.drawImage(cv, -PIX.FX, -PIX.FY); c.restore();

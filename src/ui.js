@@ -21,10 +21,11 @@ function renderLog() {
 }
 
 function buildRoster() {
-  const sorted = [...sim.npcs].sort((a, b) => (b.awakened - a.awakened) || (b.level - a.level));
+  const st = sim.story, star = n => (n === st.hero ? 2 : n === st.rival ? 1 : 0);
+  const sorted = [...sim.npcs].sort((a, b) => (star(b) - star(a)) || (b.awakened - a.awakened) || (b.level - a.level));
   const shown = ui.allRoster ? sorted : sorted.slice(0, 12);
   $('roster').innerHTML = shown.map(n =>
-    `<button class="chip" data-id="${n.id}"><span class="dot" style="background:${n.color}"></span><span>${esc(n.name)}</span><span class="ic"></span></button>`).join('')
+    `<button class="chip" data-id="${n.id}"><span class="dot" style="background:${n.color}"></span><span>${n === sim.story.hero ? '★ ' : n === sim.story.rival ? '⚔ ' : ''}${esc(n.name)}</span><span class="ic"></span></button>`).join('')
     + (sorted.length > 12 ? `<button class="chip more" id="rosterMore">${ui.allRoster ? 'weniger anzeigen' : `+${sorted.length - 12} weitere`}</button>` : '');
   const more = $('rosterMore'); if (more) more.addEventListener('click', () => { ui.allRoster = !ui.allRoster; buildRoster(); });
   $('roster').querySelectorAll('.chip[data-id]').forEach(b => b.addEventListener('click', () => select(sim.npcs.find(n => n.id === Number(b.dataset.id)))));
@@ -52,8 +53,103 @@ const LORE = {
   ford: ['Eine Furt mit Trittsteinen.', 'Hier kann man den Fluss trockenen Fußes überqueren.'],
 };
 
-/** Steckbrief für eine angetippte Kachel (Haus, Baum, Lager, Riss …). */
+/* ---- Info-Fenster wie in Anime und Games: Kategorie, Rang, Effekt, Beschreibung ---- */
+const RANK_COL = { F: '#9aa4ad', E: '#9fd4a0', D: '#7cc4ff', C: '#5fa8ff', B: '#b07cff', A: '#ffb84a', S: '#ff5a5a', '???': '#d9cfb8', '–': '#8fd3ff' };
+const CARD = {
+  castle: ['GEBÄUDE', 'S', 'Sitz der Regentschaft · Banner des Königreichs', 'Man sagt, jeder Stein wurde von einer anderen Hand gesetzt – und jede Hand gehört zum Reich.'],
+  house:  ['GEBÄUDE', 'D', 'Erholung im Schlaf <b>×2</b> · Wetterschutz', 'Ein Zuhause aus Eldwald-Eiche. Wer hier schläft, träumt von besseren Tagen.'],
+  site:   ['BAUSTELLE', '–', 'Gemeinsam bauen gibt <b>Bau-Erfahrung</b>', 'Hämmern, Sägen, Rufen. Hier wächst die Zukunft Brett für Brett.'],
+  camp:   ['ORT', 'C', 'Lager für Holz, Brot, Stein und Kristalle', 'Das erste Feuer erlosch nie. Die Alten sagen, es wärmt auch die Seele.'],
+  tree:   ['RESSOURCE', 'F', 'Ertrag: <b>Holz</b> · wächst nach 2 Tagen nach', 'Uralte Wurzeln. Wer genau hinhört, hört den Wald atmen.'],
+  stump:  ['RESSOURCE', 'F', 'Regeneration läuft …', 'Auch das Ende eines Baumes ist der Anfang eines neuen.'],
+  bush:   ['RESSOURCE', 'F', 'Ertrag: <b>Beeren</b> · senkt Hunger', 'Süß, saftig, ein bisschen sauer. Die Lieblingsspeise aller Siedler.'],
+  field:  ['FELD', 'E', 'Ertrag: <b>Brot</b> nach einem Tag', 'Goldene Ähren, die im Wind miteinander flüstern.'],
+  tower:  ['VERTEIDIGUNG', 'C', 'Schießt nachts auf <b>Monster</b>', 'Die Fackel dort oben ist das Letzte, was ein Rissling je sieht.'],
+  tavern: ['GEBÄUDE', 'C', '<b>Laune +</b> · <b>Gemeinschaft +</b> · kostet 1 🪙', 'Hier entstehen Freundschaften, Lieder – und die besten Lügengeschichten.'],
+  temple: ['HEILIGTUM', 'B', '<b>Heilung</b> · <b>Laune +</b>', 'Ein Ort, an dem selbst Erwachte ihre Waffen ablegen.'],
+  rock:   ['RESSOURCE', 'E', 'Ertrag: <b>Stein</b>', 'Grau, schwer, geduldig. Aus Steinen wie diesem werden Burgen.'],
+  market: ['GEBÄUDE', 'B', 'Markttag um 12 Uhr: Überschuss → <b>Münzen</b>', 'Händlerrufe, Gewürzduft und das Klimpern von Münzen.'],
+  smithy: ['WERKSTATT', 'B', '💎 + 🪵 → <b>Ausrüstung</b> in 5 Seltenheiten', 'Hier entsteht, worüber man Lieder singt. Oder zumindest ordentliche Stiefel.'],
+  grass:  ['GELÄNDE', '–', 'Bauland', 'Weites Land voller Möglichkeiten.'],
+  forsthaus:   ['GEBÄUDE', 'C', 'Holzfällen <b>schneller</b> · Holzfäller pflanzen neue Bäume', 'Wer hier wohnt, kennt jeden Baum beim Namen – und pflanzt für jeden gefällten einen neuen.'],
+  bauernhof:   ['GEBÄUDE', 'C', 'Bauern versorgen Hühner und Kuh: <b>Eier und Milch</b>', 'Gackern, Muhen und der Duft von frischem Heu. Hier wird niemand hungrig.'],
+  gildenhalle: ['GEBÄUDE', 'A', 'Gildenversammlung am Abend · <b>mehr Erfahrung</b> für alle Erwachten', 'An der langen Tafel wurden mehr Abenteuer geplant als irgendwo sonst im Reich.'],
+  ruin:   ['RUINE', '???', 'Geheimnis: <b>unbekannt</b>', 'Niemand weiß, wer hier lebte – nur, dass sie verschwanden, als die Risse kamen.'],
+  water:  ['GELÄNDE', '–', 'Nicht begehbar', 'Klares Wasser. Silberne Fische glitzern unter der Oberfläche.'],
+  ford:   ['GELÄNDE', '–', 'Überquerung des Flusses', 'Trittsteine, glatt geschliffen von tausend Schritten.'],
+};
+const GATE_RANK = ['', 'E', 'C', 'A'], GATE_MON = ['', 'Rissling', 'Schattenwolf', 'Aschegolem'];
+function sysCard(top, rank, body, fx, lore, cls = '') {
+  return `<div class="syscard ${cls}"><div class="sc-top"><span>[ ${top} ]</span>${rank ? `<span class="sc-rank" style="color:${RANK_COL[rank] || '#8fd3ff'}">RANG ${rank}</span>` : ''}</div>`
+    + body + (fx ? `<div class="sc-fx">✦ ${fx}</div>` : '') + (lore ? `<div class="lore">„${lore}“</div>` : '') + '</div>';
+}
 function tileInfo(t) {
+  const c = CARD[t.type] || ['INFO', '', '', ''];
+  let [top, rank, fx, lore] = c;
+  if (t.type === 'gate') {
+    const g = t.gate; rank = g.red ? 'S' : GATE_RANK[g.tier]; top = 'DUNGEON';
+    fx = g.red ? 'Boss: <b>Kronenfresser</b> · Gefahr: <b>tödlich</b>' : `Monster: <b>${GATE_MON[g.tier]}</b> · Beute: <b>Mana-Kristalle</b>`;
+    lore = g.red ? 'Er pulsiert wie ein Herz. Etwas Uraltes wartet dahinter – und es hat Hunger.' : 'Ein Spalt zwischen den Welten. Wer hineingeht, kommt stärker zurück – oder gar nicht.';
+  }
+  if (t.type === 'ruin' && t.searched) { rank = 'E'; fx = 'Bereits durchsucht'; }
+  if (t.type === 'camp' && sim.kingdom && (t.town || sim.capital).capital) rank = 'A';
+  const b = t.building;
+  if (b && CONFIG.buildings[b.type] && b.type !== 'castle') {
+    const L = b.level || 1, up = t.siteRef && t.siteRef.upgrade === b;
+    const eff = { house: `${b.beds} Betten`, smithy: 'bessere Seltenheiten', tower: `Reichweite ${CONFIG.buildings.tower.range + L - 1}, Schaden +${(L - 1) * 40} %`, temple: `Heilung ×${L}`, market: `Markterlös +${(L - 1) * 50} %`, tavern: 'gemütlicher' }[b.type] || '';
+    fx = `Stufe <b>${roman(L)}</b> / III${eff ? ' · ' + eff : ''}` + (up ? ` · <b>Ausbau läuft: ${Math.floor(t.siteRef.progress / t.siteRef.work * 100)} %</b>` : L < 3 ? ' · ausbaubar' : ' · höchste Stufe') + (fx ? '<br>✦ ' + fx : '');
+  }
+  return sysCard(top, rank, tileBody(t), fx, lore, t.type === 'gate' && t.gate.red ? 'red' : t.type === 'castle' ? 'gold' : '');
+}
+
+const MON_CARD = {
+  rissling: ['E', 'Ein kichernder Kobold aus dem Riss. Allein harmlos – in Gruppen gefährlich.'],
+  schattenwolf: ['C', 'Aus Nebel geformt. Er jagt lautlos und riecht Angst auf hundert Schritt.'],
+  aschegolem: ['B', 'Glühende Kohle unter Steinhaut. Jeder Schritt lässt den Boden zittern.'],
+  kronenfresser: ['S', 'Der Herr des roten Risses. Er frisst keine Menschen. Er frisst Königreiche.'],
+};
+function monsterInfo(m) {
+  const M = MONSTERS[m.kind], [rank, lore] = MON_CARD[m.kind] || ['?', ''], atk = Math.round(M.atk * sim.monsterScale);
+  const top = sim.npcs.filter(n => n.awakened).sort((a, b) => b.attack - a.attack)[0];
+  const danger = !top ? 'unbekannt' : m.boss ? 'tödlich' : atk * 4 > top.maxHp * 0.5 ? 'hoch' : atk * 4 > top.maxHp * 0.25 ? 'mittel' : 'gering';
+  return sysCard(m.boss ? 'BOSS' : 'MONSTER', rank,
+    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : 'Kreatur aus dem Riss'}</div></div></div>`
+    + `<div class="lbl"><span>Leben</span><span>${Math.max(0, Math.round(m.hp))} / ${m.maxHp}</span></div><div class="bar"><i style="width:${Math.max(0, m.hp / m.maxHp * 100)}%;background:#e04848"></i></div>`
+    + `<div class="stats"><span><small>Angriff</small><b>${atk}</b></span><span><small>Tempo</small><b>${M.speed >= 0.3 ? 'schnell' : M.speed >= 0.2 ? 'mittel' : 'langsam'}</b></span><span><small>EP</small><b>${M.xp}</b></span><span><small>Gefahr</small><b>${danger}</b></span></div>`,
+    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
+}
+
+const ITEM_LORE = [
+  'Solide Handarbeit. Nichts Besonderes – aber verlässlich.',
+  'Sorgfältig geschmiedet. Man spürt die Mühe in jedem Hammerschlag.',
+  'Ein schwaches Leuchten liegt auf dem Metall. Mana-Kristalle wurden hineingeschmolzen.',
+  'Golden schimmernd. Wer es trägt, spürt, wie die Welt für einen Herzschlag innehält.',
+  'Blutrot pulsierend. Es heißt, so etwas entstehe nur einmal in einem Zeitalter.',
+];
+function openItem(n, slot) {
+  const it = n.gear[slot]; if (!it) return;
+  const R = RARITIES[it.rarity], rank = ['F', 'D', 'B', 'A', 'S'][it.rarity];
+  $('modalTitle').textContent = ''; $('modalText').textContent = '';
+  $('modalHtml').innerHTML = sysCard('GEGENSTAND', rank,
+    `<div style="font:700 17px Georgia,serif;color:${R.color};text-shadow:0 0 10px ${R.color}66">${esc(itemName(it))}</div>`
+    + (it.plus ? `<div class="lbl"><span>Verstärkung</span><span>+${it.plus} / +10</span></div><div class="bar"><i style="width:${it.plus * 10}%;background:#8fd3ff"></i></div>` : '<div class="muted small">Noch nicht verstärkt – in der Schmiede bis +10 möglich.</div>')
+    + `<div class="muted small">${R.name} · ${SLOT_NAMES[slot]}</div>`
+    + `<div class="stats"><span><small>${slot === 'weapon' ? 'Angriff' : 'Abwehr'}</small><b>+${it.power}</b></span><span><small>Haltbarkeit</small><b>∞</b></span><span><small>Träger</small><b>${esc(n.name)}</b></span></div>`
+    + `<div class="muted small">Geschmiedet von <b>${esc(it.smith || 'unbekannt')}</b> · Einschränkung: nur Erwachte</div>`,
+    it.rarity >= 3 ? 'Einzigartig – es existiert nur ein einziges Exemplar' : '', ITEM_LORE[it.rarity], it.rarity >= 4 ? 'red' : it.rarity >= 3 ? 'gold' : '');
+  $('modalHtml').hidden = false; $('modalArea').hidden = true; $('modalOk').hidden = true; $('modal').hidden = false;
+}
+
+const PROF_LORE = {
+  settler: 'Hände voller Schwielen, Herz voller Hoffnung. Ohne Leute wie diese gäbe es kein Reich.',
+  holzfaeller: 'Riecht nach Harz und Sägespänen. Kennt jeden Baum im Eldwald beim Namen.',
+  bauer: 'Steht vor der Sonne auf und weiß, wann es regnen wird. Sagt jedenfalls jeder.',
+  handwerker: 'Kein Balken zu schwer, kein Nagel zu klein. Baut Häuser, die Generationen überdauern.',
+  steinmetz: 'Hört dem Stein zu, bevor der Hammer fällt. Aus Fels wird hier Geschichte.',
+};
+
+/** Steckbrief für eine angetippte Kachel (Haus, Baum, Lager, Riss …). */
+function tileBody(t) {
   const st = sim.settlement, R = CONFIG.resources;
   const head = (icon, title, sub = '') => `<div class="insp-head"><span class="big-ic">${icon}</span><div><b>${title}</b>${sub ? `<div class="muted">${sub}</div>` : ''}</div></div>`;
   switch (t.type) {
@@ -116,6 +212,14 @@ function tileInfo(t) {
         + `<div class="sec"><h4>Vorräte</h4><span class="score">💎 ${st.stock.crystals} Kristalle</span><span class="score">🪵 ${st.stock.wood} Holz</span></div>`
         + `<div class="sec"><h4>Schmiede</h4>${smiths.length ? smiths.map(n => npcLink(n) + ` ${n.forged}×`).join('') : '<span class="muted">noch nichts geschmiedet</span>'}</div>`;
     }
+    case 'forsthaus': return head('🌲', 'Forsthaus', 'Hier wohnt die Liebe zum Wald') + `<div class="sec"><h4>Holzfäller</h4>${sim.npcs.filter(n => n.profession === 'holzfaeller' && n.town === t.building.town).slice(0, 8).map(npcLink).join('') || '<span class="muted">noch niemand</span>'}</div>`;
+    case 'bauernhof': return head('🐄', 'Bauernhof', 'Hühner, eine Kuh und viel Heu') + `<div class="sec"><h4>Bauern</h4>${sim.npcs.filter(n => n.profession === 'bauer' && n.town === t.building.town).slice(0, 8).map(npcLink).join('') || '<span class="muted">noch niemand</span>'}</div>`;
+    case 'gildenhalle': {
+      const g = sim.guild, need = g ? Math.round(150 * (g.level || 1) ** 1.5) : 1;
+      return head('🛡️', g ? `Gildenhalle der „${esc(g.name)}“` : 'Gildenhalle', g ? `Gilden-Stufe ${g.level || 1} · Anführung: ${esc(g.leader)}` : '')
+        + (g ? `<div class="lbl"><span>Gilden-Erfahrung</span><span>${Math.floor(g.xp || 0)} / ${need}</span></div><div class="bar"><i style="width:${Math.min(100, (g.xp || 0) / need * 100)}%;background:#8fd3ff"></i></div>` : '')
+        + `<div class="sec"><h4>Mitglieder</h4>${sim.npcs.filter(n => n.awakened).map(npcLink).join('')}</div>`;
+    }
     case 'grass':
       return t.traffic > 20 ? head('👣', 'Trampelpfad', `${t.traffic} Schritte – hier laufen die Siedler oft entlang`) : head('🌾', 'Wiese', 'Freies Land – vielleicht steht hier bald ein Haus.');
     default: { const L = LORE[t.type] || ['', '']; return head({ ruin: '🏛️', rock: '🪨', water: '💧', ford: '🪨' }[t.type] || '❔', TILE_DEFS[t.type].name, L[0]) + (L[1] ? `<div class="thought">${L[1]}</div>` : ''); }
@@ -134,7 +238,7 @@ function statusWindow(n) {
     <div class="lbl"><span>Leben</span><span>${Math.round(n.hp)} / ${n.maxHp}</span></div><div class="bar"><i style="width:${n.hp / n.maxHp * 100}%;background:#e04848"></i></div>
     <div class="lbl"><span>EP</span><span>${Math.floor(n.xp)} / ${need}</span></div><div class="bar"><i style="width:${n.xp / need * 100}%;background:#8fd3ff"></i></div>
     <div class="stats"><span><small>Angriff</small><b>${n.attack}</b></span><span><small>Abwehr</small><b>${n.defense}</b></span><span><small>Siege</small><b>${n.kills}</b></span><span><small>Geschmiedet</small><b>${n.forged}</b></span></div>
-    <div class="gear">${SLOTS.map(sl => { const it = n.gear[sl]; return `<div class="slot"><small>${SLOT_NAMES[sl]}</small>${it ? `<b style="color:${RARITIES[it.rarity].color}">${esc(it.name)}</b><span class="muted">${RARITIES[it.rarity].name} · +${it.power}${it.smith ? ' · von ' + esc(it.smith) : ''}</span>` : '<span class="muted">leer</span>'}</div>`; }).join('')}</div>
+    <div class="gear">${SLOTS.map(sl => { const it = n.gear[sl]; return `<div class="slot"${it ? ` data-slot="${sl}"` : ''}><small>${SLOT_NAMES[sl]}</small>${it ? `<b style="color:${RARITIES[it.rarity].color}">${esc(itemName(it))}</b><span class="muted">${RARITIES[it.rarity].name} · +${it.power}${it.smith ? ' · von ' + esc(it.smith) : ''}</span>` : '<span class="muted">leer</span>'}</div>`; }).join('')}</div>
     <div class="stats">${Object.entries(n.stats).map(([k, v]) => `<span><small>${STAT_NAMES[k]}</small><b>${v}</b></span>`).join('')}</div>
     ${q ? `<div class="quest ${q.done ? 'done' : ''}">📜 Tägliche Aufgabe: ${esc(q.text)} ${q.done ? '✔' : `(${Math.floor(q.prog)}/${q.goal})`}</div>` : ''}
     <div class="sec"><h4>Fähigkeiten</h4>${n.unlocked.length ? n.unlocked.map(id => `<span class="score" title="${esc(SKILLS[id].desc)}">✨ ${SKILLS[id].name}</span>`).join('') : '<span class="muted">noch keine</span>'}</div>
@@ -144,6 +248,7 @@ function statusWindow(n) {
 
 function updateInspector() {
   const n = ui.selected, box = $('inspector');
+  if (!n && ui.selMonster) { if (ui.selMonster.hp > 0 && sim.monsters.includes(ui.selMonster)) box.innerHTML = monsterInfo(ui.selMonster); else { ui.selMonster = null; box.innerHTML = '<p class="empty">Das Monster ist verschwunden.</p>'; } return; }
   if (!n && ui.selTile) { box.innerHTML = tileInfo(ui.selTile); bindLinks(box); return; }
   if (!n) { box.innerHTML = '<p class="empty">Tippe einen Siedler an (auf der Karte oder oben in der Liste), um seine Gedanken zu lesen.</p>'; return; }
   const a = n.action;
@@ -153,26 +258,88 @@ function updateInspector() {
     const info = SKILL_INFO[k], pts = n.skills[k], lv = skillLevel(k, pts), lo = skillPtsFor(k, lv), hi = skillPtsFor(k, lv + 1);
     return `<div class="skill"><span>${info.icon} ${info.name}</span><b>Stufe ${lv}</b><div class="bar"><i style="width:${Math.min(100, (pts - lo) / (hi - lo) * 100)}%;background:#ffd76a"></i></div></div>`;
   }).join('');
-  box.innerHTML = `
+  const st = sim.story, top = n === st.hero ? 'HAUPTFIGUR' : n === st.rival ? (st.done.bund ? 'GEFÄHRTE' : 'RIVALE') : n.awakened ? 'SPIELER · ERWACHT' : `NPC · ${CONFIG.professions[n.profession].name.toUpperCase()}`;
+  const rank = n.awakened ? (n.level >= 20 ? 'S' : n.level >= 15 ? 'A' : n.level >= 10 ? 'B' : n.level >= 5 ? 'C' : 'D') : 'F';
+  const lore = n.awakened ? (n.cls ? CLASSES[n.cls].desc : 'Sieht Fenster, die sonst niemand sieht. Die Welt ist für diese Seele ein Spiel geworden – eines, das man gewinnen kann.') : PROF_LORE[n.profession] || PROF_LORE.settler;
+  box.innerHTML = `<div class="syscard${n === st.hero ? ' gold' : ''}"><div class="sc-top"><span>[ ${top} ]</span><span class="sc-rank" style="color:${RANK_COL[rank]}">RANG ${rank}</span></div>
     <div class="insp-head">
       <canvas class="portrait" width="72" height="72" aria-label="Porträt"></canvas>
-      <div><b>${esc(n.name)}</b><div class="tags">${n.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div></div>
+      <div><b>${esc(n.name)}</b><div class="tags">${n.tags.map(t => `<span class="tag">${t}</span>`).join('')}</div>${roleBadge(n)}</div>
       <div class="mood" title="Laune">${n.moodEmoji}</div>
     </div>
     <div class="thought">💭 ${esc(n.thought || '…')}</div>
+    ${n.inside && n.inside.gate ? `<button class="riftBtn" data-rift="1">🌀 Im ${esc(n.inside.tile.gate.name)} – in die Riss-Welt schauen</button>` : ''}
+    ${n.awakened && AMBITIONS[n.ambition] ? `<div class="doing">🎯 Lebensziel (${AMBITIONS[n.ambition].icon} ${AMBITIONS[n.ambition].name}): ${esc(AMBITIONS[n.ambition].goal)}</div>` : ''}
     <div class="doing">${a ? a.icon : ''} ${esc(n.statusText)} · ${n.home ? `🏠 wohnt in Haus Nr. ${n.home.id}` : '⛺ noch kein Haus'} · 🪵 ${n.inventory.wood}/${CONFIG.npc.carryCapacity}</div>
     <div class="bars">
       ${bar('Hunger', n.hunger, 'var(--hunger)')}${bar('Energie', n.energy, 'var(--energy)')}
       ${bar('Gemeinschaft', n.social, 'var(--social)')}${bar('Laune', n.mood, 'var(--mood)')}
     </div>
+    <div class="lore">„${esc(lore)}“</div></div>
     ${statusWindow(n)}
     <div class="sec"><h4>⭐ Fertigkeiten</h4>${skillRows ? `<div class="skills">${skillRows}</div>` : '<span class="muted">noch keine – Arbeit macht den Meister</span>'}</div>
     <div class="sec"><h4>🧠 Abwägung bei der letzten Entscheidung</h4>${n.lastScores.map((e, i) => `<span class="score${i ? '' : ' win'}">${e.label} ${e.score}</span>`).join('') || '–'}</div>
     <div class="sec"><h4>❤️ Beziehungen</h4>${rels.length ? rels.map(r => `<span class="rel"><span class="dot" style="background:${r.o.color}"></span>${esc(r.o.name)} · ${relLabel(r.v)}</span>`).join('') : '<span class="muted">noch niemanden kennengelernt</span>'}</div>
+    ${n.pet ? `<div class="sec"><h4>🐾 Gefährte</h4><b>${PETS[n.pet.kind].icon} ${esc(n.pet.name)}</b> <span class="muted">· ${PETS[n.pet.kind].name} · ${esc(PETS[n.pet.kind].bonus)} · seit Tag ${n.pet.day}</span>${bar('Bindung', n.pet.bond, '#ff9ec7')}</div>` : ''}
+    ${n.diary && n.diary.length ? `<div class="sec"><h4>📔 Tagebuch</h4><ul class="diary">${n.diary.slice(0, 3).map(d => `<li><span class="muted">Tag ${d.day}:</span> ${esc(d.text)}</li>`).join('')}</ul></div>` : ''}
     <div class="sec"><h4>📜 Erinnerungen</h4>${n.memories.length ? `<ul>${n.memories.slice(0, 5).map(m => `<li><span class="muted">T${m.day} ${m.clock}</span> ${esc(m.text)}</li>`).join('')}</ul>` : '<span class="muted">noch keine</span>'}</div>`;
   drawPortrait(box.querySelector('.portrait'), n);
+  const rb = box.querySelector('[data-rift]'); if (rb) rb.addEventListener('click', () => { ui.riftClosedFor = null; openRift(n); });
+  box.querySelectorAll('[data-slot]').forEach(el => el.addEventListener('click', () => openItem(n, el.dataset.slot)));
   bindLinks(box);
 }
+
+function roleBadge(n) {
+  const st = sim.story;
+  if (n === st.hero) return '<div class="role">★ Hauptfigur der Chronik</div>';
+  if (n === st.rival) return `<div class="role">${st.done.bund ? '🤝 Gefährte' : '⚔️ Rivale'} von ${esc(st.H)}</div>`;
+  return '';
+}
+
+/* ---- Geschichte: Kapitel-Einblendung, Chronik, Erzähler-Modus ---------- */
+function showChapter(ch) {
+  const box = $('chapter');
+  box.querySelector('.ch-num').textContent = ch.recap ? `Bisher in der Chronik · ${ch.num}` : ch.num;
+  box.querySelector('.ch-title').textContent = ch.title;
+  box.querySelector('.ch-text').textContent = ch.text;
+  box.hidden = false; ui.chapterUntil = performance.now() + 14000;
+  if (sound.on) { sound.chime(); setTimeout(() => sound.levelUp(), 500); }
+}
+function hideChapter() { $('chapter').hidden = true; ui.chapterUntil = 0; const nx = (ui.chapters || []).shift(); if (nx) setTimeout(() => showChapter(nx), 400); }
+
+function openChronik() {
+  const st = sim.story, h = st.hero, r = st.rival;
+  $('modalTitle').textContent = '📖 Chronik';
+  $('modalText').textContent = h ? `Hauptfigur: ${h.name} (Level ${h.level}${h.cls ? ', ' + CLASSES[h.cls].name : ''})${r ? ` · ${st.done.bund ? 'Gefährte' : 'Rivale'}: ${r.name} (Level ${r.level})` : ''}` : 'Noch hat das Licht niemanden erwählt.';
+  $('modalHtml').innerHTML = st.chronicle.map(c => `<div class="chap"><small>${esc(c.num)} · Tag ${c.day}</small><b>${esc(c.title)}</b><p>${esc(c.text)}</p></div>`).join('')
+    + (st.done.epilog ? '' : `<div class="chap next"><small>Was als Nächstes geschieht …</small><p>${esc(st.hint)}</p></div>`);
+  $('modalHtml').hidden = false; $('modalArea').hidden = true; $('modalOk').hidden = true;
+  $('modal').hidden = false;
+}
+
+function setCine(on) {
+  ui.cine = on; ui.cineTarget = null; ui.cineHold = 0;
+  $('mapWrap').classList.toggle('cine', on); $('cineBtn').classList.toggle('active', on); $('narr').hidden = !on;
+  if (!on && renderer) renderer.follow = ui.selected;
+  store('siedlung-cine', on ? '1' : '0');
+}
+/** Erzähler-Kamera: folgt dem Boss, Kämpfen, großen Momenten – sonst der Hauptfigur. */
+function updateNarrator(now) {
+  if (!ui.cine) return;
+  if (ui.cineTarget && renderer.follow !== ui.cineTarget) ui.cineHold = now + 15000; // selbst verschoben oder angetippt
+  if (now < ui.cineHold) { $('narr').hidden = true; return; }
+  const st = sim.story, boss = sim.monsters.find(m => m.boss);
+  const fighter = sim.npcs.find(n => n.task && (n.task.actionId === 'duel' || (n.task.actionId === 'fight' && n.foe)));
+  const ev = ui.cineEvent && now - ui.cineEvent.at < 12000 ? ui.cineEvent.n : null;
+  const want = boss || ev || fighter || st.hero || sim.npcs[0];
+  if (!ui.cineTarget || (want !== ui.cineTarget && now - (ui.cineSwitch || 0) > 8000) || (ui.cineTarget.hp <= 0 && !ui.cineTarget.name)) { ui.cineTarget = want; ui.cineSwitch = now; }
+  const t = ui.cineTarget;
+  renderer.follow = t;
+  const box = $('narr'); box.hidden = false;
+  if (!t.name) { box.innerHTML = `👹 <b style="color:#ff6b6b">${esc(MONSTERS[t.kind].name)}</b> wütet … (${Math.round(t.hp / t.maxHp * 100)} %)`; return; }
+  box.innerHTML = `<b style="color:${t.color}">${t === st.hero ? '★ ' : ''}${esc(t.name)}</b>${t.awakened ? ` <small>Lv ${t.level}</small>` : ''} · ${esc(t.statusText)}<br>„${esc(t.thought || '…')}“`;
+}
+const cineMoment = n => { if (n && n.name) ui.cineEvent = { n, at: performance.now() }; };
 
 function bindLinks(box) {
   box.querySelectorAll('[data-npc]').forEach(b => b.addEventListener('click', () => select(sim.npcs.find(x => x.id === Number(b.dataset.npc)))));
@@ -204,13 +371,20 @@ function updateHud() {
 
 function select(n) {
   ui.selected = n && ui.selected !== n ? n : null;
-  ui.selTile = null;
+  ui.selTile = null; ui.selMonster = null;
   renderer.follow = ui.selected;
+  if (ui.rift && ui.rift.n !== ui.selected) closeRift(false);
+  if (ui.selected && ui.selected.inside && ui.selected.inside.gate) { ui.riftClosedFor = null; openRift(ui.selected); }
+  updateRoster(); updateInspector();
+}
+
+function selectMonster(m) {
+  ui.selected = null; ui.selTile = null; ui.selMonster = m; renderer.follow = m;
   updateRoster(); updateInspector();
 }
 
 function selectTile(t) {
-  ui.selected = null; renderer.follow = null;
+  ui.selected = null; ui.selMonster = null; renderer.follow = null;
   ui.selTile = t && ui.selTile !== t ? t : null;
   updateRoster(); updateInspector();
 }
@@ -230,9 +404,9 @@ function saveGame() {
 
 function showSaveInfo() {
   const parts = [];
-  if (ui.local) parts.push(`💾 Tag ${sim.day} ${sim.clock}`);
-  if (cloud.ready) parts.push(cloud.error ? '☁️ Cloud gerade nicht erreichbar' : cloud.savedAt ? '☁️ in deinem Konto gesichert' : '☁️ verbunden');
-  $('saveInfo').textContent = parts.join(' · ') || '⚠️ Speichern ist hier nicht möglich – nutze „📤 Sichern“';
+  if (ui.local || cloud.savedAt) parts.push('✅ speichert automatisch');
+  if (cloud.ready) parts.push(cloud.error ? '☁️ Konto gerade nicht erreichbar' : cloud.savedAt ? '☁️ auch im Konto' : '☁️ verbunden');
+  $('saveInfo').textContent = parts.join(' · ') || '⚠️ Dieser Browser speichert nicht – unter ⚙️ Mehr eine Kopie machen';
 }
 
 /* ---- Speichern im Claude-Konto (private Datenbank der Seite) ------------ */
@@ -296,6 +470,7 @@ function catchUp(savedAt) {
     ui.catchingUp = false; box.hidden = true;
     sim.log(`🕰️ Während du weg warst, ${hours >= 1 ? `vergingen ${hours} Stunde${hours === 1 ? '' : 'n'}` : `vergingen ${total} Minuten`} in der Welt.`, null, true);
     buildRoster(); saveGame();
+    if (ui.chapters && ui.chapters.length && $('chapter').hidden) showChapter(ui.chapters.shift());
   };
   tick();
 }
@@ -322,7 +497,7 @@ function drawPortrait(cv, n) {
 /** Kleines Fenster für Sichern/Laden (ohne prompt/alert). */
 function openModal(title, text, value, okLabel, onOk) {
   $('modalTitle').textContent = title; $('modalText').textContent = text;
-  const area = $('modalArea'); area.value = value || ''; area.readOnly = !onOk;
+  const area = $('modalArea'); area.value = value || ''; area.readOnly = !onOk; area.hidden = false; $('modalHtml').hidden = true;
   $('modalOk').hidden = !onOk; $('modalOk').textContent = okLabel || 'OK';
   $('modalOk').onclick = () => onOk && onOk(area.value);
   $('modal').hidden = false;
@@ -361,13 +536,19 @@ function startSim(s) {
   sim.on('legendary', ({ n }) => { renderer.burst(n, 'legendary'); sound.levelUp(); setTimeout(() => sound.levelUp(), 250); });
   sim.on('awaken', n => { n.cheerUntil = performance.now() + 2200; renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
   sim.on('npcAdded', buildRoster);
+  sim.on('chapter', ch => { if (ui.catchingUp && !ch.recap) { ui.chapters = [...(ui.chapters || []), ch]; return; } if (!$('chapter').hidden) (ui.chapters ||= []).push(ch); else showChapter(ch); cineMoment(sim.story.hero); });
+  sim.on('duel', ({ a }) => cineMoment(a));
+  sim.on('boss', () => { sound.levelUp(); ui.cineEvent = null; });
+  for (const ev of ['levelup', 'awaken']) sim.on(ev, cineMoment);
+  sim.on('legendary', ({ n }) => cineMoment(n));
   sim.on('chop', t => {
     const cx = (renderer.camX + renderer.viewW / 2) / renderer.ts, cy = (renderer.camY + renderer.viewH / 2) / renderer.ts;
     if (ui.speed <= 2) sound.chop(Math.hypot(t.x - cx, t.y - cy));
   });
-  ui.selected = null; ui.selTile = null; ui.accum = 0; ui.sysQueue = [];
+  if (ui.rift) closeRift(false);
+  ui.selected = null; ui.selTile = null; ui.accum = 0; ui.sysQueue = []; ui.chapters = []; ui.cineTarget = null; $('chapter').hidden = true;
   if (renderer) renderer.setSim(sim);
-  else { renderer = new Renderer($('map'), sim); renderer.onTap = (n, t) => { if (n) select(n); else if (t) selectTile(t); }; }
+  else { renderer = new Renderer($('map'), sim); renderer.onTap = (n, t, m) => { if (m) selectMonster(m); else if (n) select(n); else if (t) selectTile(t); }; }
   buildRoster(); renderLog(); updateHud(); updateInspector();
   $('seedInfo').textContent = `Welt #${sim.seed}`;
   window.SIM = sim; // zum Ausprobieren in der Browser-Konsole
@@ -406,10 +587,14 @@ function frame(now) {
   while (ui.accum >= 1) { sim.step(); ui.accum -= 1; }
   renderer.render(ui.speed ? ui.accum : 1, ui.selected, ui.selTile);
   showSystem(now);
+  const sn = ui.selected; // ausgewählte Person betritt gerade einen Riss → Riss-Welt zeigen
+  if (sn && !ui.rift && sn.inside && sn.inside.gate && ui.riftClosedFor !== sn) openRift(sn);
+  drawRift(now);
   if (now - lastMini > 400) { renderer.drawMinimap($('minimap').getContext('2d'), MINI); lastMini = now; }
   sound.update(sim, renderer);
   updateHud();
-  if (now - lastPanel > 300) { updateRoster(); updateInspector(); lastPanel = now; }
+  if (now - lastPanel > 300) { updateNarrator(now); updateRoster(); updateInspector(); lastPanel = now; }
+  if (ui.chapterUntil && now > ui.chapterUntil) hideChapter();
   requestAnimationFrame(frame);
 }
 
@@ -420,6 +605,11 @@ $('soundBtn').addEventListener('click', () => setSound(!sound.on));
 $('exportBtn').addEventListener('click', exportGame);
 $('importBtn').addEventListener('click', importGame);
 $('modalClose').addEventListener('click', () => { $('modal').hidden = true; });
+$('chronikBtn').addEventListener('click', openChronik);
+$('riftClose').addEventListener('click', () => closeRift(true));
+$('cineBtn').addEventListener('click', () => setCine(!ui.cine));
+$('chapter').addEventListener('click', hideChapter);
+$('moreBtn').addEventListener('click', () => { $('more').hidden = !$('more').hidden; });
 const applyStyle = () => { renderer.pixelChars = store(STYLE_KEY) !== 'vektor'; $('styleBtn').textContent = renderer.pixelChars ? '🎨 Figuren: Pixel' : '🎨 Figuren: Gezeichnet'; };
 $('styleBtn').addEventListener('click', () => { store(STYLE_KEY, renderer.pixelChars ? 'vektor' : 'pixel'); applyStyle(); });
 $('newWorld').addEventListener('click', () => {
@@ -432,7 +622,7 @@ window.addEventListener('resize', () => renderer.resize());
 // Ton darf erst nach einer Berührung starten
 window.addEventListener('pointerdown', () => { if (store(SOUND_KEY) !== '0' && !sound.on) setSound(true); }, { once: true });
 setInterval(saveGame, 5000);
-setInterval(cloudSave, 60000);
+setInterval(cloudSave, 20000); // automatisch – niemand muss selbst speichern
 document.addEventListener('visibilitychange', () => { if (document.hidden) cloudSave(); });
 cloudInit();
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
@@ -446,6 +636,7 @@ else if (saved) {
   catch (e) { newWorld(Math.floor(Math.random() * 1e6)); }
 } else newWorld(Math.floor(Math.random() * 1e6));
 applyStyle();
+setCine(store('siedlung-cine') === '1');
 requestAnimationFrame(frame);
 
 // Als App installierbar und offline nutzbar (nur auf der echten Webseite, z. B. GitHub Pages)

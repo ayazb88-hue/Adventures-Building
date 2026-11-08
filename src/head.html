@@ -45,6 +45,36 @@
   .ctrls button.active { background: var(--accent); color: #2a1d05; border-color: var(--accent); }
   #soundBtn { position: absolute; right: 8px; top: 8px; width: 40px; height: 40px; border-radius: 10px; border: 1px solid #ffffff22; background: #121a15cc; font-size: 18px; backdrop-filter: blur(4px); }
   #soundBtn.active { border-color: var(--accent); }
+  .mapBtn { position: absolute; right: 8px; width: 40px; height: 40px; border-radius: 10px; border: 1px solid #ffffff22; background: #121a15cc; font-size: 18px; backdrop-filter: blur(4px); z-index: 3; }
+  .mapBtn.active { border-color: var(--accent); background: #3a2a0ecc; }
+  #mapWrap.cine::before, #mapWrap.cine::after { content: ''; position: absolute; left: 0; right: 0; height: 7%; background: #000; z-index: 2; pointer-events: none; }
+  #mapWrap.cine::before { top: 0; } #mapWrap.cine::after { bottom: 0; }
+  #narr { position: absolute; left: 12px; right: 60px; bottom: 9%; z-index: 3; text-align: center; font-size: 13px; line-height: 1.35; color: #fff; text-shadow: 0 1px 3px #000, 0 0 8px #000; pointer-events: none; }
+  #narr b { font-weight: 800; }
+  #chapter { position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px 24px; text-align: center;
+    background: radial-gradient(ellipse at center, #0b0f1ae6 0%, #000000f2 80%); color: #f3ead6; animation: chIn 1.2s ease-out; cursor: pointer; }
+  #chapter[hidden] { display: none; }
+  #chapter .ch-num { letter-spacing: .35em; font-size: 11px; color: #f0b54a; text-transform: uppercase; }
+  #chapter .ch-title { font: 700 clamp(20px, 6vw, 30px)/1.2 Georgia, 'Times New Roman', serif; margin: 6px 0 12px; color: #fff4d6; text-shadow: 0 0 18px #f0b54a66; }
+  #chapter .ch-text { max-width: 440px; font: italic 15px/1.55 Georgia, serif; color: #e8dcc0; }
+  #chapter .ch-tap { margin-top: 16px; font-size: 11px; color: #ffffff66; }
+  @keyframes chIn { from { opacity: 0; } to { opacity: 1; } }
+  #rift { position: absolute; inset: 0; z-index: 5; background: #000; }
+  #rift[hidden] { display: none; }
+  #riftCv { display: block; }
+  #riftHud { position: absolute; left: 8px; top: 8px; width: min(230px, 58%); padding: 6px 9px; font-size: 11px !important; border: 1px solid #5fb8ffaa; border-radius: 10px; background: #08162acc;
+    box-shadow: 0 0 14px #3aa0ff44; font-size: 12px; color: #e8f4ff; backdrop-filter: blur(3px); }
+  #riftHud .sys-title { font-weight: 800; letter-spacing: .2em; font-size: 10px; color: #8fd3ff; }
+  #riftHud .bar { margin-bottom: 2px; }
+  .riftBtn { margin-top: 6px; width: 100%; height: 34px; border-radius: 10px; border: 1px solid #5fb8ffaa; background: #0c2440; color: #bfe6ff; font-weight: 700; }
+  #modalHtml { max-height: 60vh; overflow-y: auto; margin-bottom: 8px; }
+  #modalHtml .chap { border-left: 2px solid var(--accent); padding: 4px 0 6px 10px; margin-bottom: 10px; }
+  #modalHtml .chap small { color: var(--accent); letter-spacing: .1em; }
+  #modalHtml .chap b { display: block; font-family: Georgia, serif; font-size: 15px; }
+  #modalHtml .chap p { margin: 2px 0 0; font: italic 13px/1.45 Georgia, serif; color: var(--text); }
+  #modalHtml .chap.next { border-left-style: dashed; opacity: .75; }
+  .diary li { font: italic 12px/1.4 Georgia, serif; }
+  .role { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: #f0b54a33; color: #ffd98a; margin-top: 3px; }
   #realm { margin-top: 4px; font-weight: 700; color: var(--accent); font-size: 13px; min-height: 1em; }
   #stats { margin: 6px 0; color: var(--muted); font-variant-numeric: tabular-nums; }
   #stats b { color: var(--text); }
@@ -75,6 +105,17 @@
   .big-ic { font-size: 28px; }
   .link { display: inline-flex; align-items: center; gap: 5px; margin: 0 6px 4px 0; padding: 2px 8px; border-radius: 8px; background: #ffffff10; border: 1px solid var(--border); font-size: 13px; }
   .link small { color: #8fd3ff; }
+  .syscard { position: relative; padding: 10px 12px 12px; border: 1px solid #5fb8ffaa; border-radius: 10px; background: linear-gradient(180deg, #0c2440ee, #071423ee);
+    box-shadow: 0 0 14px #3aa0ff44, inset 0 0 18px #3aa0ff22; }
+  .syscard.red { border-color: #ff6060aa; background: linear-gradient(180deg, #3a0c12ee, #1c060aee); box-shadow: 0 0 14px #ff404044, inset 0 0 18px #ff404022; }
+  .syscard.gold { border-color: #f0b54acc; box-shadow: 0 0 16px #f0b54a55, inset 0 0 18px #f0b54a22; }
+  .sc-top { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .25em; color: #8fd3ff; font-weight: 800; margin-bottom: 6px; }
+  .syscard.red .sc-top { color: #ff9a9a; }
+  .sc-rank { letter-spacing: .1em; padding: 0 6px; border-radius: 4px; border: 1px solid currentColor; }
+  .sc-fx { margin: 6px 0; font-size: 12px; color: #bfe6ff; }
+  .sc-fx b { color: #fff; }
+  .lore { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #ffffff22; font: italic 12.5px/1.45 Georgia, serif; color: #d9cfb8; }
+  .slot[data-slot] { cursor: pointer; }
   .status { margin-top: 10px; padding: 10px 12px; border: 1px solid #6fc3ff66; border-radius: 10px; background: linear-gradient(180deg, #0e2a4a55, #0a1a3333); }
   .st-head { display: flex; justify-content: space-between; font-weight: 800; letter-spacing: .12em; color: #8fd3ff; font-size: 12px; margin-bottom: 4px; }
   .small { font-size: 12px; margin-bottom: 4px; }
@@ -155,6 +196,11 @@
     <canvas id="minimap" aria-label="Minikarte – antippen zum Springen"></canvas>
     <div id="sysWin" hidden></div>
     <button id="soundBtn" aria-label="Ton ein/aus">🔇</button>
+    <button id="chronikBtn" class="mapBtn" style="top:56px" aria-label="Chronik der Geschichte">📖</button>
+    <button id="cineBtn" class="mapBtn" style="top:104px" aria-label="Erzähler-Modus">🎬</button>
+    <div id="narr" hidden></div>
+    <div id="rift" hidden><canvas id="riftCv"></canvas><div id="riftHud"></div><button id="riftClose" class="mapBtn" style="top:8px" aria-label="Zurück zur Karte">✕</button></div>
+    <div id="chapter" hidden><div class="ch-num"></div><div class="ch-title"></div><div class="ch-text"></div><div class="ch-tap">antippen zum Weiterspielen</div></div>
     <div id="zoomBtns">
       <button data-z="1.25" aria-label="Hineinzoomen">+</button>
       <button data-z="0.8" aria-label="Herauszoomen">−</button>
@@ -169,10 +215,13 @@
   <footer>
     <span id="seedInfo"></span>
     <span id="saveInfo"></span>
-    <button id="exportBtn">📤 Sichern</button>
-    <button id="importBtn">📥 Laden</button>
-    <button id="styleBtn">🎨 Figuren: Pixel</button>
-    <button id="newWorld">🌍 Neue Welt</button>
+    <button id="moreBtn">⚙️ Mehr</button>
+    <span id="more" hidden>
+      <button id="styleBtn">🎨 Figuren: Pixel</button>
+      <button id="exportBtn" title="Nur nötig, um auf einem anderen Gerät weiterzuspielen">📤 Kopie</button>
+      <button id="importBtn">📥 Kopie laden</button>
+      <button id="newWorld">🌍 Neue Welt</button>
+    </span>
   </footer>
 </div>
 
@@ -180,6 +229,7 @@
   <div class="box" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <h3 id="modalTitle"></h3>
     <p id="modalText"></p>
+    <div id="modalHtml" hidden></div>
     <textarea id="modalArea" spellcheck="false" aria-label="Spielstand"></textarea>
     <div class="modal-row"><button id="modalOk">OK</button><button id="modalClose">Schließen</button></div>
   </div>

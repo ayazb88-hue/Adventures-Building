@@ -14,7 +14,7 @@ Das Spiel ist **eine Datei `index.html`** (HTML + JavaScript + Canvas, keine Abh
 
 Über GitHub Pages öffnen, dann im Browser **Teilen → Zum Home-Bildschirm** (iPhone) oder **⋮ → App installieren** (Android). Die App startet im Vollbild und läuft auch offline.
 
-**Spielstand:** wird automatisch im Browser und – im Claude-Link – zusätzlich privat in deinem Claude-Konto gespeichert und bei Updates übernommen. Während du weg bist, läuft die Welt weiter (bis zu 2 Spieltage werden beim Öffnen nachgerechnet). Mit „📤 Sichern“ kopierst du ihn als Text (z. B. in deine Notizen), mit „📥 Laden“ setzt du ihn auf jedem Gerät fort.
+**Spielstand:** wird automatisch im Browser und – im Claude-Link – zusätzlich privat in deinem Claude-Konto gespeichert und bei Updates übernommen. Während du weg bist, läuft die Welt weiter (bis zu 2 Spieltage werden beim Öffnen nachgerechnet). Du musst nie selbst speichern. Nur wer auf ein ganz anderes Gerät wechseln will, findet unter „⚙️ Mehr“ eine Kopie zum Mitnehmen.
 
 **Bedienung:** Wischen verschiebt die Karte, zwei Finger zoomen, ein angetippter Siedler wird verfolgt und zeigt seine Gedanken. 🔊 schaltet den Ton. Der Spielstand wird automatisch im Browser gespeichert.
 
@@ -49,6 +49,14 @@ Das Spiel ist **eine Datei `index.html`** (HTML + JavaScript + Canvas, keine Abh
 - **Große Welt:** 80×80 Kacheln mit Fluss und Furten, Seen, Wäldern, Felsen, Ruinen und Wildtieren. Minikarte zum Springen; weit herausgezoomt sieht man das ganze Dorf wachsen.
 - **Alles antippbar:** Häuser (Bewohner, Baudatum, Erbauer), Lager, Baustelle, Bäume, Sträucher, Risse, Ruinen.
 - **Nachwachsen:** Beeren wachsen nach, gefällte Bäume nach 2 Tagen auch.
+- **Handlung:** Die Chronik (📖) erzählt in Kapiteln, was passiert: das erste Haus, das Licht vom Himmel (die Hauptfigur ★), das vergessene Schmiedebuch, die erste Legende, ein Rivale aus dem Norden mit täglichen Duellen, das Königreich, der rote Riss und der Boss „Kronenfresser“. Jedes neue Kapitel wird groß eingeblendet.
+- **Klügere Erwachte:** Lebensziele (Stärke, Schmiedekunst, Ruhm, Reichtum, Schutz), Gedanken wie Spieler („Noch 40 EP bis Level 7“), Neid und Glückwünsche, abends ein Tagebucheintrag.
+- **🎬 Erzähler-Modus:** Die Kamera folgt von selbst dem Spannendsten (Boss, Duelle, Kämpfe, Level-Aufstiege, sonst der Hauptfigur) mit Kinobalken und Untertiteln.
+- **Info-Fenster wie im Anime:** Antippen zeigt ein System-Fenster mit Kategorie, Rang, Effekt und Beschreibung – für Gebäude, Gelände, Siedler, Monster und Ausrüstung (Ausrüstungsteil antippen).
+- **Riss-Welten:** Ist eine ausgewählte Person in einem Riss, sieht man sie dort kämpfen – jeder Riss hat seine eigene Welt (Kristallwald, Aschefelder, Sternenmeer, Nebelsumpf, Glutkaverne) mit Etagen und Wächter.
+- **Stufen und Verstärkung:** Gebäude werden auf Stufe II und III ausgebaut (mehr Betten, mehr Reichweite, bessere Schmiede …); Ausrüstung wird in der Schmiede auf +1 bis +10 verstärkt (ab +6 kann es misslingen).
+- **Neue Gebäude:** Forsthaus (Holzfäller pflanzen nach), Bauernhof (Hühner, Kuh, Eier und Milch), Gildenhalle (Versammlungen, Gilden-Stufe, mehr Erfahrung).
+- **Tiere:** Erwachte zähmen Gefährten (Wolfswelpe, Fuchs, Eule, Kristallhase, selten Mini-Drache) mit Boni; manche Arbeiter bringen Hund oder Katze mit. Die Tiere laufen ihren Menschen hinterher.
 - **Tempo:** ⏸ / 1x / 2x / 5x. Bei 1x dauert ein Spieltag 6 Minuten.
 
 ## Code-Aufbau (für Erweiterungen)

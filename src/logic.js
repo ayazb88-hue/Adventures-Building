@@ -285,6 +285,8 @@ function rollRarity(n, sim) {
   const w = [60, 28, 9, 2.6, 0.4];
   if (n.cls === 'schmied' || n.cls === 'sternenschmied') { w[0] -= 15; w[1] += 5; w[2] += 7; w[3] += 2.5; w[4] += 0.5; }
   if (n.hasSkill('legendaererFunke')) { w[3] *= 2; w[4] *= 2; }
+  const SL = (sim.capital.smithy && sim.capital.smithy.level) || 1; // ausgebaute Schmiede: bessere Chancen
+  w[2] += 4 * (SL - 1); w[3] += 1.2 * (SL - 1); w[4] += 0.3 * (SL - 1);
   let r = sim.rng() * w.reduce((a, b) => a + b), tier = 0;
   while (tier < 4 && r > w[tier]) { r -= w[tier]; tier++; }
   if (n.hasSkill('meisterschmied') && sim.rng() < 0.35) tier++;
@@ -302,9 +304,169 @@ function makeItem(slot, rarity, owner, smith, sim) {
   return { slot, kind, rarity, name, power, smith: smith.name };
 }
 
+const itemName = it => it.name + (it.plus ? ` +${it.plus}` : '');
+
+/** Verstärken: +1 … +10. Je höher, desto riskanter – ab +6 kann es eine Stufe zurückgehen. */
+function enhanceItem(n, o, slot, sim) {
+  const it = o.gear[slot];
+  it.plus = it.plus || 0; it.base = it.base || it.power;
+  const smith = n.cls === 'schmied' || n.cls === 'sternenschmied' ? 0.1 : 0;
+  const chance = clamp(0.95 - it.plus * 0.085 + smith + skillLevel('forging', n.skills.forging) * 0.01, 0.1, 0.97);
+  n.forged = (n.forged || 0) + 1; n.gainXp('forging', 1 + it.rarity);
+  const t = sim.capital.smithy.tile;
+  if (sim.rng() < chance) {
+    it.plus++; it.power = Math.round(it.base * (1 + 0.12 * it.plus));
+    sim.log(`✨ verstärkt ${itemName(it)} von ${o === n ? 'sich selbst' : o.name}! (+${it.power})`, n, true);
+    sim.emit('system', `VERSTÄRKUNG ERFOLGREICH: ${itemName(it)}`);
+    sim.float(t.x, t.y, `+${it.plus}!`, '#8fd3ff');
+    if (it.plus >= 7) n.addTitle(sim, 'Meister der Verstärkung');
+    if (o !== n) changeRelation(n, o, 6, sim);
+  } else {
+    const drop = it.plus >= 6;
+    if (drop) { it.plus--; it.power = Math.round(it.base * (1 + 0.12 * it.plus)); }
+    sim.log(`💥 Die Verstärkung von ${it.name} misslingt${drop ? ` – zurück auf +${it.plus}` : ''}.`, n, true);
+    sim.emit('system', 'Verstärkung misslungen …');
+    sim.float(t.x, t.y, '💥', '#ff6b6b');
+  }
+}
+
+/* ---- Tiere: Haustiere, Zähmen, Bauernhof, Forsthaus ------------------- */
+const PETS = {
+  wolf:   { name: 'Wolfswelpe', icon: '🐺', bonus: 'Angriff +15 %', w: 30 },
+  fuchs:  { name: 'Fuchs', icon: '🦊', bonus: 'Holzfällen +20 %', w: 30 },
+  eule:   { name: 'Eule', icon: '🦉', bonus: 'Erfahrung +10 %', w: 22 },
+  hase:   { name: 'Kristallhase', icon: '🐇', bonus: 'Tempo +15 %', w: 15 },
+  drache: { name: 'Mini-Drache', icon: '🐉', bonus: 'Angriff +30 %, Erfahrung +10 %', w: 3 },
+  hund:   { name: 'Hund', icon: '🐕', bonus: 'Laune +', w: 0 },
+  katze:  { name: 'Katze', icon: '🐈', bonus: 'Laune +', w: 0 },
+};
+const PET_NAMES = ['Flocke', 'Funke', 'Krümel', 'Nebel', 'Pfote', 'Luna', 'Rauch', 'Kiesel', 'Glut', 'Sternchen', 'Moos', 'Blitz', 'Wuschel', 'Ember'];
+const petIs = (n, ...kinds) => !!(n.pet && kinds.includes(n.pet.kind));
+function givePet(n, kind, sim) {
+  const used = new Set(sim.npcs.filter(o => o.pet).map(o => o.pet.name));
+  const name = PET_NAMES.find(x => !used.has(x) && sim.rng() < 0.5) || pick(sim, PET_NAMES);
+  n.pet = { kind, name, bond: 10, day: sim.day };
+  return n.pet;
+}
+
+defineAction({
+  id: 'tame', label: 'versucht ein Tier zu zähmen', short: 'Zähmen', start: 'schleicht in den Wald, um ein Tier zu zähmen', icon: '🐾',
+  interruptible: false,
+  score(n, sim) {
+    if (!n.awakened || n.pet || n.level < 3 || sim.isNight || n.energy < 50 || n.hunger > 50) return 0;
+    if (sim.minutes - (n.lastTame || -1e9) < 1440) return 0;
+    return 22 + n.traits.neugier * 12 + (['hueter', 'waldlaeufer'].includes(n.cls) ? 15 : 0);
+  },
+  think: n => n.cls === 'hueter' ? 'Die Tiere des Waldes vertrauen mir. Vielleicht findet mich heute ein Gefährte.' : 'Ein treuer Gefährte an meiner Seite … das wär’s.',
+  plan(n, sim) {
+    const c = n.town.camp;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'tree' && Math.hypot(t.x - c.x, t.y - c.y) > 9, 6000);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t === 1) n.lastTame = sim.minutes;
+      if (s.t < 45) return;
+      const chance = 0.4 + n.stats.charisma * 0.025 + (n.cls === 'hueter' ? 0.2 : 0);
+      const opts = Object.entries(PETS).filter(([k, p]) => p.w && (k !== 'drache' || n.level >= 8));
+      let r = sim.rng() * opts.reduce((a, [, p]) => a + p.w, 0), kind = opts[0][0];
+      for (const [k, p] of opts) { if ((r -= p.w) <= 0) { kind = k; break; } }
+      if (sim.rng() < chance) {
+        const pet = givePet(n, kind, sim), P = PETS[kind];
+        sim.log(`🐾 zähmt ${kind === 'eule' || kind === 'katze' ? 'eine' : 'einen'} ${P.name} und nennt das Tier „${pet.name}“! (${P.bonus})`, n, true);
+        sim.emit('system', `ZÄHMUNG ERFOLGREICH: ${P.name} „${pet.name}“`);
+        n.remember(sim, `Hat ${P.name} „${pet.name}“ gezähmt ${P.icon}`);
+        n.mood = Math.min(100, n.mood + 20); n.addXp(sim, 20);
+        if (kind === 'drache') n.addTitle(sim, 'Drachenfreund');
+      } else {
+        sim.log(`🐾 Der ${PETS[kind].name} schnuppert kurz – und verschwindet im Unterholz.`, n);
+        n.thought = 'Fast! Morgen versuche ich es noch einmal.';
+      }
+      return 'done';
+    }, { face: res.target })];
+  },
+});
+
+defineAction({
+  id: 'tendAnimals', label: 'versorgt die Tiere', short: 'Tiere', start: 'geht zum Bauernhof', icon: '🐄',
+  score: (n, sim) => n.town.bauernhof && !sim.isNight && sim.minutes - (n.lastTend || -1e9) > 720 && n.profession === 'bauer' ? 34 : 0,
+  think: () => 'Die Hühner warten aufs Futter und die Kuh will gemolken werden.',
+  plan(n, sim) {
+    const b = n.town.bauernhof;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === b.tile, 5000);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t === 1) n.lastTend = sim.minutes;
+      if (s.t < 40) return;
+      const food = 2 + (b.level || 1);
+      n.town.stock.food += food; n.gainXp('farming', 2);
+      sim.float(b.tile.x, b.tile.y, `+${food} 🥛`, '#fff');
+      sim.log(`🐔 sammelt Eier und Milch: +${food} Essen`, n);
+      return 'done';
+    }, { work: true, face: b.tile })];
+  },
+});
+
+defineAction({
+  id: 'replant', label: 'pflanzt einen Baum', short: 'Pflanzen', start: 'geht Bäume pflanzen', icon: '🌱',
+  score: (n, sim) => n.town.forsthaus && n.profession === 'holzfaeller' && !sim.isNight && !n.inventory.wood && sim.minutes - (n.lastPlant || -1e9) > 360 ? 27 : 0,
+  think: () => 'Wer Bäume fällt, muss auch welche pflanzen. Sagt der Förster.',
+  plan(n, sim) {
+    const f = n.town.forsthaus.tile;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'stump' && Math.hypot(t.x - f.x, t.y - f.y) < 16, 4000);
+    if (!res) { n.lastPlant = sim.minutes; return null; }
+    const st = res.target;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t === 1) n.lastPlant = sim.minutes;
+      if (st.type !== 'stump') return 'done';
+      if (s.t < 25) return;
+      sim.world.setType(st, 'tree'); st.wood = CONFIG.resources.treeWood; st.timer = 0;
+      sim.float(st.x, st.y, '🌱', '#7be08a'); n.gainXp('woodcutting', 2);
+      sim.log('🌱 pflanzt einen jungen Baum.', n);
+      return 'done';
+    }, { work: true, face: st, tool: 'hoe' })];
+  },
+});
+
+defineAction({
+  id: 'guildMeeting', label: 'ist in der Gildenhalle', short: 'Gilde', start: 'geht zur Gildenversammlung', icon: '🛡️',
+  score(n, sim) {
+    const gh = sim.capital.gildenhalle, h = sim.hourFloat;
+    if (!gh || !n.awakened || h < 18 || h > 21 || sim.monsters.length || sim.day === n.lastGuild) return 0;
+    return 30 + n.traits.gesellig * 15;
+  },
+  think: (n, sim) => `Heute Abend Versammlung der „${sim.guild ? sim.guild.name : 'Gilde'}“. Wir planen die nächsten Risse.`,
+  plan(n, sim) {
+    const gh = sim.capital.gildenhalle;
+    const res = sim.world.findAdjacent(n.x, n.y, t => t === gh.tile, 8000);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => {
+      if (s.t === 1) { n.lastGuild = sim.day; n.inside = gh; }
+      n.social = Math.min(100, n.social + 0.4);
+      if (s.t < 40) return;
+      n.addXp(sim, 8 + (gh.level || 1) * 4);
+      if (sim.guild) guildXp(sim, 15);
+      return 'done';
+    }, { face: gh.tile })];
+  },
+  onEnd(n) { if (n.inside && n.inside.type === 'gildenhalle') n.inside = null; },
+});
+
+/** Gilden-Stufe: wächst mit allem, was die Erwachten erleben. */
+function guildXp(sim, amount) {
+  const g = sim.guild; if (!g) return;
+  g.level = g.level || 1; g.xp = (g.xp || 0) + amount;
+  const need = Math.round(150 * g.level ** 1.5);
+  if (g.xp >= need) {
+    g.xp -= need; g.level++;
+    sim.log(`🛡️ Die „${g.name}“ steigt auf Gilden-Stufe ${g.level}! Alle Mitglieder bekommen mehr Erfahrung.`, null, true);
+    sim.emit('system', `GILDE STUFE ${g.level}: ${g.name}`);
+  }
+}
+
 function forgeItem(n, sim) {
   const target = pickGearTarget(sim);
   if (!target) return;
+  const cur = target.npc.gear[target.slot];
+  if (cur && (cur.plus || 0) < 10 && sim.rng() < 0.45) return enhanceItem(n, target.npc, target.slot, sim);
   const rarity = rollRarity(n, sim), item = makeItem(target.slot, rarity, target.npc, n, sim);
   const R = RARITIES[rarity], o = target.npc, old = o.gear[target.slot];
   n.forged = (n.forged || 0) + 1;
@@ -385,6 +547,7 @@ const MONSTERS = {
   rissling:     { name: 'Rissling', hp: 40, atk: 5, speed: 0.22, tier: 1, xp: 25 },
   schattenwolf: { name: 'Schattenwolf', hp: 75, atk: 8, speed: 0.32, tier: 2, xp: 50 },
   aschegolem:   { name: 'Aschegolem', hp: 180, atk: 14, speed: 0.13, tier: 3, xp: 110 },
+  kronenfresser:{ name: 'Kronenfresser', hp: 1400, atk: 13, speed: 0.11, tier: 4, xp: 600 }, // Boss der Geschichte
 };
 function nearestMonster(n, sim, r) {
   let best = null, bd = r;
@@ -393,8 +556,8 @@ function nearestMonster(n, sim, r) {
 }
 function killMonster(m, n, sim) {
   const M = MONSTERS[m.kind];
-  m.hp = 0;
-  const drop = M.tier === 3 ? 2 : sim.rng() < 0.4 ? 1 : 0;
+  m.hp = 0; m.killer = n;
+  const drop = M.tier >= 4 ? 15 : M.tier === 3 ? 2 : sim.rng() < 0.4 ? 1 : 0;
   n.town.stock.crystals += drop;
   sim.log(`⚔️ besiegt einen ${M.name}! (+${M.xp} EP${drop ? `, +${drop} 💎` : ''})`, n, true);
   sim.emit('system', `${M.name} besiegt!`);
@@ -566,7 +729,8 @@ defineAction({
     if (!res) return null;
     return [move(res.path), act((n, sim, s) => {
       if (s.t === 1) n.lastPray = sim.minutes;
-      n.mood = Math.min(100, n.mood + 0.5); n.hp = Math.min(n.maxHp, n.hp + n.maxHp * 0.02);
+      const L = tp.level || 1;
+      n.mood = Math.min(100, n.mood + 0.5 * L); n.hp = Math.min(n.maxHp, n.hp + n.maxHp * 0.02 * L);
       if (s.t >= 40) return 'done';
     }, { face: tp.tile })];
   },
@@ -741,10 +905,10 @@ class NPC {
     this.x = this.prevX = best.x; this.y = this.prevY = best.y;
   }
   get maxHp() { return 100 + (this.awakened ? this.level * 8 + this.stats.ausdauer * 3 : 0); }
-  get attack() { return this.awakened ? 6 + this.level * 2 + this.stats.kraft + (this.gear.weapon ? this.gear.weapon.power : 0) : 2; }
+  get attack() { return this.awakened ? Math.round((6 + this.level * 2 + this.stats.kraft + (this.gear.weapon ? this.gear.weapon.power : 0)) * (petIs(this, 'drache') ? 1.3 : petIs(this, 'wolf') ? 1.15 : 1)) : 2; }
   get defense() { return gearPower(this, ['armor', 'helmet', 'boots', 'cape']); }
   becomeStarSmith(sim) {
-    this.cls = 'sternenschmied'; this.level = 1; this.xp = 0;
+    this.cls = 'sternenschmied'; this.level = 1; this.xp = 0; this.ambition = 'schmiede';
     this.unlocked = [];
     sim.log('📖 findet in den Ruinen ein vergessenes Schmiedebuch … und erhält die legendäre Klasse „Sternenschmied“! Doch die Macht fordert ihren Preis: zurück auf Level 1.', this, true);
     sim.emit('system', 'LEGENDÄRE KLASSE ERHALTEN: Sternenschmied');
@@ -759,6 +923,7 @@ class NPC {
     if (this.awakened) v *= 1 + this.stats.geschick * 0.015;
     if (this.hasSkill('leichtfuss')) v *= 1.35;
     if (this.hasSkill('phasenschritt')) v *= 1.5;
+    if (petIs(this, 'hase')) v *= 1.15;
     return v;
   }
   gainXp(skill, amount) {
@@ -779,6 +944,9 @@ class NPC {
   }
   addXp(sim, amount) {
     if (!this.awakened) return;
+    const g = sim.guild, gh = sim.capital.gildenhalle;
+    amount *= (petIs(this, 'eule', 'drache') ? 1.1 : 1) * (g ? 1 + ((g.level || 1) - 1) * 0.05 : 1) * (gh ? 1 + 0.05 * (gh.level || 1) : 1);
+    if (g) guildXp(sim, amount * 0.15);
     this.xp += amount;
     while (this.xp >= xpForLevel(this.level)) { this.xp -= xpForLevel(this.level); this.levelUp(sim); }
   }
@@ -786,6 +954,7 @@ class NPC {
     if (this.awakened) return;
     const t = this.traits, r = v => Math.round(3 + v * 3);
     this.awakened = true; this.level = 1; this.xp = 0;
+    this.ambition = pickAmbition(this, sim.rng);
     this.stats = { kraft: r(t.fleiss), geschick: r(t.neugier), ausdauer: 4, charisma: r(t.gesellig) };
     this.newQuest(sim);
     sim.log(`✨ ${text}`, this, true);
@@ -859,6 +1028,7 @@ class NPC {
     const sk = { build: 'building', chop: 'woodcutting', mine: 'mining' }[kind];
     if (sk) r *= 1 + (skillLevel(sk, this.skills[sk]) - 1) * 0.06; // jede Stufe +6 %
     if (kind === 'build' && this.hasSkill('meisterhand')) r *= 2;
+    if (kind === 'chop') r *= (petIs(this, 'fuchs') ? 1.2 : 1) * (this.town && this.town.forsthaus ? 1 + 0.1 * (this.town.forsthaus.level || 1) : 1); // Fuchs, Forsthaus
     if (kind === 'build' && this.sim && this.sim.npcs.some(o => o.hasSkill('inspiration') && o.task && o.task.actionId === 'build')) r *= 1.3;
     return r;
   }
@@ -868,6 +1038,8 @@ class NPC {
     if (actionId === 'gatherWood' || actionId === 'build' || actionId === 'deliver') w *= 0.75 + this.traits.fleiss * 0.5;
     if (actionId === 'wander' || actionId === 'idle') w *= 1.6 - this.traits.fleiss;
     if (this.awakened && this.quest && !this.quest.done && QUEST_ACTION[this.quest.type] === actionId) w *= 1.3; // Ehrgeiz
+    if (this.awakened && AMBITIONS[this.ambition]) w *= AMBITIONS[this.ambition].w[actionId] || 1; // Lebensziel
+    if (actionId === 'searchRuin' && this.sim && this.sim.story && this.sim.story.ruinCall && this.sim.story.hero === this) w *= 2.5; // das Flüstern der Ruinen
     return w;
   }
   // ------------------------------------------------------------------
@@ -908,7 +1080,8 @@ class NPC {
       this.social = clamp(this.social - c.socialPerMin * (0.5 + this.traits.gesellig), 0, 100);
     }
     const target = clamp(100 - this.hunger * 0.45 - (100 - this.energy) * 0.25 - (100 - this.social) * 0.3
-      + (this.home ? 8 : -8) - (sim.weather === 'regen' ? 8 : 0), 0, 100);
+      + (this.home ? 8 : -8) - (sim.weather === 'regen' ? 8 : 0) + (this.pet ? 6 : 0), 0, 100);
+    if (this.pet && this.pet.bond < 100 && sim.minutes % 30 === 0) this.pet.bond = Math.min(100, this.pet.bond + 0.5); // Bindung wächst
     this.mood += (target - this.mood) * 0.02;
     this.hp = Math.min(this.maxHp, this.hp + (this.sleeping ? 0.5 : 0.12));
     if (this.hunger >= 100 && !this.starving) { this.starving = true; sim.log('hat schrecklichen Hunger!', this); this.remember(sim, 'Hatte schrecklichen Hunger 😣'); }
@@ -935,6 +1108,7 @@ class NPC {
   startTask(action, steps, sim) {
     this.task = { actionId: action.id, steps, i: 0 };
     this.thought = action.think ? action.think(this, sim) : action.start;
+    if (this.awakened && sim.story && !['fight', 'flee', 'duel'].includes(action.id) && sim.rng() < 0.3) this.thought = playerThought(this, sim); // denkt wie ein Spieler
     const q = this.quest;
     if (this.awakened && q && !q.done && QUEST_ACTION[q.type] === action.id) this.thought = `[Tägliche Aufgabe: ${q.text} – ${Math.floor(q.prog)}/${q.goal}] ` + this.thought;
     if (action.id !== this.lastLogged) {
@@ -994,7 +1168,7 @@ class NPC {
  * 7) SIMULATION: Zeit, Wetter, Wachstum, Ereignisse, Log, Speichern
  * ===================================================================== */
 const TILE_TYPES = Object.keys(TILE_DEFS);
-const SAVE_VERSION = 5;
+const SAVE_VERSION = 6; // 6: Geschichte (story), Lebensziele, Tagebuch
 // Reihenfolge der Geländearten in älteren Spielständen (dort wurden Kacheln als Nummer gespeichert)
 const BASE_TYPES = ['grass', 'tree', 'stump', 'water', 'bush', 'camp', 'site', 'house', 'rock'];
 const OLD_TYPE_LISTS = {
@@ -1025,6 +1199,7 @@ class Simulation {
     else CONFIG.startingNpcs.forEach(def => this.addNpc(def));
     this.firstAwakening = !!(save && save.firstAwakening);
     this.on('buildingCompleted', b => this.onHouseBuilt(b));
+    this.story = new Story(this, save ? save.story : null, !!save);
   }
 
   get settlement() { return this.towns[0]; }
@@ -1077,6 +1252,7 @@ class Simulation {
     npc.profession = this.pickProfession();
     npc.arrivedAt = this.minutes;
     npc.remember(this, 'Ist in die Siedlung gekommen 🧳');
+    if (this.rng() < 0.18) { const p = givePet(npc, this.rng() < 0.5 ? 'hund' : 'katze', this); npc.remember(this, `Hat ${p.kind === 'hund' ? 'den Hund' : 'die Katze'} „${p.name}“ mitgebracht`); }
     const house = town.houses.find(h => h.residents.length < h.beds);
     if (house) this.moveIn(npc, house);
     this.log(`🧳 kommt neu nach ${town.name}${house ? ` und zieht in Haus Nr. ${house.id} ein` : ''}!`, npc, true);
@@ -1091,7 +1267,8 @@ class Simulation {
   updateKingdom() {
     const cap = this.capital;
     if (!this.kingdom && this.guild) {
-      const top = this.npcs.filter(n => n.awakened).sort((a, b) => b.level - a.level)[0];
+      const st = this.story, hero = st && st.hero; // die Hauptfigur wird bevorzugt, ein Rivale nie (solange er Rivale ist)
+      const top = hero && hero.level >= 8 ? hero : this.npcs.filter(n => n.awakened && !(st && st.rivalOf(n) && n === st.rival)).sort((a, b) => b.level - a.level)[0];
       if (top && top.level >= 8 && cap.houses.length >= 16) {
         const name = pick(this, KINGDOM_NAMES);
         this.kingdom = { name, founded: this.day, regent: top.name, regentId: top.id, color: pick(this, BANNERS) };
@@ -1173,11 +1350,12 @@ class Simulation {
     const range = CONFIG.buildings.tower.range;
     for (const tw of this.towns) for (const b of tw.towers) {
       if ((b.cd = (b.cd || 0) - 1) > 0) continue;
-      let best = null, bd = range;
+      const L = b.level || 1;
+      let best = null, bd = range + L - 1;
       for (const m of this.monsters) { const d = Math.hypot(m.x - b.tile.x, m.y - b.tile.y); if (d < bd) { bd = d; best = m; } }
       if (!best) continue;
       b.cd = 3;
-      const dmg = Math.round(12 * (1 + this.day * 0.1));
+      const dmg = Math.round(12 * (1 + this.day * 0.1) * (1 + 0.4 * (L - 1)));
       best.hp -= dmg; best.hitAt = performance.now();
       this.float(best.x, best.y - 0.3, `-${dmg}`, '#ffd166');
       this.emit('towerShot', { from: b.tile, to: best });
@@ -1195,7 +1373,7 @@ class Simulation {
     const cap = this.capital, market = cap.market, day = this.minutes % 1440;
     if (market && day === 12 * 60) { // Markttag: Überschuss wird verkauft
       const keepFood = cap.members.length * 3, sellFood = Math.max(0, Math.floor((cap.stock.food - keepFood) * 0.5)), sellWood = Math.max(0, Math.floor((cap.stock.wood - 100) * 0.3));
-      const coins = Math.floor(sellFood / 2) + Math.floor(sellWood / 4);
+      const coins = Math.round((Math.floor(sellFood / 2) + Math.floor(sellWood / 4)) * (1 + 0.5 * ((market.level || 1) - 1)));
       if (coins > 0) {
         cap.stock.food -= sellFood; cap.stock.wood -= sellWood; cap.stock.coins += coins;
         cap.addTrade(`Markttag: ${sellFood} Brot und ${sellWood} Holz für ${coins} 🪙`);
@@ -1272,7 +1450,9 @@ class Simulation {
   updateMonsters() {
     const cfg = CONFIG.monsters, h = this.hourFloat;
     if (this.minutes % 1440 === 6 * 60 && this.monsters.length) {
-      this.log('☀️ Die Rissmonster zerfallen im Morgenlicht zu Asche.', null, true);
+      const boss = this.monsters.find(m => m.boss);
+      if (boss) this.story.bossRetreat(boss);
+      if (this.monsters.some(m => !m.boss)) this.log('☀️ Die Rissmonster zerfallen im Morgenlicht zu Asche.', null, true);
       this.monsters = [];
     }
     if (this.day >= cfg.fromDay && (h >= 22 || h < 4) && this.minutes % 60 === 0) {
@@ -1397,6 +1577,7 @@ class Simulation {
     if (this.minutes % 60 === 0) this.updateKingdom();
     if (this.minutes % 1440 === 7 * 60) this.payTribute();
     for (const npc of this.npcs) npc.update(this);
+    this.story.update();
     this.updateMonsters();
     this.updateTowers();
     this.updateTrade();
@@ -1415,14 +1596,14 @@ class Simulation {
     const st = this.settlement;
     return {
       v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock,
-        site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work } })),
-      guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
+        site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work, upgrade: t.site.upgrade ? t.site.upgrade.id : null } })),
+      story: this.story.serialize(), guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
       seed: this.seed, minutes: this.minutes, weather: this.weather, firstAwakening: this.firstAwakening,
       gates: this.world.gates.map(g => [g.gate.cleared, g.gate.failed]),
       tiles: this.world.tiles.map(t => [TILE_TYPES.indexOf(t.type), t.wood, t.berries, t.timer, t.traffic]),
       stock: st.stock,
-      buildings: this.towns.flatMap((t, ti) => t.buildings.map(b => ({ town: ti, id: b.id, type: b.type, x: b.tile.x, y: b.tile.y, builtDay: b.builtDay, builtClock: b.builtClock, builders: b.builders }))),
+      buildings: this.towns.flatMap((t, ti) => t.buildings.map(b => ({ town: ti, id: b.id, level: b.level || 1, type: b.type, x: b.tile.x, y: b.tile.y, builtDay: b.builtDay, builtClock: b.builtClock, builders: b.builders }))),
       site: st.site && { type: st.site.type, x: st.site.tile.x, y: st.site.tile.y, progress: st.site.progress, work: st.site.work },
       npcs: this.npcs.map(n => ({
         id: n.id, name: n.name, color: n.color, x: Math.round(n.x), y: Math.round(n.y),
@@ -1432,6 +1613,7 @@ class Simulation {
         awakened: n.awakened, level: n.level, xp: n.xp, stats: n.stats, cls: n.cls, unlocked: n.unlocked, titles: n.titles,
         quest: n.quest, questsDone: n.questsDone, lastGate: n.lastGate, gatesCleared: n.gatesCleared, housesBuilt: n.housesBuilt,
         town: n.town.id, hp: n.hp, gear: n.gear, kills: n.kills, forged: n.forged, lastRuin: n.lastRuin, loyalTo: n.loyalTo,
+        ambition: n.ambition || null, diary: n.diary || [], snap: n.snap || null, pet: n.pet || null, lastTame: n.lastTame ?? null,
       })),
       log: this.logEntries.slice(0, 30).map(e => ({ day: e.day, clock: e.clock, text: e.text, event: e.event, npc: e.npc ? e.npc.id : null })),
     };
@@ -1463,7 +1645,7 @@ class Simulation {
       tw.stock = { ...tw.stock, ...t.stock };
       if (t.site) {
         const tile = w.tile(t.site.x, t.site.y);
-        tw.site = { type: t.site.type, tile, progress: t.site.progress, work: t.site.work, town: tw };
+        tw.site = { type: t.site.type, tile, progress: t.site.progress, work: t.site.work, town: tw, upgradeId: t.site.upgrade ?? null };
         tw.site.tiles = t.site.type === 'castle' ? tw.footprint(tile) : [tile];
         for (const x of tw.site.tiles) x.siteRef = tw.site;
       }
@@ -1472,7 +1654,7 @@ class Simulation {
     if (!this.towns.length) this.towns = [st];
     for (const b of d.buildings) {
       const town = this.towns[b.town || 0], tile = w.tile(b.x, b.y), def = CONFIG.buildings[b.type];
-      const bb = { id: b.id, type: b.type, tile, beds: def.beds || 0, sleepers: new Set(), residents: [], builtDay: b.builtDay, builtClock: b.builtClock, builders: b.builders || [] };
+      const bb = { id: b.id, level: b.level || 1, type: b.type, tile, beds: (def.beds || 0) + (b.type === 'house' ? (b.level || 1) - 1 : 0), sleepers: new Set(), residents: [], builtDay: b.builtDay, builtClock: b.builtClock, builders: b.builders || [] };
       bb.town = town; tile.building = bb; town.buildings.push(bb);
       if (b.type === 'castle') for (const t of town.footprint(tile)) if (t !== tile) t.part = tile;
     }
@@ -1489,9 +1671,15 @@ class Simulation {
         titles: s.titles || [], quest: s.quest || null, questsDone: s.questsDone || 0, lastGate: s.lastGate ?? -1e9,
         gatesCleared: s.gatesCleared || 0, housesBuilt: s.housesBuilt || 0, sim: this,
         hp: s.hp ?? 100, gear: s.gear || {}, kills: s.kills || 0, forged: s.forged || 0, lastRuin: s.lastRuin ?? -1e9, loyalTo: s.loyalTo ?? null,
+        diary: s.diary || [], snap: s.snap || null, pet: s.pet || null, lastTame: s.lastTame ?? -1e9,
       });
+      n.ambition = s.ambition || (n.awakened ? pickAmbition(n, this.rng) : null); // alte Stände: Lebensziel nachtragen
       if (s.home != null) { const h = n.town.buildings.find(b => b.id === s.home); if (h) this.moveIn(n, h, true); }
       this.npcs.push(n);
+    }
+    for (const tw of this.towns) if (tw.site && tw.site.upgradeId != null) { // laufender Ausbau
+      tw.site.upgrade = tw.buildings.find(b => b.id === tw.site.upgradeId);
+      if (!tw.site.upgrade) { tw.site.tile.siteRef = null; tw.site = null; }
     }
     this.logEntries = (d.log || []).map(e => ({ ...e, npc: this.npcs.find(n => n.id === e.npc) || null }));
     this.guild = d.guild || null; this.tomeFound = !!d.tomeFound; this.ruinsSearched = d.ruinsSearched || 0;

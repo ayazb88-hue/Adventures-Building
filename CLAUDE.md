@@ -26,12 +26,14 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
   | `src/logic.js` | Aktionen (Utility-KI), NPC, Simulation (Monster, Königreich, Speichern) |
   | `src/render.js` | Grafik: Sprites, Gebäude, Licht, Partikel, Minikarte (gezeichnete Figuren als Alternative) |
   | `src/pixel.js` | Pixel-Art-Figuren (Standard): Posen auf 40×40-Raster, Kopf-/Haar-Vorlagen, Umriss, Bild-Cache |
+  | `src/story.js` | Handlung: Kapitel der Chronik, Hauptfigur, Rivale + Duelle, Boss „Kronenfresser“, Lebensziele, Spieler-Gedanken, Tagebuch |
   | `src/sound.js` | Live erzeugter Klang |
+  | `src/rift.js` | Riss-Welten: eigene Szene je Riss, wenn eine ausgewählte Person im Riss ist |
   | `src/ui.js` | HUD, Log, Steckbriefe, Hauptschleife, Start |
 - Bauen: `python3 build.py --check` (baut `index.html` und prüft die Syntax).
 - Testen: `node tools/simtest.js 14 7,42` (simuliert Welten, meldet Fehler, abgeschnittene Siedler und Kennzahlen). Vor jedem Commit ausführen.
 - **Spielstände nie verwerfen**: `SAVE_KEY` bleibt gleich; bei Formatänderungen `SAVE_VERSION` erhöhen und in `applySave()` eine Übertragung für alte Stände schreiben (fehlende Felder mit Standardwerten füllen). Neue Geländearten in `TILE_DEFS` **nur hinten anhängen** – Spielstände speichern ihre Typenliste (`types`) mit, alte Listen stehen in `OLD_TYPE_LISTS`.
-- Spieler können ihren Stand über „📤 Sichern / 📥 Laden“ als Text mitnehmen; das Format muss dafür abwärtskompatibel bleiben.
+- Gespeichert wird **immer automatisch** (Browser alle 5 s, Konto alle 20 s). „📤 Kopie / 📥 Kopie laden“ (unter ⚙️ Mehr) ist nur für andere Geräte; das Format muss abwärtskompatibel bleiben.
 - Im Claude-Artifact wird zusätzlich im Konto gespeichert (Capability `db` + `user`, private Einträge unter `data/users/<id>/welt` und `welt-0…n`, je ≤ 200 000 Zeichen). Beim Veröffentlichen `capabilities: {db: {}, user: {}}` angeben. Beim Laden wird die verpasste Zeit nachgerechnet (`catchUp`, höchstens 2 Spieltage).
 - Leistung: Ziel 60–70 Siedler bei ≥ 40 Bildern/s auf dem Handy. Keine Suche über die ganze Karte in jeder Minute; fehlgeschlagene Pläne werden pausiert (`n.cool`).
 - Wege müssen frei bleiben: Häuser und Felder liegen auf dem Raster mit Abstand 2 um das Lager.
@@ -46,6 +48,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
    - Fertigkeiten für alle Siedler (`SKILL_INFO`, `skillLevel`): Stufen aus Arbeitspunkten, Boni auf Tempo/Ernte, Richtfest-Bonus beim Hausbau
 2. ✅ Handel und Markt: Marktplatz, Markttag (Münzen), Händlerkarren zwischen den Orten, fahrender Händler mit Kristallen
 3. ✅ Stein und neue Gebäude: Steinmetze und Steinbruch, Wachtürme (schießen auf Monster), Taverne (Abendtreff, Musik, kostet Münzen), Tempel (Heilung, Laune). Offen: Stadtmauer
+3b. ✅ Handlung (Kapitel, Hauptfigur, Rivale, roter Riss, Boss), Info-Fenster im Anime-Stil, Riss-Welten, Gebäude-Stufen I–III, Verstärkung +1…+10, Forsthaus, Bauernhof, Gildenhalle (Gilden-Stufe), Haustiere und Zähmen, Erzähler-Kamera
 4. Rivalisierende Königreiche / Banditen, Diplomatie, Belagerung
 5. Bosse aus Rissen höheren Rangs, Gruppen-Expeditionen der Gilde
 6. Optional: wenige Erwachte denken mit einem echten Sprachmodell (nur mit API-Schlüssel, sparsam)

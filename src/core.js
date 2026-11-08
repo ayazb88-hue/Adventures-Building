@@ -50,6 +50,9 @@ const CONFIG = {
     tavern: { name: 'Taverne', cost: { wood: 25, stone: 10, coins: 20 }, work: 300, beds: 0 },
     temple: { name: 'Tempel', cost: { wood: 15, stone: 30, coins: 40 }, work: 420, beds: 0 },
     castle: { name: 'Burg', cost: { wood: 80, crystals: 6 }, work: 600, beds: 4, size: 3 },
+    forsthaus:   { name: 'Forsthaus', cost: { wood: 25, stone: 5 }, work: 260, beds: 0 },
+    bauernhof:   { name: 'Bauernhof', cost: { wood: 30 }, work: 300, beds: 0 },
+    gildenhalle: { name: 'Gildenhalle', cost: { wood: 40, stone: 20, crystals: 3 }, work: 420, beds: 0 },
   },
   farming: { growMinutes: 1440, harvestFood: 6, foodPerMeal: 40, plantMinutes: 40, harvestMinutes: 20 },
   monsters: { fromDay: 3, maxAlive: 6, spawnChance: 0.2, growthPerDay: 0.15 },
@@ -132,7 +135,7 @@ const QUEST_ACTION = { woodcutting: 'gatherWood', building: 'build', social: 'so
 const KINGDOM_NAMES = ['Eldmar', 'Varenholm', 'Sonnenmark', 'Aldria', 'Rabenfels', 'Lichtenhain'];
 const OUTPOST_NAMES = ['Birkenau', 'Steinfurt', 'Morgenwacht', 'Kieselbach', 'Falkenruh', 'Tannenheim', 'Wolfsgrund'];
 const BANNERS = ['#c0392b', '#2e6fbf', '#7b3fb0', '#d4a017', '#2f8f5b'];
-const roman = n => ['', 'I', 'II', 'III', 'IV'][n] || String(n);
+const roman = n => { if (!(n > 0 && n < 40)) return String(n); let r = ''; for (const [v, sym] of [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]) while (n >= v) { r += sym; n -= v; } return r; };
 // Fertigkeiten aller Siedler: Punkte aus der Arbeit → Stufe (1 + Wurzel aus Punkte/per)
 const SKILL_INFO = {
   woodcutting: { name: 'Holzfällen', icon: '🪓', per: 8, bonus: 'schneller hacken' },
@@ -186,6 +189,9 @@ const TILE_DEFS = {
   ford:  { name: 'Furt',          walkable: true  },
   ruin:  { name: 'Ruine',         walkable: false },
   gate:  { name: 'Riss',          walkable: false },
+  forsthaus:   { name: 'Forsthaus',   walkable: false }, // ab hier neu – immer nur hinten anhängen!
+  bauernhof:   { name: 'Bauernhof',   walkable: false },
+  gildenhalle: { name: 'Gildenhalle', walkable: false },
 };
 
 class World {
@@ -373,6 +379,9 @@ class Settlement {
   get temple() { return this.buildings.find(b => b.type === 'temple'); }
   get market() { return this.buildings.find(b => b.type === 'market'); }
   get castle() { return this.buildings.find(b => b.type === 'castle'); }
+  get forsthaus() { return this.buildings.find(b => b.type === 'forsthaus'); }
+  get bauernhof() { return this.buildings.find(b => b.type === 'bauernhof'); }
+  get gildenhalle() { return this.buildings.find(b => b.type === 'gildenhalle'); }
   get members() { return this.sim.npcs.filter(n => n.town === this); }
   get fields() { return this.sim.world.tiles.filter(t => t.type === 'field'); }
   canAfford(cost) { return Object.entries(cost).every(([k, v]) => (this.stock[k] || 0) >= v); }
@@ -404,9 +413,47 @@ class Settlement {
     if (sim.day >= CONFIG.monsters.fromDay && H >= 3 && this.towers.length < Math.ceil((H + 1) / 7)) wants.push('tower');
     if (this.capital && !this.tavern && H >= 12) wants.push('tavern');
     if (this.capital && !this.temple && H >= 16) wants.push('temple');
+    if (!this.forsthaus && H >= 4) wants.push('forsthaus');
+    if (!this.bauernhof && H >= 5) wants.push('bauernhof');
+    if (this.capital && sim.guild && !this.gildenhalle && H >= 6) wants.push('gildenhalle');
     if (free < 2) wants.push('house');
     this.stoneWanted = wants.some(t => (CONFIG.buildings[t].cost.stone || 0) > this.stock.stone);
     for (const type of wants) if (this.canAfford(CONFIG.buildings[type].cost) && this.startConstruction(type)) return;
+    this.tryUpgrade(free);
+  }
+
+  /* ---- Gebäude-Stufen: vorhandene Gebäude ausbauen (Stufe I → III) ---- */
+  upgradeCost(b) {
+    const L = b.level || 1;
+    return b.type === 'house' ? { wood: 14 + L * 6, stone: 4 * L } : { wood: 18 * L, stone: 10 * L, ...(b.type === 'smithy' ? { crystals: 2 * L } : {}) };
+  }
+  tryUpgrade(free) {
+    const order = ['smithy', 'gildenhalle', 'tower', 'bauernhof', 'forsthaus', 'market', 'temple', 'tavern', 'house'], c = this.camp;
+    const cands = this.buildings.filter(b => order.includes(b.type) && (b.level || 1) < 3)
+      .sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type) || (a.level || 1) - (b.level || 1)
+        || Math.hypot(a.tile.x - c.x, a.tile.y - c.y) - Math.hypot(b.tile.x - c.x, b.tile.y - c.y));
+    for (const b of cands) {
+      if (b.type === 'house' ? free >= 2 && this.stock.wood < 70 : this.stock.wood < 45) continue; // Reserve fürs Nötige
+      const cost = this.upgradeCost(b);
+      if (!this.canAfford(cost)) continue;
+      this.pay(cost);
+      this.site = { type: b.type, tile: b.tile, tiles: [b.tile], progress: 0, work: Math.round(CONFIG.buildings[b.type].work * 0.6 * (b.level || 1)), upgrade: b, town: this, startedDay: this.sim.day };
+      b.tile.siteRef = this.site;
+      this.sim.log(`🔧 ${CONFIG.buildings[b.type].name}${b.type === 'house' ? ' Nr. ' + b.id : ''} wird ausgebaut – bald Stufe ${roman((b.level || 1) + 1)}!`, null, true);
+      return true;
+    }
+    return false;
+  }
+  completeUpgrade() {
+    const site = this.site, sim = this.sim, b = site.upgrade, def = CONFIG.buildings[b.type];
+    b.level = (b.level || 1) + 1; b.tile.siteRef = null; this.site = null;
+    if (b.type === 'house') b.beds = (def.beds || 2) + b.level - 1;
+    const builders = sim.npcs.filter(n => n.task && n.task.actionId === 'build');
+    for (const n of builders) { n.gainXp('building', 20); if (n.awakened) n.addXp(sim, 20); }
+    sim.log(`⬆️ ${def.name}${b.type === 'house' ? ' Nr. ' + b.id : ''} ist jetzt Stufe ${roman(b.level)}!${b.type === 'house' ? ` (${b.beds} Betten)` : ''}`, null, true);
+    sim.emit('system', `GEBÄUDE AUFGEWERTET: ${def.name} → Stufe ${roman(b.level)}`);
+    sim.float(b.tile.x, b.tile.y, `⬆️ Stufe ${roman(b.level)}`, '#f0b54a');
+    if (b.type === 'house') sim.emit('buildingCompleted', b); // neue Betten → Neue ziehen ein
   }
 
   startConstruction(type) {
@@ -424,11 +471,12 @@ class Settlement {
   }
 
   completeSite() {
+    if (this.site.upgrade) return this.completeUpgrade();
     const site = this.site, sim = this.sim;
     const def = CONFIG.buildings[site.type];
     for (const t of site.tiles || [site.tile]) { sim.world.setType(t, site.type); t.siteRef = null; if (t !== site.tile) t.part = site.tile; }
     const builders = sim.npcs.filter(n => n.task && n.task.actionId === 'build');
-    const b = { id: this.buildings.length + 1, type: site.type, tile: site.tile, beds: def.beds || 0, sleepers: new Set(), residents: [],
+    const b = { id: this.buildings.length + 1, level: 1, type: site.type, tile: site.tile, beds: def.beds || 0, sleepers: new Set(), residents: [],
       builtDay: sim.day, builtClock: sim.clock, builders: builders.map(n => n.name), town: this };
     site.tile.building = b;
     this.buildings.push(b);
