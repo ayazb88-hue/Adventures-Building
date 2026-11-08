@@ -419,7 +419,7 @@ defineAction({
       if (s.t === 1) n.lastPlant = sim.minutes;
       if (st.type !== 'stump') return 'done';
       if (s.t < 25) return;
-      sim.world.setType(st, 'tree'); st.wood = CONFIG.resources.treeWood; st.timer = 0;
+      sim.world.setType(st, 'tree'); st.wood = CONFIG.resources.treeWood; st.timer = -1440; // Setzling
       sim.float(st.x, st.y, '🌱', '#7be08a'); n.gainXp('woodcutting', 2);
       sim.log('🌱 pflanzt einen jungen Baum.', n);
       return 'done';

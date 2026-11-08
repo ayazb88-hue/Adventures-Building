@@ -263,8 +263,8 @@ class World {
       } else if (t.type === 'field') {
         if (t.timer < this.cfg.farming.growMinutes) t.timer += 1;
       } else if (t.type === 'stump') {
-        if (++t.timer >= r.treeRegrowMinutes) { this.setType(t, 'tree'); t.wood = r.treeWood; }
-      }
+        if (++t.timer >= r.treeRegrowMinutes) { this.setType(t, 'tree'); t.wood = r.treeWood; t.timer = -1440; }
+      } else if (t.type === 'tree' && t.timer < 0) t.timer++; // junger Baum wächst
     }
   }
 }

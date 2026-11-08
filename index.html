@@ -539,8 +539,8 @@ class World {
       } else if (t.type === 'field') {
         if (t.timer < this.cfg.farming.growMinutes) t.timer += 1;
       } else if (t.type === 'stump') {
-        if (++t.timer >= r.treeRegrowMinutes) { this.setType(t, 'tree'); t.wood = r.treeWood; }
-      }
+        if (++t.timer >= r.treeRegrowMinutes) { this.setType(t, 'tree'); t.wood = r.treeWood; t.timer = -1440; }
+      } else if (t.type === 'tree' && t.timer < 0) t.timer++; // junger Baum wächst
     }
   }
 }
@@ -1259,7 +1259,7 @@ defineAction({
       if (s.t === 1) n.lastPlant = sim.minutes;
       if (st.type !== 'stump') return 'done';
       if (s.t < 25) return;
-      sim.world.setType(st, 'tree'); st.wood = CONFIG.resources.treeWood; st.timer = 0;
+      sim.world.setType(st, 'tree'); st.wood = CONFIG.resources.treeWood; st.timer = -1440; // Setzling
       sim.float(st.x, st.y, '🌱', '#7be08a'); n.gainXp('woodcutting', 2);
       sim.log('🌱 pflanzt einen jungen Baum.', n);
       return 'done';
@@ -3288,6 +3288,15 @@ class Renderer {
     this.blades = tiles.map(() => Array.from({ length: 9 }, () => [rng(), rng(), 0.04 + rng() * 0.05, rng() - 0.5, rng()]));
     this.flowers = tiles.map(() => rng() < 0.16 ? Array.from({ length: 2 + Math.floor(rng() * 3) }, () => [rng(), rng()]) : null);
     this.flowerColor = tiles.map(() => ['#fff3c4', '#f4a7c6', '#c9b6ff', '#ffd166'][Math.floor(rng() * 4)]);
+    // Wassertiefe: Abstand zum Ufer (für dunkleres, tieferes Wasser)
+    this.waterDepth = new Uint8Array(w * h);
+    let front = tiles.filter(t => t.type === 'water' && DIRS.some(([dx, dy]) => { const nb = this.sim.world.tile(t.x + dx, t.y + dy); return nb && nb.type !== 'water'; }));
+    for (const t of front) this.waterDepth[t.y * w + t.x] = 1;
+    for (let d = 2; d <= 5 && front.length; d++) {
+      const next = [];
+      for (const t of front) for (const [dx, dy] of DIRS) { const nb = this.sim.world.tile(t.x + dx, t.y + dy); if (nb && nb.type === 'water' && !this.waterDepth[nb.y * w + nb.x]) { this.waterDepth[nb.y * w + nb.x] = d; next.push(nb); } }
+      front = next;
+    }
     this.blotches = tiles.map(() => []);
     for (let i = 0; i < w * h * 1.3; i++) {
       const b = { x: rng() * w, y: rng() * h, r: 0.35 + rng() * 0.9, l: rng() < 0.5 ? 1 : -1, a: 0.05 + rng() * 0.07 };
@@ -3511,7 +3520,8 @@ class Renderer {
       c.fillStyle = '#9b958a';
       for (const [fx, fy] of [[0.25, 0.3], [0.62, 0.45], [0.35, 0.72], [0.75, 0.8]]) { c.beginPath(); c.ellipse(x + fx * s, y + fy * s, s * 0.1, s * 0.07, 0, 0, TAU); c.fill(); }
     } else if (t.type === 'water') {
-      c.fillStyle = 'hsl(204, 55%, 37%)'; // Tiefe kommt aus dem hellen Ufer-Verlauf
+      const dep = this.waterDepth ? this.waterDepth[i] || 5 : 2;
+      c.fillStyle = `hsl(${204 + dep}, ${53 + dep}%, ${41 - dep * 1.6}%)`; // tiefer = dunkler (sanfte Stufen)
       c.fillRect(x - e, y - e, s + 2 * e, s + 2 * e);
       for (const [dx, dy] of DIRS) {
         const nb = world.tile(t.x + dx, t.y + dy);
@@ -3544,11 +3554,24 @@ class Renderer {
         g.addColorStop(0, 'rgba(222, 204, 150, 1)'); g.addColorStop(0.5, 'rgba(222, 204, 150, .7)'); g.addColorStop(1, 'rgba(222, 204, 150, 0)');
         c.fillStyle = g; c.fillRect(x, y, s, s);
       }
-      // Wege und Höfe
+      // Gärten neben Wohnhäusern
+      const gd = t.type === 'grass' && this.gardenDir(t);
+      if (gd) {
+        const [hx, hy] = gd, gx = x + s * (hx > 0 ? 0.12 : 0.08), gy = y + s * (hy > 0 ? 0.12 : 0.08);
+        c.fillStyle = '#6a4a2c'; c.fillRect(gx, gy, s * 0.8, s * 0.8);
+        c.strokeStyle = 'rgba(40,25,12,.4)'; c.lineWidth = Math.max(1, s * 0.02);
+        for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) {
+          const px = gx + s * (0.12 + k * 0.19), py = gy + s * (0.12 + r * 0.19), kind = (r + t.x) % 3;
+          c.fillStyle = kind === 0 ? '#5fa83f' : kind === 1 ? '#8cc152' : '#3f7a3a'; c.beginPath(); c.arc(px, py, s * 0.055, 0, TAU); c.fill();
+          if (kind === 1 && k % 2) { c.fillStyle = '#e5484d'; c.beginPath(); c.arc(px, py, s * 0.022, 0, TAU); c.fill(); }
+          if (kind === 2 && (k + r) % 3 === 0) { c.fillStyle = '#ffd166'; c.beginPath(); c.arc(px, py, s * 0.022, 0, TAU); c.fill(); }
+        }
+      }
+      // Wege und Höfe (im Stadtkern gepflastert)
       const p = this.pathLevel(t);
       if (p > 0.15) {
-        const cx = x + s / 2, cy = y + s / 2;
-        const dirt = q => `rgb(${Math.round(92 + 56 * q)}, ${Math.round(124 - 8 * q)}, ${Math.round(58 + 18 * q)})`; // Gras → Erde
+        const cx = x + s / 2, cy = y + s / 2, paved = p >= 0.55 && this.paved(t);
+        const dirt = q => paved ? '#a39d90' : `rgb(${Math.round(92 + 56 * q)}, ${Math.round(124 - 8 * q)}, ${Math.round(58 + 18 * q)})`; // Gras → Erde
         for (const [dx, dy] of DIRS) {
           const q = Math.min(p, this.pathLevel(world.tile(t.x + dx, t.y + dy)));
           if (q <= 0.15) continue;
@@ -3557,6 +3580,18 @@ class Renderer {
         }
         c.fillStyle = dirt(p);
         c.beginPath(); c.arc(cx, cy, s * (t.type === 'grass' ? 0.11 + p * 0.1 : 0.46), 0, TAU); c.fill();
+        if (paved && s >= 14) { // Kopfsteine
+          const cob = (px, py, k) => { c.fillStyle = k % 3 === 0 ? '#b8b2a4' : k % 3 === 1 ? '#8f897c' : '#a7a194'; c.fillRect(px - s * 0.045, py - s * 0.035, s * 0.09, s * 0.07); };
+          c.strokeStyle = 'rgba(60,55,48,.35)'; c.lineWidth = Math.max(1, s * 0.008);
+          const w2 = s * (0.11 + p * 0.1);
+          for (const [dx, dy] of [[0, 0], ...DIRS]) {
+            if (dx || dy) { const q = Math.min(p, this.pathLevel(world.tile(t.x + dx, t.y + dy))); if (q <= 0.15) continue; }
+            for (let k = 0; k < (dx || dy ? 4 : 1); k++) for (let l = -1; l <= 1; l++) {
+              const along = (dx || dy) ? 0.08 + k * 0.11 : 0, px = cx + dx * along * s + (dy ? l * w2 * 0.55 : (dx ? 0 : l * w2 * 0.55)), py = cy + dy * along * s + (dx ? l * w2 * 0.55 : 0);
+              cob(px, py, k + l + t.x + t.y); c.strokeRect(px - s * 0.045, py - s * 0.035, s * 0.09, s * 0.07);
+            }
+          }
+        }
       }
       // Grashalme und Blumen
       if (t.type === 'grass' && p < 0.5 && s >= 14) {
@@ -4050,6 +4085,35 @@ class Renderer {
     }
   }
 
+  /** Garten: ruhige Wiese direkt neben einem Wohnhaus → Richtung zum Haus, sonst null. */
+  gardenDir(t) {
+    if (t.traffic > 14 || ((t.x * 7 + t.y * 13) % 10) > 7) return null;
+    const w = this.sim.world;
+    for (const [dx, dy] of DIRS) { const nb = w.tile(t.x + dx, t.y + dy); if (nb && nb.type === 'house') return [dx, dy]; if (nb && (nb.type === 'water' || nb.type === 'camp')) return null; }
+    return null;
+  }
+  /** Gepflastert wird im Kern größerer Orte. */
+  paved(t) {
+    for (const tw of this.sim.towns) {
+      if (tw.houses.length < 8 && !(tw.capital && this.sim.kingdom)) continue;
+      if (Math.hypot(t.x - tw.camp.x, t.y - tw.camp.y) <= 3 + Math.sqrt(tw.houses.length) * 1.5) return true;
+    }
+    return false;
+  }
+  /** Weißer Lattenzaun an den Gartenseiten, die vom Haus wegzeigen. */
+  drawFence(c, t, s, [hx, hy]) {
+    const cx = (t.x + 0.5) * s, cy = (t.y + 0.5) * s, P = (dx, dy, z = 0) => [cx + (dx - dy) * ISO_X * s, cy + (dx + dy) * ISO_Y * s - z * s];
+    const e = 0.44, edges = [[[-e, e], [e, e], [0, 1]], [[e, e], [e, -e], [1, 0]], [[e, -e], [-e, -e], [0, -1]], [[-e, -e], [-e, e], [-1, 0]]];
+    c.lineWidth = Math.max(1, s * 0.018);
+    for (const [a, b, [nx, ny]] of edges) {
+      if (nx === hx && ny === hy) continue; // zum Haus hin offen
+      if (nx === -hx && ny === -hy && t.traffic > 2) continue;
+      c.strokeStyle = '#efe6d2';
+      for (const z of [0.07, 0.14]) { const p0 = P(a[0], a[1], z), p1 = P(b[0], b[1], z); c.beginPath(); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); c.stroke(); }
+      for (let k = 0; k <= 6; k++) { const f = k / 6, gx = a[0] + (b[0] - a[0]) * f, gy = a[1] + (b[1] - a[1]) * f, p0 = P(gx, gy, 0), p1 = P(gx, gy, 0.19); c.strokeStyle = k % 2 ? '#efe6d2' : '#d8ccb2'; c.beginPath(); c.moveTo(p0[0], p0[1]); c.lineTo(p1[0], p1[1]); c.stroke(); }
+    }
+  }
+
   /** Stufen-Abzeichen über ausgebauten Gebäuden, Gerüst während des Ausbaus. */
   drawLevel(c, t, s, now) {
     const b = t.building, bx = (t.x + 0.5) * s, top = (t.y + 0.5) * s - s * (t.type === 'castle' ? 3.0 : t.type === 'tower' ? 2.1 : t.type === 'gildenhalle' ? 2.1 : 1.65);
@@ -4316,6 +4380,17 @@ class Renderer {
         for (let j = 0; j <= 4; j++) c.lineTo((x + j / 4) * s, yy + Math.sin(now / 600 + (x + j / 4) * 4 + k) * s * 0.03);
         c.stroke();
       }
+      for (const [dx, dy] of DIRS) { // Schaum am Ufer
+        const nb = sim.world.tile(x + dx, y + dy);
+        if (!nb || nb.type === 'water' || nb.type === 'ford') continue;
+        const inset = 0.07 + Math.sin(now / 800 + x * 2 + y) * 0.04, a = 0.35 + Math.sin(now / 650 + x + y * 3) * 0.15;
+        c.strokeStyle = `rgba(255,255,255,${a})`; c.setLineDash([s * 0.12, s * 0.08]); c.beginPath();
+        if (dx) { const ex = (dx > 0 ? x + 1 - inset : x + inset) * s; c.moveTo(ex, y * s); c.lineTo(ex, (y + 1) * s); }
+        else { const ey = (dy > 0 ? y + 1 - inset : y + inset) * s; c.moveTo(x * s, ey); c.lineTo((x + 1) * s, ey); }
+        c.stroke(); c.setLineDash([]);
+      }
+      const gl = Math.sin(now / 300 + x * 12.9898 + y * 78.233); // Glitzern
+      if (gl > 0.96 && this.nightAlpha() < 0.3) { c.fillStyle = `rgba(255,255,255,${(gl - 0.96) * 20})`; c.fillRect((x + 0.5) * s - s * 0.06, (y + 0.4) * s - s * 0.06, s * 0.12, s * 0.12); }
     }
 
     // Siedler vorbereiten
@@ -4422,12 +4497,13 @@ class Renderer {
       for (let x = Math.max(x0, dg - y1); x <= Math.min(x1, dg - y0); x++) {
         const y = dg - x, t = sim.world.tile(x, y);
         if (SCALED.has(t.type)) atB(t); else at((x + 0.5) * s, (y + 0.5) * s);
+        if (t.type === 'grass' && detail) { const gd = this.gardenDir(t); if (gd) this.drawFence(c, t, s, gd); }
         switch (t.type) {
           case 'tree': {
             const [bx, by] = this.treeBase(t, s), sp = this.treeSprite(t);
-            const sway = Math.sin(now / 1400 + x * 0.7 + y * 0.3) * 0.025 * (sim.weather === 'regen' ? 2 : 1);
-            const hit = t.hitAt && now - t.hitAt < 300 ? Math.sin(now / 22) * 0.04 : 0;
-            c.save(); c.translate(bx, by); c.transform(sk, 0, (sway + hit) * sk, sk, 0, 0);
+            const sway = (Math.sin(now / 1400 + x * 0.7 + y * 0.3) * 0.025 + Math.sin(now / 430 + x) * 0.006) * (sim.weather === 'regen' ? 2.2 : 1);
+            const hit = t.hitAt && now - t.hitAt < 300 ? Math.sin(now / 22) * 0.04 : 0, grow = t.timer < 0 ? 1 + t.timer / 1440 * 0.6 : 1;
+            c.save(); c.translate(bx, by); c.transform(sk * grow, 0, (sway + hit) * sk * grow, sk * grow, 0, 0);
             c.drawImage(sp.cv, -sp.ax, -sp.ay, sp.w, sp.h); c.restore();
             break;
           }
