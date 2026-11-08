@@ -32,6 +32,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
 - Testen: `node tools/simtest.js 14 7,42` (simuliert Welten, meldet Fehler, abgeschnittene Siedler und Kennzahlen). Vor jedem Commit ausführen.
 - **Spielstände nie verwerfen**: `SAVE_KEY` bleibt gleich; bei Formatänderungen `SAVE_VERSION` erhöhen und in `applySave()` eine Übertragung für alte Stände schreiben (fehlende Felder mit Standardwerten füllen). Neue Geländearten in `TILE_DEFS` **nur hinten anhängen** – Spielstände speichern ihre Typenliste (`types`) mit, alte Listen stehen in `OLD_TYPE_LISTS`.
 - Spieler können ihren Stand über „📤 Sichern / 📥 Laden“ als Text mitnehmen; das Format muss dafür abwärtskompatibel bleiben.
+- Im Claude-Artifact wird zusätzlich im Konto gespeichert (Capability `db` + `user`, private Einträge unter `data/users/<id>/welt` und `welt-0…n`, je ≤ 200 000 Zeichen). Beim Veröffentlichen `capabilities: {db: {}, user: {}}` angeben. Beim Laden wird die verpasste Zeit nachgerechnet (`catchUp`, höchstens 2 Spieltage).
 - Leistung: Ziel 60–70 Siedler bei ≥ 40 Bildern/s auf dem Handy. Keine Suche über die ganze Karte in jeder Minute; fehlgeschlagene Pläne werden pausiert (`n.cool`).
 - Wege müssen frei bleiben: Häuser und Felder liegen auf dem Raster mit Abstand 2 um das Lager.
 

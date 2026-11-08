@@ -4973,6 +4973,7 @@ function bindLinks(box) {
 
 /** System-Meldungen im blauen Fenster (wie ein Spiel-Interface). */
 function showSystem(now) {
+  if (ui.catchingUp) return; // das Fenster zeigt gerade den Fortschritt des Nachrechnens
   const box = $('sysWin');
   if (now < ui.sysUntil) return;
   const msg = ui.sysQueue.shift();
@@ -5013,9 +5014,83 @@ function setSpeed(v) {
 }
 
 function saveGame() {
-  if (!sim) return;
-  const ok = store(SAVE_KEY, JSON.stringify(sim.serialize())) !== null || store(SAVE_KEY) !== null;
-  $('saveInfo').textContent = ok ? `💾 gespeichert (Tag ${sim.day} ${sim.clock})` : '';
+  if (!sim || ui.catchingUp) return;
+  const data = sim.serialize(); data.savedAt = Date.now();
+  const ok = store(SAVE_KEY, JSON.stringify(data)) !== null || store(SAVE_KEY) !== null;
+  ui.local = ok;
+  showSaveInfo();
+}
+
+function showSaveInfo() {
+  const parts = [];
+  if (ui.local) parts.push(`💾 Tag ${sim.day} ${sim.clock}`);
+  if (cloud.ready) parts.push(cloud.error ? '☁️ Cloud gerade nicht erreichbar' : cloud.savedAt ? '☁️ in deinem Konto gesichert' : '☁️ verbunden');
+  $('saveInfo').textContent = parts.join(' · ') || '⚠️ Speichern ist hier nicht möglich – nutze „📤 Sichern“';
+}
+
+/* ---- Speichern im Claude-Konto (private Datenbank der Seite) ------------ */
+const cloud = { ready: false, db: null, base: '', savedAt: 0, lastMinutes: -1, busy: false, error: false };
+const CLOUD_CHUNK = 200000; // Zeichen pro Eintrag (Grenze: 256 KB)
+
+async function cloudInit() {
+  try {
+    if (!window.claude || typeof window.claude.use !== 'function') return;
+    const [db, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
+    if (!db || !user) return;
+    const id = await user.id();
+    if (!id) return;
+    Object.assign(cloud, { db, base: `data/users/${id}/`, ready: true });
+    const meta = await db.doc(cloud.base + 'welt').get();
+    if (meta.exists) {
+      const m = meta.data();
+      if ((m.savedAt || 0) > (ui.loadedAt || 0) + 5000) { // Cloud-Stand ist neuer als der im Browser
+        const parts = await Promise.all(Array.from({ length: m.parts }, (_, i) => db.doc(cloud.base + 'welt-' + i).get()));
+        const d = JSON.parse(parts.map(p => (p.data() || {}).text || '').join(''));
+        if (d && d.v <= SAVE_VERSION) {
+          startSim(new Simulation(d.seed, d));
+          sim.log('☁️ Spielstand aus deinem Konto geladen – willkommen zurück!', null, true);
+          cloud.savedAt = m.savedAt; cloud.lastMinutes = sim.minutes;
+          catchUp(d.savedAt);
+        }
+      } else cloud.savedAt = m.savedAt;
+    }
+    showSaveInfo();
+  } catch (e) { cloud.error = true; showSaveInfo(); }
+}
+
+async function cloudSave() {
+  if (!cloud.ready || cloud.busy || !sim || ui.catchingUp || sim.minutes === cloud.lastMinutes) return;
+  cloud.busy = true;
+  try {
+    const data = sim.serialize(); data.savedAt = Date.now();
+    const text = JSON.stringify(data), n = Math.ceil(text.length / CLOUD_CHUNK);
+    for (let i = 0; i < n; i++) await cloud.db.doc(cloud.base + 'welt-' + i).set({ text: text.slice(i * CLOUD_CHUNK, (i + 1) * CLOUD_CHUNK) });
+    await cloud.db.doc(cloud.base + 'welt').set({ parts: n, savedAt: data.savedAt, day: sim.day, settlers: sim.npcs.length });
+    cloud.savedAt = data.savedAt; cloud.lastMinutes = sim.minutes; cloud.error = false;
+  } catch (e) { cloud.error = true; }
+  cloud.busy = false;
+  showSaveInfo();
+}
+
+/** Die Welt läuft weiter, während man weg ist (höchstens 2 Spieltage nachrechnen). */
+function catchUp(savedAt) {
+  if (!savedAt) return;
+  let left = Math.min(1440 * 2, Math.floor((Date.now() - savedAt) / 1000 * CONFIG.time.minutesPerSecond));
+  if (left < 20) return;
+  const total = left, hours = Math.round(total / 60);
+  ui.catchingUp = true;
+  const box = $('sysWin');
+  const tick = () => {
+    const n = Math.min(left, 90);
+    for (let i = 0; i < n; i++) sim.step();
+    left -= n;
+    box.hidden = false; box.innerHTML = `<div class="sys-title">[ SYSTEM ]</div><div>Während du weg warst, lief die Welt weiter … ${Math.round((1 - left / total) * 100)} %</div>`;
+    if (left > 0) return setTimeout(tick, 0);
+    ui.catchingUp = false; box.hidden = true;
+    sim.log(`🕰️ Während du weg warst, ${hours >= 1 ? `vergingen ${hours} Stunde${hours === 1 ? '' : 'n'}` : `vergingen ${total} Minuten`} in der Welt.`, null, true);
+    buildRoster(); saveGame();
+  };
+  tick();
 }
 
 function loadGame() {
@@ -5120,6 +5195,7 @@ function frame(now) {
   const dt = Math.min(0.25, (now - last) / 1000);
   last = now;
   ui.accum += dt * ui.speed * CONFIG.time.minutesPerSecond;
+  if (ui.catchingUp) ui.accum = 0;
   while (ui.accum >= 1) { sim.step(); ui.accum -= 1; }
   renderer.render(ui.speed ? ui.accum : 1, ui.selected, ui.selTile);
   showSystem(now);
@@ -5149,6 +5225,9 @@ window.addEventListener('resize', () => renderer.resize());
 // Ton darf erst nach einer Berührung starten
 window.addEventListener('pointerdown', () => { if (store(SOUND_KEY) !== '0' && !sound.on) setSound(true); }, { once: true });
 setInterval(saveGame, 5000);
+setInterval(cloudSave, 60000);
+document.addEventListener('visibilitychange', () => { if (document.hidden) cloudSave(); });
+cloudInit();
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
 window.addEventListener('pagehide', saveGame);
 
@@ -5156,7 +5235,7 @@ const urlSeed = Number(new URLSearchParams(location.search).get('seed'));
 const saved = loadGame();
 if (Number.isFinite(urlSeed) && urlSeed > 0) newWorld(urlSeed);
 else if (saved) {
-  try { startSim(new Simulation(saved.seed, saved)); sim.log('💾 Spielstand geladen – willkommen zurück!', null, true); }
+  try { startSim(new Simulation(saved.seed, saved)); sim.log('💾 Spielstand geladen – willkommen zurück!', null, true); ui.loadedAt = saved.savedAt || 1; catchUp(saved.savedAt); }
   catch (e) { newWorld(Math.floor(Math.random() * 1e6)); }
 } else newWorld(Math.floor(Math.random() * 1e6));
 applyStyle();

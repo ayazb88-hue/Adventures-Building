@@ -14,7 +14,7 @@ Das Spiel ist **eine Datei `index.html`** (HTML + JavaScript + Canvas, keine Abh
 
 Über GitHub Pages öffnen, dann im Browser **Teilen → Zum Home-Bildschirm** (iPhone) oder **⋮ → App installieren** (Android). Die App startet im Vollbild und läuft auch offline.
 
-**Spielstand:** wird automatisch im Browser gespeichert und bei Updates übernommen. Mit „📤 Sichern“ kopierst du ihn als Text (z. B. in deine Notizen), mit „📥 Laden“ setzt du ihn auf jedem Gerät fort.
+**Spielstand:** wird automatisch im Browser und – im Claude-Link – zusätzlich privat in deinem Claude-Konto gespeichert und bei Updates übernommen. Während du weg bist, läuft die Welt weiter (bis zu 2 Spieltage werden beim Öffnen nachgerechnet). Mit „📤 Sichern“ kopierst du ihn als Text (z. B. in deine Notizen), mit „📥 Laden“ setzt du ihn auf jedem Gerät fort.
 
 **Bedienung:** Wischen verschiebt die Karte, zwei Finger zoomen, ein angetippter Siedler wird verfolgt und zeigt seine Gedanken. 🔊 schaltet den Ton. Der Spielstand wird automatisch im Browser gespeichert.
 
