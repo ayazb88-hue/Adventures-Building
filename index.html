@@ -2516,6 +2516,11 @@ class Simulation {
     if (this.minutes % 60 === 0) this.updateKingdom();
     if (this.minutes % 1440 === 7 * 60) this.payTribute();
     if (this.minutes % 1440 === 8 * 60) this.handOutGear();
+    if (this.minutes % 60 === 30) for (const tw of this.towns) { // eingeschlossene Taschen (z. B. hinter der Burg): Siedler befreien
+      const w = this.world, reach = new Uint8Array(w.w * w.h);
+      w.bfs(tw.camp.x, tw.camp.y + 1, (x, y) => { reach[y * w.w + x] = 1; return null; });
+      for (const n of tw.members) if (!n.inside && !reach[Math.round(n.y) * w.w + Math.round(n.x)]) n.unstick(this);
+    }
     const hr = this.hourFloat;
     if (this.minutes % 60 === 0 && hr >= 10 && hr <= 15 && this.day >= CONFIG.bandits.fromDay && this.day !== this.lastRaid
         && !this.monsters.some(m => m.bandit) && this.rng() < CONFIG.bandits.chance) this.spawnRaid();
