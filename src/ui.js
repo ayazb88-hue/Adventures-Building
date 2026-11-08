@@ -94,13 +94,13 @@ function tileInfo(t) {
     if (isSRift(sim, t)) { const B = RIFT_BOSSES[sim.srift.kind]; rank = 'S'; fx = sim.srift.broken ? `Boss <b>${B.name}</b> ist ausgebrochen!` : `Boss: <b>${B.name}</b> · nur für die Gilde · Ausbruch in <b>${Math.max(0, Math.ceil((sim.srift.breakAt - sim.minutes) / 60))} h</b>`; }
     lore = isSRift(sim, t) ? 'Gold und Schwärze wirbeln umeinander. Der Riss hat einen Rang erreicht, den es nicht geben dürfte.' : g.red ? 'Er pulsiert wie ein Herz. Etwas Uraltes wartet dahinter – und es hat Hunger.' : 'Ein Spalt zwischen den Welten. Wer hineingeht, kommt stärker zurück – oder gar nicht.';
   }
-  if (t.type === 'field') { const f = fieldShape(t); top = f.crop.name.toUpperCase(); lore = f.crop.lore; fx = `Frucht: <b>${f.crop.name.replace(/feld|acker/i, '')}</b> · Ertrag: <b>Vorräte</b> nach einem Tag`; }
+  if (t.type === 'field') { const f = fieldShape(t, sim.world); top = f.crop.name.toUpperCase(); lore = f.crop.lore; fx = `Frucht: <b>${f.crop.name.replace(/feld|acker/i, '')}</b> · Ertrag: <b>Vorräte</b> nach einem Tag`; }
   if (t.type === 'ruin' && t.searched) { rank = 'E'; fx = 'Bereits durchsucht'; }
   if (t.type === 'camp' && sim.kingdom && (t.town || sim.capital).capital) rank = 'A';
   const b = t.building;
   if (b && CONFIG.buildings[b.type] && b.type !== 'castle') {
     const L = b.level || 1, up = t.siteRef && t.siteRef.upgrade === b;
-    const eff = { house: `${b.beds} Betten`, smithy: 'bessere Seltenheiten', tower: `Reichweite ${CONFIG.buildings.tower.range + L - 1}, Schaden +${(L - 1) * 40} %`, temple: `Heilung ×${L}`, market: `Markterlös +${(L - 1) * 50} %`, tavern: 'gemütlicher' }[b.type] || '';
+    const eff = { house: `${b.beds} Betten`, smithy: 'bessere Seltenheiten', tower: `Reichweite ${CONFIG.buildings.tower.range + L - 1}, Schaden +${(L - 1) * 40} %`, temple: `Heilung ×${L}`, market: `Markterlös +${(L - 1) * 50} %`, bauernhof: L >= 2 ? `Felder wachsen zusammen (bis ${L >= 3 ? 9 : 6} Kacheln)` : 'ab Stufe II große Felder', tavern: 'gemütlicher' }[b.type] || '';
     fx = `Stufe <b>${roman(L)}</b> / III${eff ? ' · ' + eff : ''}` + (up ? ` · <b>Ausbau läuft: ${Math.floor(t.siteRef.progress / t.siteRef.work * 100)} %</b>` : L < 3 ? ' · ausbaubar' : ' · höchste Stufe') + (fx ? '<br>✦ ' + fx : '');
   }
   return sysCard(top, rank, tileBody(t), fx, lore, t.type === 'gate' && (t.gate.red || isSRift(sim, t)) ? 'red' : t.type === 'castle' ? 'gold' : '');

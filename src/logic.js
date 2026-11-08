@@ -208,8 +208,33 @@ defineAction({
 
 /* ---- Landwirtschaft ---------------------------------------------------- */
 /** Felder liegen auf demselben Raster wie Häuser (jede 2. Kachel) – so bleiben die Gassen dazwischen immer frei. */
+/** Ab Bauernhof-Stufe II wachsen Felder zusammen: neue Kacheln direkt neben bestehenden Feldern (Gruppe bis 6 bzw. 9 Kacheln). */
+function fieldGroupSize(w, t, max) {
+  const seen = new Set([t]), q = [t];
+  while (q.length && seen.size <= max) { const a = q.shift(); for (const [dx, dy] of DIRS) { const b = w.tile(a.x + dx, a.y + dy); if (b && b.type === 'field' && !seen.has(b)) { seen.add(b); q.push(b); } } }
+  return seen.size;
+}
+const NO_FIELD_NEXT = new Set(['house', 'site', 'camp', 'smithy', 'market', 'tower', 'tavern', 'temple', 'castle', 'forsthaus', 'bauernhof', 'gildenhalle', 'lagerhaus', 'ford']);
+function findFieldGrowth(sim, town) {
+  const farm = town.bauernhof, L = farm ? farm.level || 1 : 1;
+  if (L < 2) return null;
+  const w = sim.world, c = town.camp, maxGroup = L >= 3 ? 9 : 6;
+  let best = null, bd = Infinity;
+  for (let y = c.y - 24; y <= c.y + 24; y++) for (let x = c.x - 24; x <= c.x + 24; x++) {
+    const t = w.tile(x, y);
+    if (!t || t.type !== 'grass' || t.traffic > 24 || (t.reserved && sim.minutes - t.reserved < 120)) continue;
+    const d = Math.hypot(x - c.x, y - c.y);
+    if (d < 7 || d >= bd) continue;
+    const nb = DIRS.map(([dx, dy]) => w.tile(x + dx, y + dy));
+    const f = nb.find(q => q && q.type === 'field');
+    if (!f || nb.some(q => q && NO_FIELD_NEXT.has(q.type)) || fieldGroupSize(w, f, maxGroup) >= maxGroup) continue;
+    best = t; bd = d;
+  }
+  return best;
+}
 function findFieldSpot(sim, town) {
   const w = sim.world, c = town.camp;
+  if (sim.rng() < 0.75) { const g = findFieldGrowth(sim, town); if (g) return g; }
   let best = null, bd = Infinity;
   for (let y = c.y - 24; y <= c.y + 24; y += 2) for (let x = c.x - 24; x <= c.x + 24; x += 2) {
     const t = w.tile(x, y);
@@ -225,7 +250,8 @@ defineAction({
   id: 'plantField', label: 'bestellt ein Feld', short: 'Feld', start: 'legt ein neues Feld an', icon: '🌱',
   score(n, sim) {
     const st = n.town;
-    if (st.fieldCount >= Math.max(2, Math.ceil(sim.npcs.length * 0.45)) || sim.isNight) return 0;
+    const farmL = st.bauernhof ? st.bauernhof.level || 1 : 1;
+    if (st.fieldCount >= Math.max(2, Math.ceil(sim.npcs.length * 0.45)) + (farmL - 1) * 5 || sim.isNight) return 0;
     return 33;
   },
   think: n => n.profession === 'bauer' ? 'Ein neues Feld – damit im Winter niemand hungert.' : 'Die Beeren reichen bald nicht mehr. Wir brauchen Felder.',

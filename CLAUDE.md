@@ -28,7 +28,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
   | `src/guild.js` | Erfolge (`ACHIEVEMENTS`, stündlich geprüft), Gruppen-Expeditionen der Gilde (Riss-Boss, Beute), S-Rang-Risse (`sim.srift`, `sriftTick`, Ausbruch nach 3 Tagen) |
   | `src/render.js` | Grafik: Sprites, Gebäude, Licht, Partikel, Minikarte (gezeichnete Figuren als Alternative) |
   | `src/iso.js` | Isometrische Gebäude: Bausteine (`isoKit`: Wände, Satteldach, Walmdach, Rundturm, Zinnen, Fenster, Türen, Fachwerk, Mauerwerk) und alle Gebäude (`isoHouse`, `isoCastle`, `isoSmithy` …). Ursprung = Mitte der Grundfläche |
-  | `src/pixel.js` | Pixel-Art-Figuren (Standard): Posen auf 40×40-Raster, ab Zoom `HD_FROM` doppelt fein (`R = 2`, 80×80, halbe Punkte); Kopf-/Haar-Vorlagen, HD-Anime-Augen/Münder je Gefühl (`EYE_HD`, `MOUTH_HD`, `pxFaceHD`), Umriss, Bild-Cache |
+  | `src/pixel.js` | Pixel-Art-Figuren (Standard): Posen auf 40×40-Raster, ab Zoom `HD_FROM` doppelt fein (`R = 2`, 80×80, halbe Punkte) mit HD-Details (Falten, Knöpfe, Nieten, Waffen-Glanz); Kopf-/Haar-Vorlagen, HD-Anime-Augen/Münder je Gefühl (`EYE_HD`, `MOUTH_HD`, `pxFaceHD`), Umriss, Bild-Cache, Riss-Bosse |
   | `src/story.js` | Handlung: Kapitel der Chronik, Hauptfigur, Rivale + Duelle, Boss „Kronenfresser“, Lebensziele, Spieler-Gedanken, Tagebuch |
   | `src/sound.js` | Live erzeugter Klang |
   | `src/rift.js` | Riss-Welten: eigene Szene je Riss, wenn eine ausgewählte Person im Riss ist |
@@ -41,7 +41,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
 - Im Claude-Artifact wird zusätzlich im Konto gespeichert (Capability `db` + `user`, private Einträge unter `data/users/<id>/welt` und `welt-0…n`, je ≤ 200 000 Zeichen). Beim Veröffentlichen `capabilities: {db: {}, user: {}}` angeben. Beim Laden wird die verpasste Zeit nachgerechnet (`catchUp`, höchstens 2 Spieltage).
 - Leistung: Ziel 60–70 Siedler bei ≥ 40 Bildern/s auf dem Handy. Keine Suche über die ganze Karte in jeder Minute; fehlgeschlagene Pläne werden pausiert (`n.cool`).
 - **Isometrische Ansicht** (Rauten wie in Aufbauspielen): Die Simulation rechnet weiter auf dem normalen Raster. Im Renderer gilt `isoX/isoY` (Weltpixel → Bildschirm), `unIso`, `screenToTile`, `tileToScreen`. Boden-Dinge (Gelände, Schatten, Lichtkarte, Gebiete, Wege) mit `world()` (Rauten-Abbildung) zeichnen; aufrechte Dinge (Gebäude, Bäume, Figuren, Schrift) vorher mit `at(wx, wy)` bzw. `atB(tile)` an ihren Platz setzen. Gezeichnet wird diagonal (x + y) von hinten nach vorn.
-- Wege müssen frei bleiben: Häuser und Felder liegen auf dem Raster mit Abstand 2 um das Lager.
+- Wege müssen frei bleiben: Häuser und Felder liegen auf dem Raster mit Abstand 2 um das Lager. Felder sind begehbar; ab Bauernhof-Stufe II wachsen sie zusammen (`findFieldGrowth`, Gruppe bis 6/9 Kacheln). Aussehen: `fieldShape` (einzeln: eigene Form) bzw. `joinedField` (zusammen: durchgehende Furchen, Früchte je 3×3-Block).
 
 ## Arbeitsweise (Tokens sparen)
 - Nur die betroffene Datei in `src/` lesen und gezielt ändern; nicht die ganze `index.html` lesen.

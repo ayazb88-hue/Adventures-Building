@@ -181,7 +181,7 @@ const TILE_DEFS = {
   site:  { name: 'Baustelle',     walkable: false },
   house: { name: 'Haus',          walkable: false },
   rock:  { name: 'Fels',          walkable: false },
-  field: { name: 'Feld',          walkable: false },
+  field: { name: 'Feld',          walkable: true  }, // Feldwege: man darf hindurchgehen (große Felder versperren so nichts)
   smithy:{ name: 'Schmiede',      walkable: false },
   market:{ name: 'Marktplatz',    walkable: false },
   tower: { name: 'Wachturm',      walkable: false },
@@ -212,7 +212,10 @@ class World {
   inBounds(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
   tile(x, y) { return this.inBounds(x, y) ? this.tiles[y * this.w + x] : null; }
   walkable(x, y) { const t = this.tile(x, y); return !!t && TILE_DEFS[t.type].walkable; }
-  setType(t, type) { t.type = type; t.timer = 0; this.dirty = true; this.dirtyTiles.add(t); }
+  setType(t, type) {
+    if (type === 'field' || t.type === 'field') for (const [dx, dy] of DIRS) { const q = this.tile(t.x + dx, t.y + dy); if (q && q.type === 'field') this.dirtyTiles.add(q); } // Nachbarfelder wachsen optisch mit
+    t.type = type; t.timer = 0; this.dirty = true; this.dirtyTiles.add(t);
+  }
 
   /** Breitensuche über begehbare Kacheln; goal(x, y) liefert ein Ziel, wenn (x, y) passt. */
   bfs(sx, sy, goal, maxNodes = Infinity) {

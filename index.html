@@ -475,7 +475,7 @@ const TILE_DEFS = {
   site:  { name: 'Baustelle',     walkable: false },
   house: { name: 'Haus',          walkable: false },
   rock:  { name: 'Fels',          walkable: false },
-  field: { name: 'Feld',          walkable: false },
+  field: { name: 'Feld',          walkable: true  }, // Feldwege: man darf hindurchgehen (große Felder versperren so nichts)
   smithy:{ name: 'Schmiede',      walkable: false },
   market:{ name: 'Marktplatz',    walkable: false },
   tower: { name: 'Wachturm',      walkable: false },
@@ -506,7 +506,10 @@ class World {
   inBounds(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
   tile(x, y) { return this.inBounds(x, y) ? this.tiles[y * this.w + x] : null; }
   walkable(x, y) { const t = this.tile(x, y); return !!t && TILE_DEFS[t.type].walkable; }
-  setType(t, type) { t.type = type; t.timer = 0; this.dirty = true; this.dirtyTiles.add(t); }
+  setType(t, type) {
+    if (type === 'field' || t.type === 'field') for (const [dx, dy] of DIRS) { const q = this.tile(t.x + dx, t.y + dy); if (q && q.type === 'field') this.dirtyTiles.add(q); } // Nachbarfelder wachsen optisch mit
+    t.type = type; t.timer = 0; this.dirty = true; this.dirtyTiles.add(t);
+  }
 
   /** Breitensuche über begehbare Kacheln; goal(x, y) liefert ein Ziel, wenn (x, y) passt. */
   bfs(sx, sy, goal, maxNodes = Infinity) {
@@ -1067,8 +1070,33 @@ defineAction({
 
 /* ---- Landwirtschaft ---------------------------------------------------- */
 /** Felder liegen auf demselben Raster wie Häuser (jede 2. Kachel) – so bleiben die Gassen dazwischen immer frei. */
+/** Ab Bauernhof-Stufe II wachsen Felder zusammen: neue Kacheln direkt neben bestehenden Feldern (Gruppe bis 6 bzw. 9 Kacheln). */
+function fieldGroupSize(w, t, max) {
+  const seen = new Set([t]), q = [t];
+  while (q.length && seen.size <= max) { const a = q.shift(); for (const [dx, dy] of DIRS) { const b = w.tile(a.x + dx, a.y + dy); if (b && b.type === 'field' && !seen.has(b)) { seen.add(b); q.push(b); } } }
+  return seen.size;
+}
+const NO_FIELD_NEXT = new Set(['house', 'site', 'camp', 'smithy', 'market', 'tower', 'tavern', 'temple', 'castle', 'forsthaus', 'bauernhof', 'gildenhalle', 'lagerhaus', 'ford']);
+function findFieldGrowth(sim, town) {
+  const farm = town.bauernhof, L = farm ? farm.level || 1 : 1;
+  if (L < 2) return null;
+  const w = sim.world, c = town.camp, maxGroup = L >= 3 ? 9 : 6;
+  let best = null, bd = Infinity;
+  for (let y = c.y - 24; y <= c.y + 24; y++) for (let x = c.x - 24; x <= c.x + 24; x++) {
+    const t = w.tile(x, y);
+    if (!t || t.type !== 'grass' || t.traffic > 24 || (t.reserved && sim.minutes - t.reserved < 120)) continue;
+    const d = Math.hypot(x - c.x, y - c.y);
+    if (d < 7 || d >= bd) continue;
+    const nb = DIRS.map(([dx, dy]) => w.tile(x + dx, y + dy));
+    const f = nb.find(q => q && q.type === 'field');
+    if (!f || nb.some(q => q && NO_FIELD_NEXT.has(q.type)) || fieldGroupSize(w, f, maxGroup) >= maxGroup) continue;
+    best = t; bd = d;
+  }
+  return best;
+}
 function findFieldSpot(sim, town) {
   const w = sim.world, c = town.camp;
+  if (sim.rng() < 0.75) { const g = findFieldGrowth(sim, town); if (g) return g; }
   let best = null, bd = Infinity;
   for (let y = c.y - 24; y <= c.y + 24; y += 2) for (let x = c.x - 24; x <= c.x + 24; x += 2) {
     const t = w.tile(x, y);
@@ -1084,7 +1112,8 @@ defineAction({
   id: 'plantField', label: 'bestellt ein Feld', short: 'Feld', start: 'legt ein neues Feld an', icon: '🌱',
   score(n, sim) {
     const st = n.town;
-    if (st.fieldCount >= Math.max(2, Math.ceil(sim.npcs.length * 0.45)) || sim.isNight) return 0;
+    const farmL = st.bauernhof ? st.bauernhof.level || 1 : 1;
+    if (st.fieldCount >= Math.max(2, Math.ceil(sim.npcs.length * 0.45)) + (farmL - 1) * 5 || sim.isNight) return 0;
     return 33;
   },
   think: n => n.profession === 'bauer' ? 'Ein neues Feld – damit im Winter niemand hungert.' : 'Die Beeren reichen bald nicht mehr. Wir brauchen Felder.',
@@ -3756,9 +3785,13 @@ const CROPS = [
   { id: 'lavendel', name: 'Lavendelfeld', lore: 'Duftet bis ins Dorf. Die Bienen sind begeistert.', w: 1 },
 ];
 const fieldCache = new Map();
-function fieldShape(t) {
-  const key = t.y * 4096 + t.x; let f = fieldCache.get(key);
+const pickCrop = r => { for (const c of CROPS) { if ((r -= c.w) < 0) return c; } return CROPS[0]; };
+function fieldShape(t, w) {
+  let mask = 0;
+  if (w) DIRS.forEach(([dx, dy], i) => { const q = w.tile(t.x + dx, t.y + dy); if (q && q.type === 'field') mask |= 1 << i; });
+  const key = (t.y * 4096 + t.x) * 16 + mask; let f = fieldCache.get(key);
   if (f) return f;
+  if (mask) { f = joinedField(t, mask); fieldCache.set(key, f); return f; }
   const R = mulberry32(((t.x * 2654435761) ^ (t.y * 40503) ^ 0x5f17) >>> 0);
   const big = R() < 0.3, hw = big ? 0.44 + R() * 0.06 : 0.3 + R() * 0.14, hh = big ? 0.42 + R() * 0.07 : 0.3 + R() * 0.14; // halbe Breite/Höhe in Kacheln
   const ox = (0.5 - hw) * (R() * 2 - 1) * 0.8, oy = (0.5 - hh) * (R() * 2 - 1) * 0.8, rot = (R() - 0.5) * 0.35, dir = R() < 0.5 ? 0 : 1;
@@ -3780,6 +3813,27 @@ function fieldShape(t) {
   plants.sort((p, q) => p.u + p.v - q.u - q.v); // von hinten nach vorn
   f = { pts, hw, hh, ox, oy, rot, dir, crop, plants }; fieldCache.set(key, f);
   return f;
+}
+/** Zusammengewachsenes Feld: Rand nur zur Wiese hin, Furchen und Pflanzen auf einem durchgehenden Weltraster. */
+function joinedField(t, mask) {
+  const bx = Math.floor(t.x / 3), by = Math.floor(t.y / 3), RB = mulberry32(((bx * 73856093) ^ (by * 19349663) ^ 0x2b1d) >>> 0);
+  const crop = pickCrop(RB() * CROPS.reduce((a, c) => a + c.w, 0)), dir = RB() < 0.5 ? 0 : 1;
+  const con = i => !!(mask & (1 << i)), side = DIRS.map(([dx, dy], i) => ({ dx, dy, c: con(i) }));
+  const ins = d => side.find(q => q.dx === d[0] && q.dy === d[1]).c ? -0.03 : 0.08;
+  const l = ins([-1, 0]), r = 1 - ins([1, 0]), u = ins([0, -1]), b = 1 - ins([0, 1]), cr = 0.14;
+  const pts = [], rc = (x, y, ax, ay, round) => { if (!round) { pts.push([x, y]); return; } for (let k = 0; k <= 4; k++) { const a = k / 4 * Math.PI / 2; pts.push([x + ax * cr * (1 - Math.sin(a)), y + ay * cr * (1 - Math.cos(a))]); } };
+  // Ecken nur runden, wenn beide angrenzenden Seiten zur Wiese zeigen
+  const L = !con(DIRS.findIndex(d => d[0] === -1 && d[1] === 0)), Rr = !con(DIRS.findIndex(d => d[0] === 1 && d[1] === 0)), U = !con(DIRS.findIndex(d => d[0] === 0 && d[1] === -1)), B = !con(DIRS.findIndex(d => d[0] === 0 && d[1] === 1));
+  rc(l, u, 1, 1, L && U); rc(r, u, -1, 1, Rr && U); rc(r, b, -1, -1, Rr && B); rc(l, b, 1, -1, L && B);
+  const sp = crop.id === 'kohl' ? 0.16 : crop.id === 'sonnenblume' ? 0.17 : 0.12, rowSp = crop.id === 'kohl' || crop.id === 'sonnenblume' ? 0.17 : 0.14, plants = [];
+  const A0 = dir ? u : l, A1 = dir ? b : r, B0 = dir ? l : u, B1 = dir ? r : b, ta = dir ? t.y : t.x, tb = dir ? t.x : t.y;
+  for (let gb = Math.ceil((tb + B0 + 0.04) / rowSp); gb * rowSp < tb + B1 - 0.04; gb++) for (let ga = Math.ceil((ta + A0 + 0.03) / sp); ga * sp < ta + A1 - 0.03; ga++) {
+    const H = mulberry32(((ga * 2654435761) ^ (gb * 40503)) >>> 0), a = ga * sp - ta, bb = gb * rowSp + rowSp * 0.5 - tb;
+    if (bb > B1 - 0.03) continue;
+    plants.push({ u: (dir ? bb : a) + (H() - 0.5) * 0.02, v: (dir ? a : bb) + (H() - 0.5) * 0.02, r: H() });
+  }
+  plants.sort((p, q) => p.u + p.v - q.u - q.v);
+  return { pts, joined: true, l, r, u, b, ox: 0, oy: 0, hw: 0.5, hh: 0.5, rot: 0, dir, crop, plants, rowSp };
 }
 
 class Renderer {
@@ -4043,22 +4097,26 @@ class Renderer {
     c.save(); c.beginPath(); c.rect(x - e, y - e, s + 2 * e, s + 2 * e); c.clip();
     if (t.type === 'field') { // Acker mit eigener Form: Gras drumherum, Erde mit Furchen, Grasbüschel am Rand
       c.restore(); this.drawGroundTile(c, { __proto__: t, type: 'grass', traffic: 0 }, s); c.save(); c.beginPath(); c.rect(x - e, y - e, s + 2 * e, s + 2 * e); c.clip();
-      const f = fieldShape(t), P = f.pts.map(([u, v]) => [x + u * s, y + v * s]);
+      const f = fieldShape(t, world), P = f.pts.map(([u, v]) => [x + u * s, y + v * s]);
       const path = () => { c.beginPath(); const m0 = P.length; for (let k = 0; k <= m0; k++) { const a = P[k % m0], b = P[(k + 1) % m0], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2; k ? c.quadraticCurveTo(a[0], a[1], mx, my) : c.moveTo(mx, my); } c.closePath(); };
       c.fillStyle = 'rgba(60,40,20,.35)'; c.save(); c.translate(s * 0.02, s * 0.03); path(); c.fill(); c.restore(); // weicher Rand
       const g = c.createLinearGradient(x, y, x + s, y + s); g.addColorStop(0, '#7e5c3a'); g.addColorStop(1, '#5c4128');
       c.fillStyle = g; path(); c.fill();
       c.save(); path(); c.clip();
-      const cx = x + (0.5 + f.ox) * s, cy = y + (0.5 + f.oy) * s; c.translate(cx, cy); c.rotate(f.rot + (f.dir ? Math.PI / 2 : 0));
-      const L = s * 0.7, step = s * (f.crop.id === 'kohl' || f.crop.id === 'sonnenblume' ? 0.17 : 0.14);
-      for (let k = -6; k <= 6; k++) { const yy = k * step; // Furchen: dunkle Rinne + helle Krume
+      const step = s * (f.crop.id === 'kohl' || f.crop.id === 'sonnenblume' ? 0.17 : 0.14), L = s * 0.7;
+      let k0 = -6, k1 = 6;
+      if (f.joined) { // Furchen auf dem Weltraster, damit sie über Kachelgrenzen weiterlaufen
+        const tb = f.dir ? t.x : t.y; c.translate(x + s * 0.5, y + s * 0.5); if (f.dir) c.rotate(Math.PI / 2);
+        const off = ((tb + 0.5) / f.rowSp % 1) * step; c.translate(0, -off); k0 = -5; k1 = 5;
+      } else { const cx = x + (0.5 + f.ox) * s, cy = y + (0.5 + f.oy) * s; c.translate(cx, cy); c.rotate(f.rot + (f.dir ? Math.PI / 2 : 0)); }
+      for (let k = k0; k <= k1; k++) { const yy = k * step; // Furchen: dunkle Rinne + helle Krume
         c.fillStyle = 'rgba(40,24,10,.5)'; c.fillRect(-L, yy - s * 0.022, L * 2, s * 0.03);
         c.fillStyle = 'rgba(160,120,74,.55)'; c.fillRect(-L, yy + s * 0.02, L * 2, s * 0.022);
       }
       c.restore();
       if (fine) for (let k = 0; k < 18; k++) { c.fillStyle = R() < 0.5 ? 'rgba(40,25,12,.4)' : 'rgba(180,140,90,.45)'; const [u, v] = [0.5 + f.ox + (R() - 0.5) * f.hw * 1.6, 0.5 + f.oy + (R() - 0.5) * f.hh * 1.6]; c.fillRect(x + u * s, y + v * s, s * 0.025, s * 0.02); }
-      c.strokeStyle = 'rgba(70,48,24,.7)'; c.lineWidth = Math.max(1, s * 0.022); path(); c.stroke();
-      if (fine) for (let k = 0; k < P.length; k += 2) { const [px, py] = P[k]; c.fillStyle = k % 4 ? '#5f9a3a' : '#4d8530'; c.beginPath(); c.ellipse(px, py, s * 0.035, s * 0.025, 0, 0, TAU); c.fill(); } // Grasbüschel am Rand
+      if (!f.joined) { c.strokeStyle = 'rgba(70,48,24,.7)'; c.lineWidth = Math.max(1, s * 0.022); path(); c.stroke(); }
+      if (fine && !f.joined) for (let k = 0; k < P.length; k += 2) { const [px, py] = P[k]; c.fillStyle = k % 4 ? '#5f9a3a' : '#4d8530'; c.beginPath(); c.ellipse(px, py, s * 0.035, s * 0.025, 0, 0, TAU); c.fill(); } // Grasbüschel am Rand
     } else if (t.type === 'ford') { // flaches Wasser mit Trittsteinen
       c.fillStyle = 'hsl(195, 45%, 52%)'; c.fillRect(x - e, y - e, s + 2 * e, s + 2 * e);
       c.fillStyle = '#9b958a';
@@ -4602,7 +4660,7 @@ class Renderer {
   drawCrops(c, t, s, now) {
     const p = Math.min(1, t.timer / CONFIG.farming.growMinutes);
     if (p < 0.1) return;
-    const f = fieldShape(t), stage = p < 0.45 ? 1 : p < 1 ? 2 : 3, ripe = stage === 3, g = Math.min(1, p * 1.1), cid = f.crop.id;
+    const f = fieldShape(t, this.sim.world), stage = p < 0.45 ? 1 : p < 1 ? 2 : 3, ripe = stage === 3, g = Math.min(1, p * 1.1), cid = f.crop.id;
     const cx = (t.x + 0.5) * s, cy = (t.y + 0.5) * s, lw = Math.max(1, s * 0.018);
     c.lineCap = 'round';
     const thin = s < 24 ? 2 : 1, stems = s < 40 ? [0] : [-0.025, 0, 0.025];
@@ -6179,6 +6237,7 @@ function pixPaint(c, n, arms, q, pose, load) {
     const cc = pixRgb(pixHex(n.cls ? CLASSES[n.cls].color : '#8a2e3a'), -40), flap = walking ? 2 + Math.abs(sw) : 0;
     poly([[sh.x - 3, sh.y], [sh.x + 1, sh.y], [hip.x + 1, FY - 4], [hip.x - 6 - flap, FY - 3]], cc);
     pl(hip.x - 6 - flap, FY - 3, hip.x + 1, FY - 4, 1, RARITIES[g.cape.rarity].color);
+    if (R === 2) { const fc = pixRgb(pixHex(cc), -30); pl(sh.x - 1, sh.y + 2, hip.x - 2 - flap, FY - 4, 0.5, fc); pl(sh.x, sh.y + 2, hip.x - 4 - flap * 0.6, FY - 4, 0.5, fc); pl(sh.x - 2.5, sh.y + 0.5, sh.x + 0.5, sh.y + 0.5, 0.5, pixRgb(pixHex(cc), 40)); }
   }
   if (wpn && arms !== 'fight') pixTool(c, pl, poly, pr, wpn.kind, wpn.rarity, { x: sh.x + 3, y: sh.y - 4 }, 0.55 + Math.PI, 14, true);
   const hx = Math.round(head.x - 6), hy = Math.round(head.y - 6);
@@ -6194,6 +6253,7 @@ function pixPaint(c, n, arms, q, pose, load) {
     pl(sh.x, sh.y, a.e.x, a.e.y, 4, INK); pl(a.e.x, a.e.y, a.h.x, a.h.y, 4, INK);
     pl(sh.x, sh.y, a.e.x, a.e.y, 2, dark ? SHD : SH); pl(a.e.x, a.e.y, a.h.x, a.h.y, 2, dark ? SHD : SH);
     pr(a.h.x - 1, a.h.y - 1, 2, 2, dark ? SKD : SK);
+    if (R === 2) { const k = 0.78, cx = lerp(a.e.x, a.h.x, k), cy = lerp(a.e.y, a.h.y, k); pr(cx - 1, cy - 0.5, 2, 1, dark ? pixRgb(pixHex(SHD), -25) : SHD); } // Bündchen
   };
   const leg = (p, dark) => {
     const a1 = walking ? Math.sin(p) * 0.5 : 0, kn = walking ? Math.max(0, Math.cos(p)) * 0.95 + 0.05 : 0.04;
@@ -6202,6 +6262,11 @@ function pixPaint(c, n, arms, q, pose, load) {
     pl(hip.x + (dark ? -1 : 1), hip.y, k.x, k.y, 3, dark ? PAD : PA); pl(k.x, k.y, f.x, f.y, 3, dark ? PAD : PA);
     const boot = g.boots ? pixRgb(pixHex(METAL[g.boots.rarity]), dark ? -80 : -50) : (dark ? '#22170f' : '#3b2a1e');
     pr(f.x - 1, f.y - 2, 4, 2, boot); if (g.boots) pr(f.x - 1, f.y - 4, 3, 2, boot);
+    if (R === 2) {
+      if (!dark) pl(k.x + 0.5, k.y - 2, k.x + 0.5, k.y + 1, 0.5, pixRgb(pixHex(PA), 30)); // Knie
+      pr(f.x - 1, f.y - 0.5, 4, 0.5, '#140c08'); pr(f.x, f.y - 2, 1.5, 0.5, g.boots ? '#ffffff' : '#6a5040'); // Sohle, Glanz
+      if (g.boots && g.boots.rarity >= 2) pr(f.x - 1, f.y - 4, 3, 0.5, RARITIES[g.boots.rarity].color);
+    }
   };
   if (outfit === 'waldlaeufer') { pl(sh.x - 5, sh.y - 3, sh.x - 2, sh.y + 7, 3, '#7a5230'); pr(sh.x - 6, sh.y - 5, 1, 2, '#e8e2d0'); pr(sh.x - 4, sh.y - 6, 1, 2, '#c0392b'); }
   arm(back, true);
@@ -6227,6 +6292,22 @@ function pixPaint(c, n, arms, q, pose, load) {
     if (g.armor.rarity >= 2) pl(hip.x - 2, hip.y - 6, hip.x + 2, hip.y - 4, 1, RARITIES[g.armor.rarity].color);
   }
 
+  if (R === 2) { // HD: Falten, Nähte, Knöpfe bzw. Rüstungsplatten mit Nieten
+    const P = (a, b, k) => [lerp(a[0], b[0], k), lerp(a[1], b[1], k)], ln = (a, b, col) => pl(a[0], a[1], b[0], b[1], 0.5, col);
+    if (!g.armor) {
+      const fold = pixRgb(pixHex(SHD), -10);
+      ln(P(tor[3], tor[2], 0.42), P(tor[0], tor[1], 0.3), fold); ln(P(tor[3], tor[2], 0.72), P(tor[0], tor[1], 0.62), fold);
+      ln(P(tor[1], tor[2], 0.08), P(tor[1], tor[2], 0.8), SHL); // helle Kante vorn
+      for (const k of [0.25, 0.5, 0.72]) { const [bx, by] = P(P(tor[1], tor[2], k), P(tor[0], tor[3], k), 0.16); pr(bx - 0.5, by, 0.5, 0.5, '#efe4c8'); }
+    } else {
+      const r = g.armor.rarity, mc = pixHex(METAL[r]);
+      for (const k of [0.33, 0.62]) ln(P(tor[0], tor[3], k), P(tor[1], tor[2], k), pixRgb(mc, -70)); // Plattenkanten
+      for (const k of [0.15, 0.45, 0.75]) { const [rx, ry] = P(P(tor[0], tor[3], k), P(tor[1], tor[2], k), 0.8); pr(rx, ry, 0.5, 0.5, pixRgb(mc, 60)); } // Nieten
+      if (r >= 1) ln(P(tor[1], tor[2], 0), P(tor[1], tor[2], 0.8), RARITIES[r].color);
+      if (r >= 3) { const [gx, gy] = P(P(tor[0], tor[3], 0.35), P(tor[1], tor[2], 0.35), 0.6); pr(gx - 0.5, gy - 0.5, 1.5, 1.5, RARITIES[r].color); pr(gx - 0.5, gy - 0.5, 0.5, 0.5, '#ffffff'); }
+    }
+    pr(hip.x - 0.5, hip.y - 1.5, 2, 1.5, '#f0d27a'); pr(hip.x, hip.y - 1, 1, 0.5, '#4a2f1c'); // Gürtelschnalle
+  }
   // Holz/Stein auf dem Rücken (hinter dem Kopf)
   if (load && (arms === 'carry' || arms === 'none')) {
     const stone = n.inventory.stone > 0;
@@ -6250,6 +6331,7 @@ function pixPaint(c, n, arms, q, pose, load) {
     if (r >= 2) poly([[hx + 4, hy - 2], [hx + 1, hy - 6], [hx - 3, hy - 4], [hx + 2, hy - 2]], r >= 3 ? RARITIES[r].color : '#b03a3a');
     if (r >= 3) { pr(hx - 2, hy, 2, 2, '#ffe9a8'); pr(hx + 12, hy, 2, 2, '#ffe9a8'); }
     if (r === 4) pr(hx + 6, hy - 1, 2, 2, '#ff8fa3');
+    if (R === 2) { for (let k = 0; k < 4; k++) pr(hx + 0.5 + k * 3, hy + 2.5, 0.5, 0.5, pixRgb(mc, 70)); pr(hx + 2, hy - 1.5, 6, 0.5, pixRgb(mc, 45)); }
   } else if (hat === 'straw') {
     pr(hx - 3, hy + 1, 18, 2, '#e3c66b'); pr(hx + 1, hy - 3, 10, 4, '#e3c66b'); pr(hx + 1, hy, 10, 1, '#b0402f'); pr(hx - 3, hy + 2, 18, 1, '#b89a45');
   } else if (hat === 'cap') {
@@ -6349,6 +6431,17 @@ function pixPaintFront(c, n, view, q, load) {
   pr(FX - 6, shY + 1, 2, hipY - shY, P.SHD); pr(FX + 3, shY + 1, 2, 2, P.SHL);
   if (outfit === 'hueter') pr(FX - 6, hipY - 1, 12, 7, P.SH), pr(FX - 6, hipY - 1, 2, 7, P.SHD); // Gewand bis zu den Knien
   pr(FX - 6, hipY - 1, 12, 1, '#4a2f1c'); pr(FX - 1, hipY - 1, 2, 1, '#d9b45a');
+  if (R === 2) { // HD: Hosenfalten, Sohlen, Stoff-Falten, Knöpfe, Gürtelschnalle
+    const fold = P.sh(pixHex(P.SHD), -10);
+    pr(FX - 2.5, hipY + 1, 0.5, FY - hipY - 4 - liftL, P.sh(pixHex(P.PAD), -30)); pr(FX + 2.5, hipY + 1, 0.5, FY - hipY - 4 - liftR, P.sh(pixHex(P.PA), 35));
+    pr(FX - 4, FY - 1.5 - liftL, 3, 0.5, '#140c08'); pr(FX + 1, FY - 1.5 - liftR, 3, 0.5, '#140c08'); pr(FX + 2, FY - 2 - liftR, 1, 0.5, g.boots ? '#ffffff' : '#6a5040');
+    if (!g.armor) {
+      pr(FX - 3.5, shY + 2, 0.5, hipY - shY - 3, fold); pr(FX + 3, shY + 3, 0.5, hipY - shY - 4, fold);
+      pr(FX - 4.5, hipY - 2, 2, 0.5, fold); pr(FX + 2, hipY - 2.5, 2, 0.5, fold);
+      if (front && !(outfit === 'schmied' || outfit === 'sternenschmied')) for (const y of [shY + 2.5, shY + 4.5, shY + 6.5]) pr(FX - 0.5, y, 0.5, 0.5, '#efe4c8');
+    }
+    pr(FX - 0.5, hipY - 1, 0.5, 0.5, '#4a2f1c');
+  }
   if (front) {
     pr(FX - 1, shY, 2, 2, P.SKD); // Kragen
     if (!n.awakened && (n.profession === 'bauer' || n.profession === 'handwerker')) pr(FX - 3, hipY - 4, 6, 7, n.profession === 'bauer' ? '#e2d4b0' : '#6b4a2c');
@@ -6356,7 +6449,8 @@ function pixPaintFront(c, n, view, q, load) {
     if (outfit === 'herold') pr(FX - 4, shY - 1, 8, 2, '#c0392b'), pr(FX + 2, shY + 1, 2, 4, '#c0392b');
     if (outfit === 'torwandler') pr(FX - 6, shY, 1, hipY - shY + 6, '#a98bff'), pr(FX + 5, shY, 1, hipY - shY + 6, '#a98bff');
   } else {
-    if (g.cape) { const cc = P.sh(pixHex(n.cls ? CLASSES[n.cls].color : '#8a2e3a'), -20); pr(FX - 6, shY, 12, FY - shY - 3, cc); pr(FX - 6, FY - 4, 12, 1, RARITIES[g.cape.rarity].color); }
+    if (g.cape) { const cc = P.sh(pixHex(n.cls ? CLASSES[n.cls].color : '#8a2e3a'), -20); pr(FX - 6, shY, 12, FY - shY - 3, cc); pr(FX - 6, FY - 4, 12, 1, RARITIES[g.cape.rarity].color);
+      if (R === 2) { const fc = P.sh(pixHex(cc), -35); for (const x of [-3.5, 0, 3]) pr(FX + x, shY + 3, 0.5, FY - shY - 7, fc); pr(FX - 6, shY, 12, 0.5, P.sh(pixHex(cc), 40)); } }
     if (g.weapon) { for (let k = 0; k < 10; k++) pr(FX - 4 + k, shY + 8 - k, 1, 1, k < 3 ? '#6b4526' : METAL[g.weapon.rarity]); }
     if (outfit === 'waldlaeufer') { pr(FX + 1, shY - 3, 3, 10, '#7a5230'); pr(FX + 1, shY - 4, 1, 2, '#e8e2d0'); pr(FX + 3, shY - 5, 1, 2, '#c0392b'); }
     if (load) for (let j = 0; j < 3; j++) pr(FX - 5, shY + 1 + j * 2, 10, 2, n.inventory.stone ? (j % 2 ? '#8d897f' : '#a39d91') : (j % 2 ? '#6b4526' : '#7a5230'));
@@ -6366,6 +6460,14 @@ function pixPaintFront(c, n, view, q, load) {
     pr(FX - 5, shY + 1, 10, hipY - shY - 2, P.sh(mc, 0)); pr(FX - 5, shY + 1, 3, hipY - shY - 2, P.sh(mc, -60)); pr(FX + 1, shY + 2, 2, 2, '#ffffff');
     if (g.armor.rarity >= 2) pr(FX - 1, shY + 2, 2, hipY - shY - 4, RARITIES[g.armor.rarity].color);
     pr(FX - 8, shY - 1, 4, 3, P.sh(mc, 0)); pr(FX + 4, shY - 1, 4, 3, P.sh(mc, 0)); // Schulterplatten
+    if (R === 2) {
+      const r = g.armor.rarity, dk = P.sh(mc, -75), lt = P.sh(mc, 60);
+      for (const y of [shY + 3.5, shY + 6]) pr(FX - 5, y, 10, 0.5, dk); // Plattenkanten
+      for (const [x, y] of [[-4.5, 2], [4, 2], [-4.5, 5], [4, 5]]) pr(FX + x, shY + y, 0.5, 0.5, lt); // Nieten
+      pr(FX - 8, shY + 1.5, 4, 0.5, dk); pr(FX + 4, shY + 1.5, 4, 0.5, dk); pr(FX - 7, shY - 0.5, 1.5, 0.5, lt); pr(FX + 5, shY - 0.5, 1.5, 0.5, lt);
+      if (r >= 1) { pr(FX - 5, shY + 1, 0.5, hipY - shY - 2, RARITIES[r].color); pr(FX + 4.5, shY + 1, 0.5, hipY - shY - 2, RARITIES[r].color); }
+      if (r >= 3 && front) { pr(FX - 1, shY + 4, 2, 2, RARITIES[r].color); pr(FX - 1, shY + 4, 0.5, 0.5, '#ffffff'); }
+    }
   }
   // Arme an den Seiten, schwingen beim Gehen
   const swing = walking ? Math.round(s1 * 2) : 0;
@@ -6373,6 +6475,7 @@ function pixPaintFront(c, n, view, q, load) {
     if (cheer) { pr(ax, shY - 7, 2, 8, dark ? P.SHD : P.SH); pr(ax, shY - 9, 2, 2, dark ? P.SKD : P.SK); continue; } // Arme hoch!
     pr(ax, shY + 1, 2, 7 + sw, dark ? P.SHD : P.SH);
     pr(ax, shY + 8 + sw, 2, 2, dark ? P.SKD : P.SK);
+    if (R === 2) { pr(ax, shY + 7.5 + sw, 2, 0.5, P.sh(pixHex(dark ? P.SHD : P.SH), -45)); pr(dark ? ax : ax + 1.5, shY + 2, 0.5, 4, P.sh(pixHex(dark ? P.SHD : P.SH), dark ? -25 : 30)); } // Bündchen, Ärmelfalte
   }
   // Kopf
   pr(FX - 1, shY - 1, 2, 2, P.SKD);
@@ -6397,6 +6500,7 @@ function pixPaintFront(c, n, view, q, load) {
     if (r >= 2) pr(FX - 1, hy - 6, 2, 4, r >= 3 ? RARITIES[r].color : '#b03a3a');
     if (r >= 3) { pr(hx - 3, hy - 1, 2, 3, '#ffe9a8'); pr(hx + 13, hy - 1, 2, 3, '#ffe9a8'); }
     if (r === 4 && front) pr(FX - 1, hy - 1, 2, 2, '#ff8fa3');
+    if (R === 2) { for (let k = 0; k < 5; k++) pr(hx + 0.5 + k * 2.5, hy + 2.5, 0.5, 0.5, P.sh(mc, 70)); if (front && r >= 1) pr(hx + 2, hy + 1.5, 8, 0.5, P.sh(mc, -90)); } // Nieten, Sehschlitz
   } else if (hat === 'straw') { pr(hx - 3, hy + 1, 18, 2, '#e3c66b'); pr(hx + 1, hy - 3, 10, 4, '#e3c66b'); pr(hx + 1, hy, 10, 1, '#b0402f'); }
   else if (hat === 'cap') { pr(hx, hy - 2, 12, 5, '#b8342c'); pr(hx - 1, hy + 2, 14, 1, '#8f2620'); pr(FX - 1, hy - 4, 3, 2, '#e9e2d4'); }
   else if (hat === 'miner') { pr(hx, hy - 2, 12, 5, '#c9a43a'); pr(hx - 1, hy + 2, 14, 1, '#8a6e22'); if (front) pr(FX - 1, hy - 1, 2, 2, '#fff3b0'); }
@@ -6418,7 +6522,17 @@ function pixTool(c, pl, poly, pr, kind, rarity, h, a, len, weapon) {
     case 'sword': case 'blade': shaft(-2, 1, '#5a3a22', 2); { const [gx0, gy0] = at(1, -2), [gx1, gy1] = at(1, 2); pl(gx0, gy0, gx1, gy1, 1, rc); } shaft(2, len, mc, 2); shaft(3, len - 1, '#ffffff'); break;
     case 'staff': shaft(-2, len, '#7a5230'); { const [x, y] = at(len + 1); pr(x - 1, y - 1, 3, 3, rc); pr(x, y - 1, 1, 1, '#ffffff'); } break;
     case 'spear': shaft(-4, len, '#7a5230'); poly([at(len, -1.5), at(len + 4, 0), at(len, 1.5)], mc); poly([at(len - 2, 0), at(len - 5, 3), at(len - 6, 0)], rc); break;
-    case 'bow': for (let k = -len / 2; k <= len / 2; k++) { const [x, y] = at(k, Math.cos(k / len * Math.PI) * 3); pr(x, y, 1, 1, '#6b4526'); } { const [x0, y0] = at(-len / 2), [x1, y1] = at(len / 2); pl(x0, y0, x1, y1, 1, '#e8e2d0'); } break;
+    case 'bow': if (PXR === 2) { const [x, y] = at(0, 3); pr(x - 0.5, y - 1, 1.5, 2, '#3a2416'); }
+      for (let k = -len / 2; k <= len / 2; k++) { const [x, y] = at(k, Math.cos(k / len * Math.PI) * 3); pr(x, y, 1, 1, '#6b4526'); } { const [x0, y0] = at(-len / 2), [x1, y1] = at(len / 2); pl(x0, y0, x1, y1, 1, '#e8e2d0'); } break;
+  }
+  if (PXR === 2 && weapon) { // HD-Details: Hohlkehle, Knauf-Juwel, Schneiden-Glanz, Leuchten ab Legendär
+    const half = (from, to, col, o = 0) => { const [x0, y0] = at(from, o), [x1, y1] = at(to, o); pl(x0, y0, x1, y1, 0.5, col); };
+    if (kind === 'sword' || kind === 'blade') { half(3, len - 2, pixRgb(pixHex(mc), -60), 0.5); const [px, py] = at(-2.5); pr(px - 0.5, py - 0.5, 1, 1, rc); }
+    if (kind === 'axe') half(len - 4, len, '#ffffff', 4);
+    if (kind === 'hammer') { const [x, y] = at(len - 0.5, 0); pr(x - 0.5, y - 0.5, 1, 1, rarity >= 2 ? rc : '#ffffff'); }
+    if (kind === 'staff') { const [x, y] = at(len + 1); pr(x - 1.5, y - 1.5, 1, 1, '#ffffff'); half(len - 3, len - 1, rc); }
+    if (kind === 'spear') half(len - 1, len + 3, '#ffffff', -0.5);
+    if (rarity >= 3) { c.globalAlpha = 0.55; for (let k = 0; k < 4; k++) { const [x, y] = at(len * (0.4 + k * 0.18), (k % 2 ? 1.5 : -1.5)); pr(x, y, 0.5, 0.5, rarity === 4 ? '#ff9a9a' : '#fff0a0'); } c.globalAlpha = 1; }
   }
 }
 
@@ -7708,13 +7822,13 @@ function tileInfo(t) {
     if (isSRift(sim, t)) { const B = RIFT_BOSSES[sim.srift.kind]; rank = 'S'; fx = sim.srift.broken ? `Boss <b>${B.name}</b> ist ausgebrochen!` : `Boss: <b>${B.name}</b> · nur für die Gilde · Ausbruch in <b>${Math.max(0, Math.ceil((sim.srift.breakAt - sim.minutes) / 60))} h</b>`; }
     lore = isSRift(sim, t) ? 'Gold und Schwärze wirbeln umeinander. Der Riss hat einen Rang erreicht, den es nicht geben dürfte.' : g.red ? 'Er pulsiert wie ein Herz. Etwas Uraltes wartet dahinter – und es hat Hunger.' : 'Ein Spalt zwischen den Welten. Wer hineingeht, kommt stärker zurück – oder gar nicht.';
   }
-  if (t.type === 'field') { const f = fieldShape(t); top = f.crop.name.toUpperCase(); lore = f.crop.lore; fx = `Frucht: <b>${f.crop.name.replace(/feld|acker/i, '')}</b> · Ertrag: <b>Vorräte</b> nach einem Tag`; }
+  if (t.type === 'field') { const f = fieldShape(t, sim.world); top = f.crop.name.toUpperCase(); lore = f.crop.lore; fx = `Frucht: <b>${f.crop.name.replace(/feld|acker/i, '')}</b> · Ertrag: <b>Vorräte</b> nach einem Tag`; }
   if (t.type === 'ruin' && t.searched) { rank = 'E'; fx = 'Bereits durchsucht'; }
   if (t.type === 'camp' && sim.kingdom && (t.town || sim.capital).capital) rank = 'A';
   const b = t.building;
   if (b && CONFIG.buildings[b.type] && b.type !== 'castle') {
     const L = b.level || 1, up = t.siteRef && t.siteRef.upgrade === b;
-    const eff = { house: `${b.beds} Betten`, smithy: 'bessere Seltenheiten', tower: `Reichweite ${CONFIG.buildings.tower.range + L - 1}, Schaden +${(L - 1) * 40} %`, temple: `Heilung ×${L}`, market: `Markterlös +${(L - 1) * 50} %`, tavern: 'gemütlicher' }[b.type] || '';
+    const eff = { house: `${b.beds} Betten`, smithy: 'bessere Seltenheiten', tower: `Reichweite ${CONFIG.buildings.tower.range + L - 1}, Schaden +${(L - 1) * 40} %`, temple: `Heilung ×${L}`, market: `Markterlös +${(L - 1) * 50} %`, bauernhof: L >= 2 ? `Felder wachsen zusammen (bis ${L >= 3 ? 9 : 6} Kacheln)` : 'ab Stufe II große Felder', tavern: 'gemütlicher' }[b.type] || '';
     fx = `Stufe <b>${roman(L)}</b> / III${eff ? ' · ' + eff : ''}` + (up ? ` · <b>Ausbau läuft: ${Math.floor(t.siteRef.progress / t.siteRef.work * 100)} %</b>` : L < 3 ? ' · ausbaubar' : ' · höchste Stufe') + (fx ? '<br>✦ ' + fx : '');
   }
   return sysCard(top, rank, tileBody(t), fx, lore, t.type === 'gate' && (t.gate.red || isSRift(sim, t)) ? 'red' : t.type === 'castle' ? 'gold' : '');

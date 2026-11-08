@@ -256,6 +256,7 @@ function pixPaint(c, n, arms, q, pose, load) {
     const cc = pixRgb(pixHex(n.cls ? CLASSES[n.cls].color : '#8a2e3a'), -40), flap = walking ? 2 + Math.abs(sw) : 0;
     poly([[sh.x - 3, sh.y], [sh.x + 1, sh.y], [hip.x + 1, FY - 4], [hip.x - 6 - flap, FY - 3]], cc);
     pl(hip.x - 6 - flap, FY - 3, hip.x + 1, FY - 4, 1, RARITIES[g.cape.rarity].color);
+    if (R === 2) { const fc = pixRgb(pixHex(cc), -30); pl(sh.x - 1, sh.y + 2, hip.x - 2 - flap, FY - 4, 0.5, fc); pl(sh.x, sh.y + 2, hip.x - 4 - flap * 0.6, FY - 4, 0.5, fc); pl(sh.x - 2.5, sh.y + 0.5, sh.x + 0.5, sh.y + 0.5, 0.5, pixRgb(pixHex(cc), 40)); }
   }
   if (wpn && arms !== 'fight') pixTool(c, pl, poly, pr, wpn.kind, wpn.rarity, { x: sh.x + 3, y: sh.y - 4 }, 0.55 + Math.PI, 14, true);
   const hx = Math.round(head.x - 6), hy = Math.round(head.y - 6);
@@ -271,6 +272,7 @@ function pixPaint(c, n, arms, q, pose, load) {
     pl(sh.x, sh.y, a.e.x, a.e.y, 4, INK); pl(a.e.x, a.e.y, a.h.x, a.h.y, 4, INK);
     pl(sh.x, sh.y, a.e.x, a.e.y, 2, dark ? SHD : SH); pl(a.e.x, a.e.y, a.h.x, a.h.y, 2, dark ? SHD : SH);
     pr(a.h.x - 1, a.h.y - 1, 2, 2, dark ? SKD : SK);
+    if (R === 2) { const k = 0.78, cx = lerp(a.e.x, a.h.x, k), cy = lerp(a.e.y, a.h.y, k); pr(cx - 1, cy - 0.5, 2, 1, dark ? pixRgb(pixHex(SHD), -25) : SHD); } // Bündchen
   };
   const leg = (p, dark) => {
     const a1 = walking ? Math.sin(p) * 0.5 : 0, kn = walking ? Math.max(0, Math.cos(p)) * 0.95 + 0.05 : 0.04;
@@ -279,6 +281,11 @@ function pixPaint(c, n, arms, q, pose, load) {
     pl(hip.x + (dark ? -1 : 1), hip.y, k.x, k.y, 3, dark ? PAD : PA); pl(k.x, k.y, f.x, f.y, 3, dark ? PAD : PA);
     const boot = g.boots ? pixRgb(pixHex(METAL[g.boots.rarity]), dark ? -80 : -50) : (dark ? '#22170f' : '#3b2a1e');
     pr(f.x - 1, f.y - 2, 4, 2, boot); if (g.boots) pr(f.x - 1, f.y - 4, 3, 2, boot);
+    if (R === 2) {
+      if (!dark) pl(k.x + 0.5, k.y - 2, k.x + 0.5, k.y + 1, 0.5, pixRgb(pixHex(PA), 30)); // Knie
+      pr(f.x - 1, f.y - 0.5, 4, 0.5, '#140c08'); pr(f.x, f.y - 2, 1.5, 0.5, g.boots ? '#ffffff' : '#6a5040'); // Sohle, Glanz
+      if (g.boots && g.boots.rarity >= 2) pr(f.x - 1, f.y - 4, 3, 0.5, RARITIES[g.boots.rarity].color);
+    }
   };
   if (outfit === 'waldlaeufer') { pl(sh.x - 5, sh.y - 3, sh.x - 2, sh.y + 7, 3, '#7a5230'); pr(sh.x - 6, sh.y - 5, 1, 2, '#e8e2d0'); pr(sh.x - 4, sh.y - 6, 1, 2, '#c0392b'); }
   arm(back, true);
@@ -304,6 +311,22 @@ function pixPaint(c, n, arms, q, pose, load) {
     if (g.armor.rarity >= 2) pl(hip.x - 2, hip.y - 6, hip.x + 2, hip.y - 4, 1, RARITIES[g.armor.rarity].color);
   }
 
+  if (R === 2) { // HD: Falten, Nähte, Knöpfe bzw. Rüstungsplatten mit Nieten
+    const P = (a, b, k) => [lerp(a[0], b[0], k), lerp(a[1], b[1], k)], ln = (a, b, col) => pl(a[0], a[1], b[0], b[1], 0.5, col);
+    if (!g.armor) {
+      const fold = pixRgb(pixHex(SHD), -10);
+      ln(P(tor[3], tor[2], 0.42), P(tor[0], tor[1], 0.3), fold); ln(P(tor[3], tor[2], 0.72), P(tor[0], tor[1], 0.62), fold);
+      ln(P(tor[1], tor[2], 0.08), P(tor[1], tor[2], 0.8), SHL); // helle Kante vorn
+      for (const k of [0.25, 0.5, 0.72]) { const [bx, by] = P(P(tor[1], tor[2], k), P(tor[0], tor[3], k), 0.16); pr(bx - 0.5, by, 0.5, 0.5, '#efe4c8'); }
+    } else {
+      const r = g.armor.rarity, mc = pixHex(METAL[r]);
+      for (const k of [0.33, 0.62]) ln(P(tor[0], tor[3], k), P(tor[1], tor[2], k), pixRgb(mc, -70)); // Plattenkanten
+      for (const k of [0.15, 0.45, 0.75]) { const [rx, ry] = P(P(tor[0], tor[3], k), P(tor[1], tor[2], k), 0.8); pr(rx, ry, 0.5, 0.5, pixRgb(mc, 60)); } // Nieten
+      if (r >= 1) ln(P(tor[1], tor[2], 0), P(tor[1], tor[2], 0.8), RARITIES[r].color);
+      if (r >= 3) { const [gx, gy] = P(P(tor[0], tor[3], 0.35), P(tor[1], tor[2], 0.35), 0.6); pr(gx - 0.5, gy - 0.5, 1.5, 1.5, RARITIES[r].color); pr(gx - 0.5, gy - 0.5, 0.5, 0.5, '#ffffff'); }
+    }
+    pr(hip.x - 0.5, hip.y - 1.5, 2, 1.5, '#f0d27a'); pr(hip.x, hip.y - 1, 1, 0.5, '#4a2f1c'); // Gürtelschnalle
+  }
   // Holz/Stein auf dem Rücken (hinter dem Kopf)
   if (load && (arms === 'carry' || arms === 'none')) {
     const stone = n.inventory.stone > 0;
@@ -327,6 +350,7 @@ function pixPaint(c, n, arms, q, pose, load) {
     if (r >= 2) poly([[hx + 4, hy - 2], [hx + 1, hy - 6], [hx - 3, hy - 4], [hx + 2, hy - 2]], r >= 3 ? RARITIES[r].color : '#b03a3a');
     if (r >= 3) { pr(hx - 2, hy, 2, 2, '#ffe9a8'); pr(hx + 12, hy, 2, 2, '#ffe9a8'); }
     if (r === 4) pr(hx + 6, hy - 1, 2, 2, '#ff8fa3');
+    if (R === 2) { for (let k = 0; k < 4; k++) pr(hx + 0.5 + k * 3, hy + 2.5, 0.5, 0.5, pixRgb(mc, 70)); pr(hx + 2, hy - 1.5, 6, 0.5, pixRgb(mc, 45)); }
   } else if (hat === 'straw') {
     pr(hx - 3, hy + 1, 18, 2, '#e3c66b'); pr(hx + 1, hy - 3, 10, 4, '#e3c66b'); pr(hx + 1, hy, 10, 1, '#b0402f'); pr(hx - 3, hy + 2, 18, 1, '#b89a45');
   } else if (hat === 'cap') {
@@ -426,6 +450,17 @@ function pixPaintFront(c, n, view, q, load) {
   pr(FX - 6, shY + 1, 2, hipY - shY, P.SHD); pr(FX + 3, shY + 1, 2, 2, P.SHL);
   if (outfit === 'hueter') pr(FX - 6, hipY - 1, 12, 7, P.SH), pr(FX - 6, hipY - 1, 2, 7, P.SHD); // Gewand bis zu den Knien
   pr(FX - 6, hipY - 1, 12, 1, '#4a2f1c'); pr(FX - 1, hipY - 1, 2, 1, '#d9b45a');
+  if (R === 2) { // HD: Hosenfalten, Sohlen, Stoff-Falten, Knöpfe, Gürtelschnalle
+    const fold = P.sh(pixHex(P.SHD), -10);
+    pr(FX - 2.5, hipY + 1, 0.5, FY - hipY - 4 - liftL, P.sh(pixHex(P.PAD), -30)); pr(FX + 2.5, hipY + 1, 0.5, FY - hipY - 4 - liftR, P.sh(pixHex(P.PA), 35));
+    pr(FX - 4, FY - 1.5 - liftL, 3, 0.5, '#140c08'); pr(FX + 1, FY - 1.5 - liftR, 3, 0.5, '#140c08'); pr(FX + 2, FY - 2 - liftR, 1, 0.5, g.boots ? '#ffffff' : '#6a5040');
+    if (!g.armor) {
+      pr(FX - 3.5, shY + 2, 0.5, hipY - shY - 3, fold); pr(FX + 3, shY + 3, 0.5, hipY - shY - 4, fold);
+      pr(FX - 4.5, hipY - 2, 2, 0.5, fold); pr(FX + 2, hipY - 2.5, 2, 0.5, fold);
+      if (front && !(outfit === 'schmied' || outfit === 'sternenschmied')) for (const y of [shY + 2.5, shY + 4.5, shY + 6.5]) pr(FX - 0.5, y, 0.5, 0.5, '#efe4c8');
+    }
+    pr(FX - 0.5, hipY - 1, 0.5, 0.5, '#4a2f1c');
+  }
   if (front) {
     pr(FX - 1, shY, 2, 2, P.SKD); // Kragen
     if (!n.awakened && (n.profession === 'bauer' || n.profession === 'handwerker')) pr(FX - 3, hipY - 4, 6, 7, n.profession === 'bauer' ? '#e2d4b0' : '#6b4a2c');
@@ -433,7 +468,8 @@ function pixPaintFront(c, n, view, q, load) {
     if (outfit === 'herold') pr(FX - 4, shY - 1, 8, 2, '#c0392b'), pr(FX + 2, shY + 1, 2, 4, '#c0392b');
     if (outfit === 'torwandler') pr(FX - 6, shY, 1, hipY - shY + 6, '#a98bff'), pr(FX + 5, shY, 1, hipY - shY + 6, '#a98bff');
   } else {
-    if (g.cape) { const cc = P.sh(pixHex(n.cls ? CLASSES[n.cls].color : '#8a2e3a'), -20); pr(FX - 6, shY, 12, FY - shY - 3, cc); pr(FX - 6, FY - 4, 12, 1, RARITIES[g.cape.rarity].color); }
+    if (g.cape) { const cc = P.sh(pixHex(n.cls ? CLASSES[n.cls].color : '#8a2e3a'), -20); pr(FX - 6, shY, 12, FY - shY - 3, cc); pr(FX - 6, FY - 4, 12, 1, RARITIES[g.cape.rarity].color);
+      if (R === 2) { const fc = P.sh(pixHex(cc), -35); for (const x of [-3.5, 0, 3]) pr(FX + x, shY + 3, 0.5, FY - shY - 7, fc); pr(FX - 6, shY, 12, 0.5, P.sh(pixHex(cc), 40)); } }
     if (g.weapon) { for (let k = 0; k < 10; k++) pr(FX - 4 + k, shY + 8 - k, 1, 1, k < 3 ? '#6b4526' : METAL[g.weapon.rarity]); }
     if (outfit === 'waldlaeufer') { pr(FX + 1, shY - 3, 3, 10, '#7a5230'); pr(FX + 1, shY - 4, 1, 2, '#e8e2d0'); pr(FX + 3, shY - 5, 1, 2, '#c0392b'); }
     if (load) for (let j = 0; j < 3; j++) pr(FX - 5, shY + 1 + j * 2, 10, 2, n.inventory.stone ? (j % 2 ? '#8d897f' : '#a39d91') : (j % 2 ? '#6b4526' : '#7a5230'));
@@ -443,6 +479,14 @@ function pixPaintFront(c, n, view, q, load) {
     pr(FX - 5, shY + 1, 10, hipY - shY - 2, P.sh(mc, 0)); pr(FX - 5, shY + 1, 3, hipY - shY - 2, P.sh(mc, -60)); pr(FX + 1, shY + 2, 2, 2, '#ffffff');
     if (g.armor.rarity >= 2) pr(FX - 1, shY + 2, 2, hipY - shY - 4, RARITIES[g.armor.rarity].color);
     pr(FX - 8, shY - 1, 4, 3, P.sh(mc, 0)); pr(FX + 4, shY - 1, 4, 3, P.sh(mc, 0)); // Schulterplatten
+    if (R === 2) {
+      const r = g.armor.rarity, dk = P.sh(mc, -75), lt = P.sh(mc, 60);
+      for (const y of [shY + 3.5, shY + 6]) pr(FX - 5, y, 10, 0.5, dk); // Plattenkanten
+      for (const [x, y] of [[-4.5, 2], [4, 2], [-4.5, 5], [4, 5]]) pr(FX + x, shY + y, 0.5, 0.5, lt); // Nieten
+      pr(FX - 8, shY + 1.5, 4, 0.5, dk); pr(FX + 4, shY + 1.5, 4, 0.5, dk); pr(FX - 7, shY - 0.5, 1.5, 0.5, lt); pr(FX + 5, shY - 0.5, 1.5, 0.5, lt);
+      if (r >= 1) { pr(FX - 5, shY + 1, 0.5, hipY - shY - 2, RARITIES[r].color); pr(FX + 4.5, shY + 1, 0.5, hipY - shY - 2, RARITIES[r].color); }
+      if (r >= 3 && front) { pr(FX - 1, shY + 4, 2, 2, RARITIES[r].color); pr(FX - 1, shY + 4, 0.5, 0.5, '#ffffff'); }
+    }
   }
   // Arme an den Seiten, schwingen beim Gehen
   const swing = walking ? Math.round(s1 * 2) : 0;
@@ -450,6 +494,7 @@ function pixPaintFront(c, n, view, q, load) {
     if (cheer) { pr(ax, shY - 7, 2, 8, dark ? P.SHD : P.SH); pr(ax, shY - 9, 2, 2, dark ? P.SKD : P.SK); continue; } // Arme hoch!
     pr(ax, shY + 1, 2, 7 + sw, dark ? P.SHD : P.SH);
     pr(ax, shY + 8 + sw, 2, 2, dark ? P.SKD : P.SK);
+    if (R === 2) { pr(ax, shY + 7.5 + sw, 2, 0.5, P.sh(pixHex(dark ? P.SHD : P.SH), -45)); pr(dark ? ax : ax + 1.5, shY + 2, 0.5, 4, P.sh(pixHex(dark ? P.SHD : P.SH), dark ? -25 : 30)); } // Bündchen, Ärmelfalte
   }
   // Kopf
   pr(FX - 1, shY - 1, 2, 2, P.SKD);
@@ -474,6 +519,7 @@ function pixPaintFront(c, n, view, q, load) {
     if (r >= 2) pr(FX - 1, hy - 6, 2, 4, r >= 3 ? RARITIES[r].color : '#b03a3a');
     if (r >= 3) { pr(hx - 3, hy - 1, 2, 3, '#ffe9a8'); pr(hx + 13, hy - 1, 2, 3, '#ffe9a8'); }
     if (r === 4 && front) pr(FX - 1, hy - 1, 2, 2, '#ff8fa3');
+    if (R === 2) { for (let k = 0; k < 5; k++) pr(hx + 0.5 + k * 2.5, hy + 2.5, 0.5, 0.5, P.sh(mc, 70)); if (front && r >= 1) pr(hx + 2, hy + 1.5, 8, 0.5, P.sh(mc, -90)); } // Nieten, Sehschlitz
   } else if (hat === 'straw') { pr(hx - 3, hy + 1, 18, 2, '#e3c66b'); pr(hx + 1, hy - 3, 10, 4, '#e3c66b'); pr(hx + 1, hy, 10, 1, '#b0402f'); }
   else if (hat === 'cap') { pr(hx, hy - 2, 12, 5, '#b8342c'); pr(hx - 1, hy + 2, 14, 1, '#8f2620'); pr(FX - 1, hy - 4, 3, 2, '#e9e2d4'); }
   else if (hat === 'miner') { pr(hx, hy - 2, 12, 5, '#c9a43a'); pr(hx - 1, hy + 2, 14, 1, '#8a6e22'); if (front) pr(FX - 1, hy - 1, 2, 2, '#fff3b0'); }
@@ -495,7 +541,17 @@ function pixTool(c, pl, poly, pr, kind, rarity, h, a, len, weapon) {
     case 'sword': case 'blade': shaft(-2, 1, '#5a3a22', 2); { const [gx0, gy0] = at(1, -2), [gx1, gy1] = at(1, 2); pl(gx0, gy0, gx1, gy1, 1, rc); } shaft(2, len, mc, 2); shaft(3, len - 1, '#ffffff'); break;
     case 'staff': shaft(-2, len, '#7a5230'); { const [x, y] = at(len + 1); pr(x - 1, y - 1, 3, 3, rc); pr(x, y - 1, 1, 1, '#ffffff'); } break;
     case 'spear': shaft(-4, len, '#7a5230'); poly([at(len, -1.5), at(len + 4, 0), at(len, 1.5)], mc); poly([at(len - 2, 0), at(len - 5, 3), at(len - 6, 0)], rc); break;
-    case 'bow': for (let k = -len / 2; k <= len / 2; k++) { const [x, y] = at(k, Math.cos(k / len * Math.PI) * 3); pr(x, y, 1, 1, '#6b4526'); } { const [x0, y0] = at(-len / 2), [x1, y1] = at(len / 2); pl(x0, y0, x1, y1, 1, '#e8e2d0'); } break;
+    case 'bow': if (PXR === 2) { const [x, y] = at(0, 3); pr(x - 0.5, y - 1, 1.5, 2, '#3a2416'); }
+      for (let k = -len / 2; k <= len / 2; k++) { const [x, y] = at(k, Math.cos(k / len * Math.PI) * 3); pr(x, y, 1, 1, '#6b4526'); } { const [x0, y0] = at(-len / 2), [x1, y1] = at(len / 2); pl(x0, y0, x1, y1, 1, '#e8e2d0'); } break;
+  }
+  if (PXR === 2 && weapon) { // HD-Details: Hohlkehle, Knauf-Juwel, Schneiden-Glanz, Leuchten ab Legendär
+    const half = (from, to, col, o = 0) => { const [x0, y0] = at(from, o), [x1, y1] = at(to, o); pl(x0, y0, x1, y1, 0.5, col); };
+    if (kind === 'sword' || kind === 'blade') { half(3, len - 2, pixRgb(pixHex(mc), -60), 0.5); const [px, py] = at(-2.5); pr(px - 0.5, py - 0.5, 1, 1, rc); }
+    if (kind === 'axe') half(len - 4, len, '#ffffff', 4);
+    if (kind === 'hammer') { const [x, y] = at(len - 0.5, 0); pr(x - 0.5, y - 0.5, 1, 1, rarity >= 2 ? rc : '#ffffff'); }
+    if (kind === 'staff') { const [x, y] = at(len + 1); pr(x - 1.5, y - 1.5, 1, 1, '#ffffff'); half(len - 3, len - 1, rc); }
+    if (kind === 'spear') half(len - 1, len + 3, '#ffffff', -0.5);
+    if (rarity >= 3) { c.globalAlpha = 0.55; for (let k = 0; k < 4; k++) { const [x, y] = at(len * (0.4 + k * 0.18), (k % 2 ? 1.5 : -1.5)); pr(x, y, 0.5, 0.5, rarity === 4 ? '#ff9a9a' : '#fff0a0'); } c.globalAlpha = 1; }
   }
 }
 

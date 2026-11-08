@@ -289,9 +289,13 @@ const CROPS = [
   { id: 'lavendel', name: 'Lavendelfeld', lore: 'Duftet bis ins Dorf. Die Bienen sind begeistert.', w: 1 },
 ];
 const fieldCache = new Map();
-function fieldShape(t) {
-  const key = t.y * 4096 + t.x; let f = fieldCache.get(key);
+const pickCrop = r => { for (const c of CROPS) { if ((r -= c.w) < 0) return c; } return CROPS[0]; };
+function fieldShape(t, w) {
+  let mask = 0;
+  if (w) DIRS.forEach(([dx, dy], i) => { const q = w.tile(t.x + dx, t.y + dy); if (q && q.type === 'field') mask |= 1 << i; });
+  const key = (t.y * 4096 + t.x) * 16 + mask; let f = fieldCache.get(key);
   if (f) return f;
+  if (mask) { f = joinedField(t, mask); fieldCache.set(key, f); return f; }
   const R = mulberry32(((t.x * 2654435761) ^ (t.y * 40503) ^ 0x5f17) >>> 0);
   const big = R() < 0.3, hw = big ? 0.44 + R() * 0.06 : 0.3 + R() * 0.14, hh = big ? 0.42 + R() * 0.07 : 0.3 + R() * 0.14; // halbe Breite/Höhe in Kacheln
   const ox = (0.5 - hw) * (R() * 2 - 1) * 0.8, oy = (0.5 - hh) * (R() * 2 - 1) * 0.8, rot = (R() - 0.5) * 0.35, dir = R() < 0.5 ? 0 : 1;
@@ -313,6 +317,27 @@ function fieldShape(t) {
   plants.sort((p, q) => p.u + p.v - q.u - q.v); // von hinten nach vorn
   f = { pts, hw, hh, ox, oy, rot, dir, crop, plants }; fieldCache.set(key, f);
   return f;
+}
+/** Zusammengewachsenes Feld: Rand nur zur Wiese hin, Furchen und Pflanzen auf einem durchgehenden Weltraster. */
+function joinedField(t, mask) {
+  const bx = Math.floor(t.x / 3), by = Math.floor(t.y / 3), RB = mulberry32(((bx * 73856093) ^ (by * 19349663) ^ 0x2b1d) >>> 0);
+  const crop = pickCrop(RB() * CROPS.reduce((a, c) => a + c.w, 0)), dir = RB() < 0.5 ? 0 : 1;
+  const con = i => !!(mask & (1 << i)), side = DIRS.map(([dx, dy], i) => ({ dx, dy, c: con(i) }));
+  const ins = d => side.find(q => q.dx === d[0] && q.dy === d[1]).c ? -0.03 : 0.08;
+  const l = ins([-1, 0]), r = 1 - ins([1, 0]), u = ins([0, -1]), b = 1 - ins([0, 1]), cr = 0.14;
+  const pts = [], rc = (x, y, ax, ay, round) => { if (!round) { pts.push([x, y]); return; } for (let k = 0; k <= 4; k++) { const a = k / 4 * Math.PI / 2; pts.push([x + ax * cr * (1 - Math.sin(a)), y + ay * cr * (1 - Math.cos(a))]); } };
+  // Ecken nur runden, wenn beide angrenzenden Seiten zur Wiese zeigen
+  const L = !con(DIRS.findIndex(d => d[0] === -1 && d[1] === 0)), Rr = !con(DIRS.findIndex(d => d[0] === 1 && d[1] === 0)), U = !con(DIRS.findIndex(d => d[0] === 0 && d[1] === -1)), B = !con(DIRS.findIndex(d => d[0] === 0 && d[1] === 1));
+  rc(l, u, 1, 1, L && U); rc(r, u, -1, 1, Rr && U); rc(r, b, -1, -1, Rr && B); rc(l, b, 1, -1, L && B);
+  const sp = crop.id === 'kohl' ? 0.16 : crop.id === 'sonnenblume' ? 0.17 : 0.12, rowSp = crop.id === 'kohl' || crop.id === 'sonnenblume' ? 0.17 : 0.14, plants = [];
+  const A0 = dir ? u : l, A1 = dir ? b : r, B0 = dir ? l : u, B1 = dir ? r : b, ta = dir ? t.y : t.x, tb = dir ? t.x : t.y;
+  for (let gb = Math.ceil((tb + B0 + 0.04) / rowSp); gb * rowSp < tb + B1 - 0.04; gb++) for (let ga = Math.ceil((ta + A0 + 0.03) / sp); ga * sp < ta + A1 - 0.03; ga++) {
+    const H = mulberry32(((ga * 2654435761) ^ (gb * 40503)) >>> 0), a = ga * sp - ta, bb = gb * rowSp + rowSp * 0.5 - tb;
+    if (bb > B1 - 0.03) continue;
+    plants.push({ u: (dir ? bb : a) + (H() - 0.5) * 0.02, v: (dir ? a : bb) + (H() - 0.5) * 0.02, r: H() });
+  }
+  plants.sort((p, q) => p.u + p.v - q.u - q.v);
+  return { pts, joined: true, l, r, u, b, ox: 0, oy: 0, hw: 0.5, hh: 0.5, rot: 0, dir, crop, plants, rowSp };
 }
 
 class Renderer {
@@ -576,22 +601,26 @@ class Renderer {
     c.save(); c.beginPath(); c.rect(x - e, y - e, s + 2 * e, s + 2 * e); c.clip();
     if (t.type === 'field') { // Acker mit eigener Form: Gras drumherum, Erde mit Furchen, Grasbüschel am Rand
       c.restore(); this.drawGroundTile(c, { __proto__: t, type: 'grass', traffic: 0 }, s); c.save(); c.beginPath(); c.rect(x - e, y - e, s + 2 * e, s + 2 * e); c.clip();
-      const f = fieldShape(t), P = f.pts.map(([u, v]) => [x + u * s, y + v * s]);
+      const f = fieldShape(t, world), P = f.pts.map(([u, v]) => [x + u * s, y + v * s]);
       const path = () => { c.beginPath(); const m0 = P.length; for (let k = 0; k <= m0; k++) { const a = P[k % m0], b = P[(k + 1) % m0], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2; k ? c.quadraticCurveTo(a[0], a[1], mx, my) : c.moveTo(mx, my); } c.closePath(); };
       c.fillStyle = 'rgba(60,40,20,.35)'; c.save(); c.translate(s * 0.02, s * 0.03); path(); c.fill(); c.restore(); // weicher Rand
       const g = c.createLinearGradient(x, y, x + s, y + s); g.addColorStop(0, '#7e5c3a'); g.addColorStop(1, '#5c4128');
       c.fillStyle = g; path(); c.fill();
       c.save(); path(); c.clip();
-      const cx = x + (0.5 + f.ox) * s, cy = y + (0.5 + f.oy) * s; c.translate(cx, cy); c.rotate(f.rot + (f.dir ? Math.PI / 2 : 0));
-      const L = s * 0.7, step = s * (f.crop.id === 'kohl' || f.crop.id === 'sonnenblume' ? 0.17 : 0.14);
-      for (let k = -6; k <= 6; k++) { const yy = k * step; // Furchen: dunkle Rinne + helle Krume
+      const step = s * (f.crop.id === 'kohl' || f.crop.id === 'sonnenblume' ? 0.17 : 0.14), L = s * 0.7;
+      let k0 = -6, k1 = 6;
+      if (f.joined) { // Furchen auf dem Weltraster, damit sie über Kachelgrenzen weiterlaufen
+        const tb = f.dir ? t.x : t.y; c.translate(x + s * 0.5, y + s * 0.5); if (f.dir) c.rotate(Math.PI / 2);
+        const off = ((tb + 0.5) / f.rowSp % 1) * step; c.translate(0, -off); k0 = -5; k1 = 5;
+      } else { const cx = x + (0.5 + f.ox) * s, cy = y + (0.5 + f.oy) * s; c.translate(cx, cy); c.rotate(f.rot + (f.dir ? Math.PI / 2 : 0)); }
+      for (let k = k0; k <= k1; k++) { const yy = k * step; // Furchen: dunkle Rinne + helle Krume
         c.fillStyle = 'rgba(40,24,10,.5)'; c.fillRect(-L, yy - s * 0.022, L * 2, s * 0.03);
         c.fillStyle = 'rgba(160,120,74,.55)'; c.fillRect(-L, yy + s * 0.02, L * 2, s * 0.022);
       }
       c.restore();
       if (fine) for (let k = 0; k < 18; k++) { c.fillStyle = R() < 0.5 ? 'rgba(40,25,12,.4)' : 'rgba(180,140,90,.45)'; const [u, v] = [0.5 + f.ox + (R() - 0.5) * f.hw * 1.6, 0.5 + f.oy + (R() - 0.5) * f.hh * 1.6]; c.fillRect(x + u * s, y + v * s, s * 0.025, s * 0.02); }
-      c.strokeStyle = 'rgba(70,48,24,.7)'; c.lineWidth = Math.max(1, s * 0.022); path(); c.stroke();
-      if (fine) for (let k = 0; k < P.length; k += 2) { const [px, py] = P[k]; c.fillStyle = k % 4 ? '#5f9a3a' : '#4d8530'; c.beginPath(); c.ellipse(px, py, s * 0.035, s * 0.025, 0, 0, TAU); c.fill(); } // Grasbüschel am Rand
+      if (!f.joined) { c.strokeStyle = 'rgba(70,48,24,.7)'; c.lineWidth = Math.max(1, s * 0.022); path(); c.stroke(); }
+      if (fine && !f.joined) for (let k = 0; k < P.length; k += 2) { const [px, py] = P[k]; c.fillStyle = k % 4 ? '#5f9a3a' : '#4d8530'; c.beginPath(); c.ellipse(px, py, s * 0.035, s * 0.025, 0, 0, TAU); c.fill(); } // Grasbüschel am Rand
     } else if (t.type === 'ford') { // flaches Wasser mit Trittsteinen
       c.fillStyle = 'hsl(195, 45%, 52%)'; c.fillRect(x - e, y - e, s + 2 * e, s + 2 * e);
       c.fillStyle = '#9b958a';
@@ -1135,7 +1164,7 @@ class Renderer {
   drawCrops(c, t, s, now) {
     const p = Math.min(1, t.timer / CONFIG.farming.growMinutes);
     if (p < 0.1) return;
-    const f = fieldShape(t), stage = p < 0.45 ? 1 : p < 1 ? 2 : 3, ripe = stage === 3, g = Math.min(1, p * 1.1), cid = f.crop.id;
+    const f = fieldShape(t, this.sim.world), stage = p < 0.45 ? 1 : p < 1 ? 2 : 3, ripe = stage === 3, g = Math.min(1, p * 1.1), cid = f.crop.id;
     const cx = (t.x + 0.5) * s, cy = (t.y + 0.5) * s, lw = Math.max(1, s * 0.018);
     c.lineCap = 'round';
     const thin = s < 24 ? 2 : 1, stems = s < 40 ? [0] : [-0.025, 0, 0.025];
