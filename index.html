@@ -3401,7 +3401,7 @@ defineAction({
  * ===================================================================== */
 const SKIN = ['#ffe3cf', '#f9d6bd', '#f1c7a0', '#e0ac7e', '#b97f55'];
 const HAIR = ['#2a2a3c', '#f2cf6f', '#e8638a', '#4f8fe0', '#c8ccd8', '#c0522f', '#8a63d6', '#4a2f22', '#3fbf9a'];
-const EYES = ['#3a7bd5', '#2e9e6a', '#9b4fd1', '#d0453a', '#d4a017', '#6b4a30', '#1fa3b5'];
+const EYES = ['#3a7bd5', '#2e9e6a', '#9b4fd1', '#d0569a', '#d4a017', '#6b4a30', '#1fa3b5'];
 /* Isometrische Projektion (Rauten wie in klassischen Aufbauspielen): Weltpixel (x, y) → Bildschirm.
  * Boden wird mit dieser affinen Abbildung gezeichnet, aufrechte Dinge nur an ihren Platz verschoben. */
 const ISO_X = 0.7, ISO_Y = 0.35;
@@ -5779,8 +5779,67 @@ function drawWallPiece(c, s, tx, ty, kind) {
  * ===================================================================== */
 const PIX = { W: 40, H: 40, FX: 20, FY: 37, U: 30, OUTLINE: [36, 22, 15] };
 const pixCache = new Map();
+let PXR = 1, PXMOOD = null; // Auflösung beim Zeichnen (1 = 40×40, 2 = HD 80×80) und Gesichtsausdruck
+const pxq = v => Math.round(v * PXR) / PXR;
+/** Vorlage (Zeichenraster) mit Scale2x verdoppeln – runde Kanten für Kopf und Haare in HD. */
+const tplCache = new Map();
+function tplHD(rows) {
+  let out = tplCache.get(rows); if (out) return out;
+  const h = rows.length, w = Math.max(...rows.map(r => r.length)), at = (x, y) => (rows[Math.max(0, Math.min(h - 1, y))][Math.max(0, Math.min(w - 1, x))] || '.');
+  out = Array.from({ length: h * 2 }, () => Array(w * 2).fill('.'));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const P = at(x, y), A = at(x, y - 1), B = at(x + 1, y), C = at(x - 1, y), D = at(x, y + 1);
+    out[y * 2][x * 2] = C === A && C !== D && A !== B ? A : P;
+    out[y * 2][x * 2 + 1] = A === B && A !== C && B !== D ? B : P;
+    out[y * 2 + 1][x * 2] = D === C && D !== B && C !== A ? C : P;
+    out[y * 2 + 1][x * 2 + 1] = B === D && B !== A && D !== C ? D : P;
+  }
+  out = out.map(r => r.join('')); tplCache.set(rows, out); return out;
+}
+/** Vorlage zeichnen – in HD aus der verdoppelten Vorlage mit halben Rasterpunkten. */
+function pxTpl(c, rows, ox, oy, pal) {
+  const R = PXR, src = R === 2 ? tplHD(rows) : rows;
+  for (let r = 0; r < src.length; r++) for (let k = 0; k < src[r].length; k++) { const col = pal[src[r][k]]; if (col) { c.fillStyle = col; c.fillRect(ox + k / R, oy + r / R, 1 / R, 1 / R); } }
+}
 
-// Kopf (12×11), Blick nach rechts. s Haut, S Hautschatten, L Wimpern, i Iris, p Pupille, w Glanz, m Mund, b Wange
+/* ---- HD-Gesichter als Pixel-Vorlagen (halbe Rasterpunkte, scharf) ----
+ * L Wimper/Linie, W Augenweiß, w Glanz, d Iris dunkel, i Iris, j Iris hell, p Pupille. Vorlagen für das linke Auge (außen = links). */
+const EYE_HD = {
+  normal:       ['.LLLLLL', 'LLddddL', 'WwwdppW', 'WwddppW', 'WiiiiwW', '.jjjjj.', '..LLL..'],
+  blink:        ['.......', '.......', '.......', 'LLLLLLL', '.L...L.', '.......', '.......'],
+  lachen:       ['.......', '.......', '..LLL..', '.L...L.', 'L.....L', '.......', '.......'],
+  wut:          ['LL.....', 'WLLL...', 'WwdLLL.', 'WwddpLL', 'WiiipwW', '.jjjjj.', '..LLL..'],
+  traurig:      ['.....LL', '...LLLW', '.LLdpwW', 'LWddppW', 'WiiiiwW', '.jjjjj.', '..LLL..'],
+  entschlossen: ['.......', '.......', 'LLLLLLL', 'WwdppdW', 'WiiipwW', '.jjjjj.', '..LLL..'],
+  spott:        ['.......', '.......', '.LLLLLL', 'LwdppdW', 'WiiipwW', '.jjjjj.', '..LLL..'],
+  schock:       ['.LLLLL.', 'LWWWWWL', 'WWdddWW', 'WWdpdWW', 'WWdddWW', '.WWWWW.', '..LLL..'],
+};
+const MOUTH_HD = {
+  happy: ['L..L', '.LL.'], neutral: ['LLLL'], lachen: ['LLLL', 'LrrL', '.LL.'], wut: ['.LL.', 'L..L'], traurig: ['.LL.', 'L..L'],
+  schock: ['.LL.', 'LrrL', '.LL.'], spott: ['...L', 'LLL.'], entschlossen: ['LLL.'],
+};
+const mirror = rows => rows.map(r => r.split('').reverse().join(''));
+/** Zeichenraster in halben Punkten setzen (scharf, ohne Kantenglättung). */
+function pxCells(c, rows, ox, oy, pal) { for (let r = 0; r < rows.length; r++) for (let k = 0; k < rows[r].length; k++) { const col = pal[rows[r][k]]; if (col) { c.fillStyle = col; c.fillRect(ox + k / 2, oy + r / 2, 0.5, 0.5); } } }
+/** HD-Gesicht: Augen, Brauen, Mund, Wangen, Träne – je nach Gefühl. eyes: [x, y, gespiegelt, Spalten] (x/y = linke obere Ecke). */
+function pxFaceHD(c, eyes, mouth, mood, happy, blink, iris, skin, hairDark, front) {
+  const key = blink ? 'blink' : (mood && EYE_HD[mood]) ? mood : 'normal';
+  const pal = { L: '#1e1210', W: '#f4f1ec', w: '#ffffff', d: pixRgb(iris, -60), i: pixRgb(iris), j: pixRgb(iris, 55), p: '#120a08' };
+  for (const [ex, ey, mir, cols] of eyes) {
+    c.fillStyle = skin; c.fillRect(ex - 0.5, ey - 0.5, (cols || 7) / 2 + 1, 4.5); // alte Pixel-Augen übermalen
+    let rows = EYE_HD[key]; if (mir) rows = mirror(rows); if (cols && cols < 7) rows = rows.map(r => mir ? r.slice(0, cols) : r.slice(7 - cols));
+    pxCells(c, rows, ex, ey, pal);
+    // Brauen: 7 halbe Punkte, Neigung je Gefühl (innen = zur Gesichtsmitte)
+    const tilt = { wut: 1, traurig: -1, entschlossen: 0.5, schock: -0.5 }[mood] || 0, n = cols || 7;
+    for (let k = 0; k < n; k++) { const t = mir ? 1 - k / (n - 1) : k / (n - 1), dy = Math.round(tilt * t * 2) / 2 - (mood === 'schock' ? 0.5 : 0); c.fillStyle = hairDark; c.fillRect(ex + k / 2, ey - 1.5 + dy, 0.5, 0.5); }
+  }
+  const mk = mood && MOUTH_HD[mood] ? mood : happy ? 'happy' : 'neutral', mr = MOUTH_HD[mk];
+  pxCells(c, mr, mouth[0] - mr[0].length / 4, mouth[1], { L: '#6a241c', r: '#c0445a' });
+  if (happy || mood === 'lachen' || mood === 'spott') for (const [ex, ey, mir, cols] of eyes) { if (cols && cols < 7) continue; c.fillStyle = 'rgba(255,120,130,.55)'; c.fillRect(ex + 0.5, ey + 4, 2, 0.5); }
+  if (mood === 'traurig') { const [ex, ey] = eyes[eyes.length - 1]; c.fillStyle = '#7ac8ff'; c.fillRect(ex + 1, ey + 3.5, 0.5, 1.5); c.fillRect(ex + 0.5, ey + 4.5, 1.5, 0.5); }
+}
+/** Anime-Glanzbögen auf den Haaren (scharfe helle Striche). */
+function pxHairShine(c, x0, x1, y, col) { c.fillStyle = col; const w = x1 - x0; for (const [a, b] of [[0.12, 0.36], [0.52, 0.76]]) { const xa = Math.round((x0 + w * a) * 2) / 2, xb = Math.round((x0 + w * b) * 2) / 2; c.fillRect(xa + 0.5, y, xb - xa - 1, 0.5); c.fillRect(xa, y + 0.5, 0.5, 0.5); c.fillRect(xb - 0.5, y + 0.5, 0.5, 0.5); } }
 const HEAD_TPL = [
   '...ssssss...',
   '..ssssssss..',
@@ -5847,7 +5906,7 @@ function pixHex(col) { // beliebige Farbe → [r, g, b]
 }
 const pixRgb = (rgb, d = 0) => `rgb(${rgb.map(v => clamp(Math.round(v + d), 0, 255)).join(',')})`;
 
-function pixFrame(n, pose, phase, now) {
+function pixFrame(n, pose, phase, now, R = 1) {
   const t = now / 1000 + n.id * 0.37, g = n.gear || {}, wpn = g.weapon;
   const arms = n.sleeping ? 'sleep' : pose.arms;
   let q;
@@ -5863,12 +5922,15 @@ function pixFrame(n, pose, phase, now) {
   const view = n.sleeping ? 'side' : pose.view || 'side';
   const gearKey = SLOTS.map(sl => g[sl] ? g[sl].kind[0] + g[sl].rarity : '-').join('');
   const load = n.inventory.wood + (n.inventory.stone || 0) > 0 ? 1 : 0;
-  const key = [n.id, view, arms, q, pose.tool || '', gearKey, n.profession, n.awakened ? n.cls || 'a' : '', n.color, n.mood > 55 ? 1 : 0, load].join('|');
+  const key = [n.id, view, arms, q, pose.tool || '', gearKey, n.profession, n.awakened ? n.cls || 'a' : '', n.color, n.mood > 55 ? 1 : 0, load, R, pose.mood || ''].join('|');
   let cv = pixCache.get(key);
   if (cv) return cv;
-  cv = document.createElement('canvas'); cv.width = PIX.W; cv.height = PIX.H;
-  if (view === 'side') pixPaint(cv.getContext('2d'), n, arms, q, pose, load);
-  else pixPaintFront(cv.getContext('2d'), n, view, q, load);
+  cv = document.createElement('canvas'); cv.width = PIX.W * R; cv.height = PIX.H * R;
+  const ctx = cv.getContext('2d'); ctx.scale(R, R); PXR = R; PXMOOD = pose.mood || null;
+  try {
+    if (view === 'side') pixPaint(ctx, n, arms, q, pose, load);
+    else pixPaintFront(ctx, n, view, q, load);
+  } finally { PXR = 1; PXMOOD = null; }
   if (pixCache.size > 1500) pixCache.delete(pixCache.keys().next().value);
   pixCache.set(key, cv);
   return cv;
@@ -5878,24 +5940,24 @@ function pixPaint(c, n, arms, q, pose, load) {
   const U = PIX.U, FX = PIX.FX, FY = PIX.FY, g = n.gear || {}, wpn = g.weapon;
   const Pal = pixPalette(n), style = HAIR_STYLES[(n.id * 5 + 1) % HAIR_STYLES.length], outfit = pixOutfit(n, g);
   const { SK, SKD, HR, HRD, HRL, SH, SHD, SHL, PA, PAD } = Pal;
-  const INK = pixRgb(PIX.OUTLINE);
-  const pr = (x, y, w, h, col) => { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); };
-  const pl = (x0, y0, x1, y1, w, col) => {
-    c.fillStyle = col; x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
-    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, o = Math.floor(w / 2);
+  const INK = pixRgb(PIX.OUTLINE), R = PXR;
+  const pr = (x, y, w, h, col) => { c.fillStyle = col; c.fillRect(pxq(x), pxq(y), Math.max(1 / R, pxq(w)), Math.max(1 / R, pxq(h))); };
+  const pl = (x0, y0, x1, y1, w, col) => { // Linie auf dem (in HD feineren) Raster
+    c.fillStyle = col; x0 = Math.round(x0 * R); y0 = Math.round(y0 * R); x1 = Math.round(x1 * R); y1 = Math.round(y1 * R);
+    const W2 = Math.max(1, Math.round(w * R)), dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, o = Math.floor(W2 / 2);
     let err = dx + dy;
-    for (let k = 0; k < 200; k++) { c.fillRect(x0 - o, y0 - o, w, w); if (x0 === x1 && y0 === y1) break; const e2 = 2 * err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; } }
+    for (let k = 0; k < 400; k++) { c.fillRect((x0 - o) / R, (y0 - o) / R, W2 / R, W2 / R); if (x0 === x1 && y0 === y1) break; const e2 = 2 * err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; } }
   };
   const poly = (pts, col) => {
-    c.fillStyle = col; const ys = pts.map(p => p[1]);
+    c.fillStyle = col; const ys = pts.map(p => p[1] * R);
     for (let y = Math.floor(Math.min(...ys)); y < Math.ceil(Math.max(...ys)); y++) {
-      const yc = y + 0.5, xs = [];
+      const yc = (y + 0.5) / R, xs = [];
       for (let i = 0; i < pts.length; i++) { const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % pts.length]; if ((ay <= yc && by > yc) || (by <= yc && ay > yc)) xs.push(ax + (yc - ay) / (by - ay) * (bx - ax)); }
       xs.sort((a, b) => a - b);
-      for (let k = 0; k + 1 < xs.length; k += 2) { const xa = Math.round(xs[k]), xb = Math.round(xs[k + 1]); if (xb > xa) c.fillRect(xa, y, xb - xa, 1); }
+      for (let k = 0; k + 1 < xs.length; k += 2) { const xa = Math.round(xs[k] * R), xb = Math.round(xs[k + 1] * R); if (xb > xa) c.fillRect(xa / R, y / R, (xb - xa) / R, 1 / R); }
     }
   };
-  const tpl = (rows, ox, oy, pal) => { for (let r = 0; r < rows.length; r++) for (let k = 0; k < rows[r].length; k++) { const col = pal[rows[r][k]]; if (col) { c.fillStyle = col; c.fillRect(ox + k, oy + r, 1, 1); } } };
+  const tpl = (rows, ox, oy, pal) => pxTpl(c, rows, ox, oy, pal);
 
   if (arms === 'sleep') { // liegt unter einer Decke
     poly([[FX - 9, FY - 1], [FX + 10, FY - 1], [FX + 11, FY - 5], [FX - 8, FY - 6]], SH);
@@ -6025,9 +6087,11 @@ function pixPaint(c, n, arms, q, pose, load) {
   const happy = n.mood > 55;
   const blink = q === 'ib';
   tpl(HEAD_TPL, hx, hy, { s: SK, S: SKD, L: blink ? SK : '#1e1210', i: blink ? SK : Pal.IR, p: blink ? SK : '#140c0a', w: blink ? SK : '#ffffff', m: '#8a3a2e', b: happy ? '#f4a3a3' : SK });
-  if (blink) { pr(hx + 4, hy + 6, 2, 1, '#1e1210'); pr(hx + 8, hy + 6, 3, 1, '#1e1210'); }
+  if (R === 2) { // HD-Gesicht im Profil: zwei Augen (das ferne schmaler), Brauen, Mund
+    pxFaceHD(c, [[hx + 4, hy + 4, true, 4], [hx + 7.5, hy + 4, true, 7]], [hx + 9.5, hy + 8.5], PXMOOD, happy, blink, pixHex(Pal.IR), SK, Pal.HRD, false);
+  } else if (blink) { pr(hx + 4, hy + 6, 2, 1, '#1e1210'); pr(hx + 8, hy + 6, 3, 1, '#1e1210'); }
   const hat = !n.awakened && CONFIG.professions[n.profession] ? CONFIG.professions[n.profession].hat : null;
-  if (!g.helmet && hat !== 'straw' && hat !== 'cap' && hat !== 'miner') tpl(HAIR_TPL[HAIR_FRONT_OF[style]], hx - 1, hy - 2, { h: HR, H: HRD, l: HRL });
+  if (!g.helmet && hat !== 'straw' && hat !== 'cap' && hat !== 'miner') { tpl(HAIR_TPL[HAIR_FRONT_OF[style]], hx - 1, hy - 2, { h: HR, H: HRD, l: HRL }); if (R === 2) pxHairShine(c, hx + 1, hx + 10, hy - 1, HRL); }
   if (g.helmet) {
     const r = g.helmet.rarity, mc = pixHex(METAL[r]);
     poly([[hx - 1, hy + 4], [hx - 1, hy + 1], [hx + 2, hy - 2], [hx + 9, hy - 2], [hx + 12, hy + 1], [hx + 12, hy + 3]], pixRgb(mc));
@@ -6110,9 +6174,9 @@ function pixOutfit(n, g) { return n.awakened && !g.armor ? (n.cls || null) : nul
 
 function pixPaintFront(c, n, view, q, load) {
   const FX = PIX.FX, FY = PIX.FY, g = n.gear || {}, P = pixPalette(n), front = view === 'down';
-  const style = HAIR_STYLES[(n.id * 5 + 1) % HAIR_STYLES.length], outfit = pixOutfit(n, g);
-  const pr = (x, y, w, h, col) => { c.fillStyle = col; c.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); };
-  const tpl = (rows, ox, oy, pal) => { for (let r = 0; r < rows.length; r++) for (let k = 0; k < rows[r].length; k++) { const col = pal[rows[r][k]]; if (col) { c.fillStyle = col; c.fillRect(ox + k, oy + r, 1, 1); } } };
+  const style = HAIR_STYLES[(n.id * 5 + 1) % HAIR_STYLES.length], outfit = pixOutfit(n, g), R = PXR;
+  const pr = (x, y, w, h, col) => { c.fillStyle = col; c.fillRect(pxq(x), pxq(y), Math.max(1 / R, pxq(w)), Math.max(1 / R, pxq(h))); };
+  const tpl = (rows, ox, oy, pal) => pxTpl(c, rows, ox, oy, pal);
   const walking = q[0] === 'w', fr = +q.slice(1) || 0, s1 = walking ? Math.sin(fr / 8 * TAU) : 0;
   const cheer = q[0] === 'j', bob = walking ? Math.round(Math.abs(s1)) : cheer ? (q === 'j1' ? 3 : 0) : (q === 'i1' ? 1 : 0);
   const hipY = FY - 10 - bob, shY = hipY - 8, hx = FX - 6, hy = shY - 11;
@@ -6165,10 +6229,12 @@ function pixPaintFront(c, n, view, q, load) {
   const blink = q === 'ib', happy = n.mood > 55;
   if (front) {
     tpl(HEAD_FRONT, hx, hy, { s: P.SK, S: P.SKD, L: blink ? P.SK : '#1e1210', i: blink ? P.SK : P.IR, p: blink ? P.SK : '#140c0a', w: blink ? P.SK : '#ffffff', m: '#8a3a2e', b: happy ? '#f4a3a3' : P.SK });
-    if (blink) { pr(hx + 2, hy + 6, 3, 1, '#1e1210'); pr(hx + 7, hy + 6, 3, 1, '#1e1210'); }
+    if (R === 2) { // HD-Gesicht von vorn: große Anime-Augen
+      pxFaceHD(c, [[hx + 1.5, hy + 4, false, 7], [hx + 7, hy + 4, true, 7]], [hx + 6, hy + 8.5], PXMOOD, happy, blink, pixHex(P.IR), P.SK, P.HRD, true);
+    } else if (blink) { pr(hx + 2, hy + 6, 3, 1, '#1e1210'); pr(hx + 7, hy + 6, 3, 1, '#1e1210'); }
   } else tpl(HAIR_BACK_TPL, hx - 1, hy - 2, { h: P.HR, H: P.HRD, l: P.HRL });
   const hat = !n.awakened && CONFIG.professions[n.profession] ? CONFIG.professions[n.profession].hat : null;
-  if (!g.helmet && front && hat !== 'straw' && hat !== 'cap' && hat !== 'miner') tpl(HAIR_FRONT_TPL, hx - 1, hy - 2, { h: P.HR, H: P.HRD, l: P.HRL });
+  if (!g.helmet && front && hat !== 'straw' && hat !== 'cap' && hat !== 'miner') { tpl(HAIR_FRONT_TPL, hx - 1, hy - 2, { h: P.HR, H: P.HRD, l: P.HRL }); if (R === 2) pxHairShine(c, hx + 0.5, hx + 11.5, hy - 1, P.HRL); }
   if (!g.helmet && !front) {
     if (style === 'ponytail') pr(FX - 1, hy + 9, 3, 6, P.HRD);
     if (style === 'bun') pr(FX - 2, hy - 4, 5, 3, P.HRD);
@@ -6208,7 +6274,7 @@ function pixTool(c, pl, poly, pr, kind, rarity, h, a, len, weapon) {
 
 /** Dunkler Umriss um alles Gezeichnete (klassischer Pixel-Art-Rand). */
 function pixOutline(c) {
-  const W = PIX.W, H = PIX.H, img = c.getImageData(0, 0, W, H), d = img.data, [r, g, b] = PIX.OUTLINE;
+  const W = c.canvas.width, H = c.canvas.height, img = c.getImageData(0, 0, W, H), d = img.data, [r, g, b] = PIX.OUTLINE;
   const op = i => d[i * 4 + 3] > 40, add = [];
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x;
@@ -6249,10 +6315,19 @@ function pixHDRaw(cv) {
   return hd;
 }
 function pixHD(cv) { let hd = pixHDCache.get(cv); if (!hd) { hd = pixHDRaw(cv); pixHDCache.set(cv, hd); } return hd; }
+/** Einmal glätten (für HD-Figuren, die schon im 80er-Raster gezeichnet sind). */
+const pixHD1Cache = new WeakMap();
+function pixHD1(cv) {
+  let hd = pixHD1Cache.get(cv); if (hd) return hd;
+  const w0 = cv.width, h0 = cv.height, d = scale2x(new Uint32Array(cv.getContext('2d').getImageData(0, 0, w0, h0).data.buffer.slice(0)), w0, h0);
+  hd = document.createElement('canvas'); hd.width = w0 * 2; hd.height = h0 * 2;
+  hd.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(d.buffer), w0 * 2, h0 * 2), 0, 0);
+  pixHD1Cache.set(cv, hd); return hd;
+}
 
 /** Pixel-Figur ins Bild setzen (scharf vergrößert), plus Aura, Schimmer und Pfeile. */
 Renderer.prototype.drawSettlerPixel = function (c, n, px, py, s, now, pose, phase) {
-  const base = pixFrame(n, pose, phase, now), hd = s >= HD_FROM, cv = hd ? pixHD(base) : base, f = cv.width / PIX.W, k = (0.66 * s) / 26 / f, t = now / 1000 + n.id * 0.37;
+  const hd = s >= HD_FROM, base = pixFrame(n, pose, phase, now, hd ? 2 : 1), cv = s >= 110 ? pixHD1(base) : base, f = cv.width / PIX.W, k = (0.66 * s) / 26 / f, t = now / 1000 + n.id * 0.37;
   const fx = px, fy = py + s * 0.38;
   if (n.awakened && !n.sleeping) { // Aura
     const col = n.cls ? CLASSES[n.cls].color : '#8fd3ff', gr = c.createRadialGradient(fx, fy, 0, fx, fy, s * 0.36);
@@ -7125,11 +7200,9 @@ function drawFace(cv, n, who, mood, faceKind = null) {
   c.fillStyle = g; c.fillRect(0, 0, W, W);
   c.imageSmoothingEnabled = false;
   if (n) {
-    const f = pixFrame(n, { arms: 'none', moving: false, facing: 1, view: 'down' }, 0, performance.now());
-    const tmp = document.createElement('canvas'); tmp.width = PIX.W; tmp.height = PIX.H;
-    const tc = tmp.getContext('2d'); tc.drawImage(f, 0, 0); tc.translate(9, 3); drawExpression(tc, n, mood, 1); // Gefühl vor dem Hochrechnen
+    const f = pixFrame(n, { arms: 'none', moving: false, facing: 1, view: 'down', mood: mood && mood !== 'normal' ? mood : null }, 0, performance.now(), 2); // HD-Gesicht mit Gefühl
     c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
-    c.drawImage(pixHDRaw(tmp), 36, 12, 88, 88, 0, 0, W, W);
+    c.drawImage(pixHD1(f), 36, 12, 88, 88, 0, 0, W, W);
   } else if (who) {
     const kind = faceKind || (who === 'Kronenfresser' ? 'aschegolem' : 'banditenboss');
     c.save(); if (who === 'Kronenfresser') c.filter = 'hue-rotate(-30deg) saturate(1.5)';
@@ -7929,7 +8002,7 @@ function drawPortrait(cv, n) {
   c.fillStyle = col; c.globalAlpha = 0.35; c.beginPath(); c.arc(36, 40, 30, 0, TAU); c.fill(); c.globalAlpha = 1;
   const f = pixFrame(n, { arms: 'none', moving: false, facing: 1, view: 'down' }, 0, performance.now());
   c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
-  c.drawImage(pixHD(f), 32, 8, 96, 96, 0, 0, 72, 72); // HD-Porträt
+  c.drawImage(pixHD1(pixFrame(n, { arms: 'none', moving: false, facing: 1, view: 'down' }, 0, performance.now(), 2)), 32, 8, 96, 96, 0, 0, 72, 72); // HD-Porträt
 }
 
 /** Kleines Fenster für Sichern/Laden (ohne prompt/alert). */

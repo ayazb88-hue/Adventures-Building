@@ -28,7 +28,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
   | `src/guild.js` | Erfolge (`ACHIEVEMENTS`, stündlich geprüft) und Gruppen-Expeditionen der Gilde (Riss-Boss, Beute) |
   | `src/render.js` | Grafik: Sprites, Gebäude, Licht, Partikel, Minikarte (gezeichnete Figuren als Alternative) |
   | `src/iso.js` | Isometrische Gebäude: Bausteine (`isoKit`: Wände, Satteldach, Walmdach, Rundturm, Zinnen, Fenster, Türen, Fachwerk, Mauerwerk) und alle Gebäude (`isoHouse`, `isoCastle`, `isoSmithy` …). Ursprung = Mitte der Grundfläche |
-  | `src/pixel.js` | Pixel-Art-Figuren (Standard): Posen auf 40×40-Raster, Kopf-/Haar-Vorlagen, Umriss, Bild-Cache |
+  | `src/pixel.js` | Pixel-Art-Figuren (Standard): Posen auf 40×40-Raster, ab Zoom `HD_FROM` doppelt fein (`R = 2`, 80×80, halbe Punkte); Kopf-/Haar-Vorlagen, HD-Anime-Augen/Münder je Gefühl (`EYE_HD`, `MOUTH_HD`, `pxFaceHD`), Umriss, Bild-Cache |
   | `src/story.js` | Handlung: Kapitel der Chronik, Hauptfigur, Rivale + Duelle, Boss „Kronenfresser“, Lebensziele, Spieler-Gedanken, Tagebuch |
   | `src/sound.js` | Live erzeugter Klang |
   | `src/rift.js` | Riss-Welten: eigene Szene je Riss, wenn eine ausgewählte Person im Riss ist |

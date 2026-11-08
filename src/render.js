@@ -8,7 +8,7 @@
  * ===================================================================== */
 const SKIN = ['#ffe3cf', '#f9d6bd', '#f1c7a0', '#e0ac7e', '#b97f55'];
 const HAIR = ['#2a2a3c', '#f2cf6f', '#e8638a', '#4f8fe0', '#c8ccd8', '#c0522f', '#8a63d6', '#4a2f22', '#3fbf9a'];
-const EYES = ['#3a7bd5', '#2e9e6a', '#9b4fd1', '#d0453a', '#d4a017', '#6b4a30', '#1fa3b5'];
+const EYES = ['#3a7bd5', '#2e9e6a', '#9b4fd1', '#d0569a', '#d4a017', '#6b4a30', '#1fa3b5'];
 /* Isometrische Projektion (Rauten wie in klassischen Aufbauspielen): Weltpixel (x, y) → Bildschirm.
  * Boden wird mit dieser affinen Abbildung gezeichnet, aufrechte Dinge nur an ihren Platz verschoben. */
 const ISO_X = 0.7, ISO_Y = 0.35;
