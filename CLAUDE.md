@@ -24,6 +24,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
   | `src/head.html` | HTML-Gerüst, CSS, Oberfläche |
   | `src/core.js` | `CONFIG`, Klassen, Fähigkeiten, Ausrüstung, Welt + Kartengenerierung, `Settlement` |
   | `src/logic.js` | Aktionen (Utility-KI), NPC, Simulation (Monster, Königreich, Speichern) |
+  | `src/realm.js` | Nachbarreich (Feste, Diplomatie mit Wahl, Krieg, Belagerung, Vasall/Bündnis) und Stadtmauer |
   | `src/render.js` | Grafik: Sprites, Gebäude, Licht, Partikel, Minikarte (gezeichnete Figuren als Alternative) |
   | `src/iso.js` | Isometrische Gebäude: Bausteine (`isoKit`: Wände, Satteldach, Walmdach, Rundturm, Zinnen, Fenster, Türen, Fachwerk, Mauerwerk) und alle Gebäude (`isoHouse`, `isoCastle`, `isoSmithy` …). Ursprung = Mitte der Grundfläche |
   | `src/pixel.js` | Pixel-Art-Figuren (Standard): Posen auf 40×40-Raster, Kopf-/Haar-Vorlagen, Umriss, Bild-Cache |
@@ -50,9 +51,9 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
 1. ✅ Siedler, Häuser, Tag/Nacht, Speichern, Erwachte, Risse, Ausrüstung, Schmiede, Felder, Monster, Gilde, Königreich mit Burg und Außenposten
    - Fertigkeiten für alle Siedler (`SKILL_INFO`, `skillLevel`): Stufen aus Arbeitspunkten, Boni auf Tempo/Ernte, Richtfest-Bonus beim Hausbau
 2. ✅ Handel und Markt: Marktplatz, Markttag (Münzen), Händlerkarren zwischen den Orten, fahrender Händler mit Kristallen
-3. ✅ Stein und neue Gebäude: Steinmetze und Steinbruch, Wachtürme (schießen auf Monster), Taverne (Abendtreff, Musik, kostet Münzen), Tempel (Heilung, Laune). Offen: Stadtmauer
+3. ✅ Stein und neue Gebäude: Steinmetze und Steinbruch, Wachtürme (schießen auf Monster), Taverne (Abendtreff, Musik, kostet Münzen), Tempel (Heilung, Laune). Stadtmauer ✅ (Fahrplan 4)
 3b. ✅ Handlung (Kapitel, Hauptfigur, Rivale, roter Riss, Boss), Info-Fenster im Anime-Stil, Riss-Welten, Gebäude-Stufen I–III, Verstärkung +1…+10, Forsthaus, Bauernhof, Gildenhalle (Gilden-Stufe), Haustiere und Zähmen, Erzähler-Kamera
-4. 🔶 Banditen ✅ (Rotschal-Bande überfällt das Lager, Hauptmann ab Tag 12), Handel mit Lagerwaren ✅. Offen: rivalisierende Königreiche, Diplomatie, Belagerung
+4. ✅ Banditen (Rotschal-Bande), Handel mit Lagerwaren, Nachbarreich mit Diplomatie (Spieler wählt, sonst Regentschaft), Krieg und Belagerung, Vasall/Bündnis, Stadtmauer; Brücken über Furten, Boote
 4b. ✅ Anime-Modus: Folgen mit Titel/Rückblick/Cliffhanger, Szenen mit Porträt-Dialogen und Effekten, Regisseur, Persönlichkeiten, Musik-Motive, Hauptfigur von Anfang an. Dazu Szenen für Treue-Schwur, Gildenversammlung, Tagebuch-Monolog, Zähmung, Riss-Rückkehr, Krönung, Fall des Hauptmanns, Level-Meilensteine; Gesichtsausdrücke im Pixel-Gesicht (`drawExpression`); Rivale mit silbernem Haar. Ideen: Vorspann-Lied
 5. Bosse aus Rissen höheren Rangs, Gruppen-Expeditionen der Gilde
 6. Optional: wenige Erwachte denken mit einem echten Sprachmodell (nur mit API-Schlüssel, sparsam)

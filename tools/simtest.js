@@ -18,7 +18,7 @@ const days = Number(process.argv[2] || 14), seeds = (process.argv[3] || '7,42').
       return { ms: Math.round(performance.now() - t0), pop: s.npcs.length, towns: s.towns.map(t => `${t.name}:${t.members.length}/${t.houses.length}h`).join(' '),
         kingdom: s.kingdom && s.kingdom.name, castle: !!s.capital.castle, awakened: s.npcs.filter(n => n.awakened).map(n => `${n.name} L${n.level} ${n.cls || '-'}`).join(', '),
         avgHunger: Math.round(s.npcs.reduce((a, n) => a + n.hunger, 0) / s.npcs.length), cutOff: cut.join('/'),
-        story: s.story.chronicle.map(c => `${c.id}@${c.day}`).join(' '), duels: `${s.story.duel.heroWins}/${s.story.duel.count}`, boss: s.story.bossDead ? 'besiegt' : s.story.bossHp != null ? `lebt ${s.story.bossHp}` : '-' };
+        story: s.story.chronicle.map(c => `${c.id}@${c.day}`).join(' '), duels: `${s.story.duel.heroWins}/${s.story.duel.count}`, realm: s.realm.rival ? `${s.realm.rival.name} ${s.realm.rival.state} rel${s.realm.rival.relation} bel${s.realm.sieges}/${s.realm.siegeWins} mauer${s.realm.wall ? Math.round(s.realm.wall.progress * 100) : '-'}%` : '-', boss: s.story.bossDead ? 'besiegt' : s.story.bossHp != null ? `lebt ${s.story.bossHp}` : '-' };
     }, days);
     console.log(`Welt ${seed}:`, JSON.stringify(r));
   }

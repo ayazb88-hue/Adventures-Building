@@ -59,6 +59,15 @@
   #chapter .ch-text { max-width: 440px; font: italic 15px/1.55 Georgia, serif; color: #e8dcc0; }
   #chapter .ch-tap { margin-top: 16px; font-size: 11px; color: #ffffff66; }
   @keyframes chIn { from { opacity: 0; } to { opacity: 1; } }
+  #diplo { position: absolute; left: 8px; right: 56px; bottom: 8px; z-index: 6; padding: 10px 12px; border-radius: 12px; border: 1px solid #f0b54acc;
+    background: linear-gradient(180deg, #2a1c0cf0, #140c06f4); color: #f3ead6; box-shadow: 0 6px 24px #000a; font-size: 13px; }
+  #diplo[hidden] { display: none; }
+  #diplo .d-top { font-size: 10px; letter-spacing: .25em; color: #f0b54a; font-weight: 800; }
+  #diplo .d-title { font: 700 15px Georgia, serif; margin: 2px 0 4px; }
+  #diplo .d-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  #diplo button { padding: 7px 6px; border-radius: 9px; border: 1px solid #f0b54a88; background: #3a2810; color: #fff; font-size: 12px; font-weight: 700; }
+  #diplo button:disabled { opacity: .4; }
+  #diplo button small { display: block; font-weight: 500; color: #d9cfb8; }
   #scene { position: absolute; inset: 0; z-index: 8; background: #000; cursor: pointer; user-select: none; -webkit-user-select: none; }
   #scene[hidden] { display: none; }
   #sceneCv { display: block; }
@@ -228,6 +237,7 @@
     <button id="chronikBtn" class="mapBtn" style="top:56px" aria-label="Chronik der Geschichte">📖</button>
     <button id="cineBtn" class="mapBtn" style="top:104px" aria-label="Erzähler-Modus">🎬</button>
     <div id="narr" hidden></div>
+    <div id="diplo" hidden></div>
     <div id="scene" hidden>
       <canvas id="sceneCv"></canvas>
       <div id="sceneTitle" hidden><div class="st-top"></div><div class="st-main"></div><div class="st-sub"></div></div>

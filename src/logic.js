@@ -553,6 +553,8 @@ const MONSTERS = {
   aschegolem:   { name: 'Aschegolem', hp: 180, atk: 14, speed: 0.13, tier: 3, xp: 110 },
   bandit:       { name: 'Bandit', hp: 55, atk: 6, speed: 0.2, tier: 2, xp: 40 },
   banditenboss: { name: 'Rotschal-Hauptmann', hp: 200, atk: 11, speed: 0.17, tier: 3, xp: 150 },
+  ritter:       { name: 'Dornritter', hp: 85, atk: 8, speed: 0.22, tier: 2, xp: 60 },
+  feldherr:     { name: 'Feldherr', hp: 300, atk: 13, speed: 0.2, tier: 3, xp: 250 },
   kronenfresser:{ name: 'Kronenfresser', hp: 1400, atk: 13, speed: 0.11, tier: 4, xp: 600 }, // Boss der Geschichte
 };
 function nearestMonster(n, sim, r) {
@@ -562,8 +564,10 @@ function nearestMonster(n, sim, r) {
 }
 function killMonster(m, n, sim) {
   const M = MONSTERS[m.kind];
+  if (m.gone) return; // schon abgezogen
   m.hp = 0; m.killer = n;
   if (m.bandit) return defeatBandit(m, n, sim);
+  if (m.army) return defeatSoldier(m, n, sim);
   const drop = M.tier >= 4 ? 15 : M.tier === 3 ? 2 : sim.rng() < 0.4 ? 1 : 0;
   n.town.stock.crystals += drop;
   sim.log(`⚔️ besiegt einen ${M.name}! (+${M.xp} EP${drop ? `, +${drop} 💎` : ''})`, n, true);
@@ -607,7 +611,7 @@ defineAction({
     const res = sim.world.findAdjacent(n.x, n.y, t => t === mt, 3000);
     n.foe = m;
     return [move(res ? res.path.slice(0, 8) : []), act((n, sim, s) => {
-      if (m.hp <= 0 || Math.hypot(m.x - n.x, m.y - n.y) > 1.7) return 'done';
+      if (m.hp <= 0 || m.gone || Math.hypot(m.x - n.x, m.y - n.y) > 1.7) return 'done';
       if (Math.abs(m.x - n.x) > 0.1) n.facing = m.x > n.x ? 1 : -1;
       if (s.t % 2) return;
       const dmg = Math.round(n.attack * (0.8 + sim.rng() * 0.4));
@@ -1196,7 +1200,7 @@ class NPC {
  * 7) SIMULATION: Zeit, Wetter, Wachstum, Ereignisse, Log, Speichern
  * ===================================================================== */
 const TILE_TYPES = Object.keys(TILE_DEFS);
-const SAVE_VERSION = 7; // 6: Geschichte (story), Lebensziele, Tagebuch · 7: Folgen und Höhepunkte (story.episode/highlights)
+const SAVE_VERSION = 8; // 6: Geschichte · 7: Folgen und Höhepunkte · 8: Nachbarreich, Diplomatie, Stadtmauer (realm)
 // Reihenfolge der Geländearten in älteren Spielständen (dort wurden Kacheln als Nummer gespeichert)
 const BASE_TYPES = ['grass', 'tree', 'stump', 'water', 'bush', 'camp', 'site', 'house', 'rock'];
 const OLD_TYPE_LISTS = {
@@ -1228,6 +1232,7 @@ class Simulation {
     this.firstAwakening = !!(save && save.firstAwakening);
     this.on('buildingCompleted', b => this.onHouseBuilt(b));
     this.story = new Story(this, save ? save.story : null, !!save);
+    this.realm = new Realm(this, save ? save.realm : null);
   }
 
   get settlement() { return this.towns[0]; }
@@ -1476,6 +1481,7 @@ class Simulation {
       if (best.hp <= 0) {
         const M = MONSTERS[best.kind];
         if (best.bandit) { best.hp = 0; defeatBandit(best, null, this); continue; }
+        if (best.army) { best.hp = 0; defeatSoldier(best, null, this); continue; }
         tw.stock.crystals += M.tier === 3 ? 2 : 1;
         this.log(`🏹 Ein Wachturm von ${tw.name} erlegt einen ${M.name}! (+💎)`, null, true);
         this.emit('monsterKilled', best);
@@ -1608,6 +1614,7 @@ class Simulation {
 
   updateMonster(m) {
     if (m.bandit) return this.updateBandit(m);
+    if (m.army) return updateArmy(this, m);
     const M = MONSTERS[m.kind];
     m.prevX = m.x; m.prevY = m.y;
     let target = null, bd = 9;
@@ -1724,6 +1731,7 @@ class Simulation {
     if (this.minutes % 1440 === 20 * 60) for (const m of this.monsters) if (m.bandit && m.state !== 'flee') this.banditFlee(m); // bei Einbruch der Nacht
     for (const npc of this.npcs) npc.update(this);
     this.story.update();
+    this.realm.update();
     this.updateMonsters();
     this.updateTowers();
     this.updateTrade();
@@ -1743,7 +1751,7 @@ class Simulation {
     return {
       v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock, items: t.items || [],
         site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work, upgrade: t.site.upgrade ? t.site.upgrade.id : null } })),
-      story: this.story.serialize(), guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
+      story: this.story.serialize(), realm: this.realm.serialize(), guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
       seed: this.seed, minutes: this.minutes, weather: this.weather, firstAwakening: this.firstAwakening,
       gates: this.world.gates.map(g => [g.gate.cleared, g.gate.failed]),

@@ -529,6 +529,20 @@ function pixCreature(kind, frame, attack, flash, antlers) {
     el(FX, y - 4, 4, 3, '#9c8a76'); el(FX - 1, y - 3, 3, 1, '#857462'); el(FX + 4, y - 7, 2, 2, '#9c8a76');
     pr(FX + 3, y - 12, 1, 4, '#9c8a76'); pr(FX + 5, y - 12, 1, 4, '#8a7864'); pr(FX + 5, y - 8, 1, 1, '#1d1410');
     pr(FX - 5, y - 5, 2, 2, '#ffffff');
+  } else if (kind === 'ritter' || kind === 'feldherr') { // Heer des Nachbarreichs: Rüstung, Wappenrock, Helm
+    const boss = kind === 'feldherr', sw = [0, 2, 0, -2][frame & 3], atk = attack ? 3 : 0;
+    const steel = '#9aa3ad', dark = '#5c646e', tab = '#7a1e3a', skin = '#e0b08a';
+    if (boss) pr(FX - 6, FY - 18, 3, 14, '#5a1428');
+    pl(FX - 2, FY - 7, FX - 2 - sw / 2, FY - 1, 2, dark); pl(FX + 2, FY - 7, FX + 2 + sw / 2, FY - 1, 2, dark);
+    pr(FX - 4 - sw / 2, FY - 1, 3, 1, '#2a2a30'); pr(FX + 1 + sw / 2, FY - 1, 3, 1, '#2a2a30');
+    pr(FX - 4, FY - 16, 8, 9, steel); pr(FX - 3, FY - 15, 6, 8, tab); pr(FX - 1, FY - 13, 2, 3, '#f0c35a');
+    pl(FX - 3, FY - 15, FX - 5, FY - 10, 2, steel); pr(FX - 7, FY - 13, 3, 5, '#7a5a3a'); // Schild
+    pl(FX + 3, FY - 15, FX + 6 + atk, FY - 11, 2, steel); pr(FX + 6 + atk, FY - 12, 2, 2, skin);
+    if (boss) { pl(FX + 7 + atk, FY - 11, FX + 13 + atk, FY - 19, 1, '#e8eef2'); pr(FX + 6 + atk, FY - 12, 3, 1, '#c9a032'); }
+    else pl(FX + 7 + atk, FY - 6, FX + 9 + atk, FY - 24, 1, '#6b4426'), pr(FX + 9 + atk, FY - 26, 1, 3, '#d8dde2');
+    el(FX, FY - 21, 4, 4, steel); pr(FX - 4, FY - 25, 8, 2, dark); pr(FX + 1, FY - 21, 4, 1, '#1a1a20'); // Helm mit Sehschlitz
+    if (boss) { pr(FX - 1, FY - 29, 2, 4, '#c8302a'); pr(FX - 3, FY - 27, 6, 1, '#c9a032'); }
+    else pr(FX - 1, FY - 27, 2, 2, tab);
   } else if (kind === 'bandit' || kind === 'banditenboss') { // Rotschal-Bande: Schal, Maske, Dolch / Hauptmann mit Axt
     const boss = kind === 'banditenboss', sw = [0, 2, 0, -2][frame & 3], atk = attack ? 3 : 0;
     const coat = boss ? '#4a2a22' : '#5a4632', dark = '#2a2018', scarf = '#c8302a', skin = '#e0b08a', hood = boss ? '#2a1e18' : '#3a3228';

@@ -195,6 +195,7 @@ const TILE_DEFS = {
   bauernhof:   { name: 'Bauernhof',   walkable: false },
   gildenhalle: { name: 'Gildenhalle', walkable: false },
   lagerhaus:   { name: 'Lagerhaus',   walkable: false },
+  feste:       { name: 'Feste',       walkable: false }, // Burg des Nachbarreichs
 };
 
 class World {

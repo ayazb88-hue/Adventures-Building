@@ -68,6 +68,9 @@ Die Karte wird **isometrisch** gezeigt – als Rautenraster wie in klassischen A
 - **Hausformen:** Fachwerkhaus, Strohdach-Kate, Steinhaus mit Efeu, Walmdachhaus mit Gaube und Balkon, in der Stadtmitte Stadthäuser.
 - **Banditen:** Ab Tag 7 überfällt die Rotschal-Bande manchmal tagsüber das Lager des reichsten Ortes, ab Tag 12 mit ihrem Hauptmann. Sie stopfen Münzen, Kristalle und Brot in Säcke (sichtbar auf dem Rücken) und fliehen. Wer sie besiegt (Erwachte oder Wachtürme), holt die Beute zurück. Arbeiter verstecken sich.
 - **Handel mit dem Lager:** Der fahrende Händler kauft übrige Ausrüstung und zu viel Stein, verkauft Brot und Stein, wenn es knapp wird. Alles steht im Handelsbuch des Lagers.
+- **Nachbarreich:** Nach der Königreichsgründung erhebt sich am Kartenrand eine fremde Feste (Dornwacht, Grauhafen oder Aschenthal – jedes mit eigenem Temperament). Gesandte kommen mit Anliegen – **du wählst** im Fenster „Diplomatie“: Bündnis anbieten, Geschenke senden, Tribut fordern oder ablehnen (sonst entscheidet die Regentschaft nach ihrem Charakter). Gute Beziehungen führen zum Bündnis (täglicher Handelszug), schlechte zum Krieg: Ein Heer aus Dornrittern mit Feldherr belagert die Hauptstadt. Zweimal abgewehrt, wird das Nachbarreich zum Vasallen und zahlt Abgaben.
+- **Stadtmauer:** Die Hauptstadt bekommt Stück für Stück eine Mauer mit Türmen und Toren (kostet Stein und Holz) – sie schützt bei Belagerungen.
+- **Brücken und Boote:** Über die Furten führen Brücken, auf den Seen segeln Boote.
 - **Tiere:** Erwachte zähmen Gefährten (Wolfswelpe, Fuchs, Eule, Kristallhase, selten Mini-Drache) mit Boni; manche Arbeiter bringen Hund oder Katze mit. Die Tiere laufen ihren Menschen hinterher.
 - **Tempo:** ⏸ / 1x / 2x / 5x. Bei 1x dauert ein Spieltag 6 Minuten.
 

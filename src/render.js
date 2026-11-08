@@ -13,7 +13,7 @@ const EYES = ['#3a7bd5', '#2e9e6a', '#9b4fd1', '#d0453a', '#d4a017', '#6b4a30', 
  * Boden wird mit dieser affinen Abbildung gezeichnet, aufrechte Dinge nur an ihren Platz verschoben. */
 const ISO_X = 0.7, ISO_Y = 0.35;
 const BSCALE = 1, SCALED = new Set(['house', 'smithy', 'market', 'tower', 'tavern', 'temple', 'forsthaus', 'bauernhof', 'gildenhalle', 'lagerhaus', 'site']);
-const BLDG_SHADOW = { house: [0.36, 1.0], smithy: [0.38, 1.1], tower: [0.26, 2.0], tavern: [0.45, 1.2], temple: [0.45, 1.2], forsthaus: [0.36, 0.9], bauernhof: [0.42, 1.0], gildenhalle: [0.5, 1.5], lagerhaus: [0.42, 1.0], market: [0.4, 0.5], castle: [1.4, 1.6] };
+const BLDG_SHADOW = { house: [0.36, 1.0], smithy: [0.38, 1.1], tower: [0.26, 2.0], tavern: [0.45, 1.2], temple: [0.45, 1.2], forsthaus: [0.36, 0.9], bauernhof: [0.42, 1.0], gildenhalle: [0.5, 1.5], lagerhaus: [0.42, 1.0], market: [0.4, 0.5], castle: [1.4, 1.6], feste: [1.4, 1.6] };
 const isoX = (wx, wy) => (wx - wy) * ISO_X, isoY = (wx, wy) => (wx + wy) * ISO_Y;
 const unIso = (ix, iy) => [(ix / ISO_X + iy / ISO_Y) / 2, (iy / ISO_Y - ix / ISO_X) / 2];
 const ROOFS = ['#a8432f', '#7d4a2b', '#56606e', '#8e3d55', '#3f6e5a', '#b0683a'];
@@ -283,7 +283,7 @@ class Renderer {
   setSim(sim) {
     this.sim = sim; this.follow = null; this.ts = 0; this.particles = []; this.groundTs = 0;
     this.chunks.clear(); this.anim.clear(); this.petPos.clear(); this.effects = []; this.miniBase = null;
-    this.buildDecor(); this.spawnAnimals();
+    this.buildDecor(); this.spawnAnimals(); this.spawnBoats();
     this.resize();
     this.centerOn(sim.world.camp.x + 0.5, sim.world.camp.y + 0.5);
   }
@@ -459,6 +459,7 @@ class Renderer {
     S.gildenhalle = this.makeSprite(2.2, 2.9, 1.1, 2.5, isoGildenhalle);
     S.bauernhof = this.makeSprite(2.2, 1.9, 1.15, 1.5, isoBauernhof);
     S.lagerhaus = this.makeSprite(1.9, 1.8, 0.95, 1.45, isoLagerhaus);
+    S.feste = this.makeSprite(4.6, 4.6, 2.3, 3.6, (c, s) => isoCastle(c, s, { wall: '#8e8478', roof: '#5a1e2a', keep: '#9a9084' }));
     this.sprites = S; this.spriteTs = this.ts;
   }
 
@@ -505,7 +506,7 @@ class Renderer {
 
   pathLevel(t) {
     if (!t) return 0;
-    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market' || t.type === 'tower' || t.type === 'tavern' || t.type === 'temple' || t.type === 'forsthaus' || t.type === 'bauernhof' || t.type === 'gildenhalle' || t.type === 'lagerhaus') return 1;
+    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market' || t.type === 'tower' || t.type === 'tavern' || t.type === 'temple' || t.type === 'forsthaus' || t.type === 'bauernhof' || t.type === 'gildenhalle' || t.type === 'lagerhaus' || t.type === 'feste') return 1;
     return t.type === 'grass' ? Math.min(1, t.traffic / 50) : 0;
   }
 
@@ -946,6 +947,26 @@ class Renderer {
   }
 
   /** Wildtiere: Rehe und Hasen, rein zur Atmosphäre. */
+  /** Boote auf größeren Seen (nur Anzeige). */
+  spawnBoats() {
+    const w = this.sim.world, rng = mulberry32(this.sim.seed * 5 + 3), deep = w.tiles.filter(t => t.type === 'water' && this.waterDepth[t.y * w.w + t.x] >= 2);
+    this.boats = [];
+    for (let i = 0; i < Math.min(5, Math.floor(deep.length / 25)); i++) { const t = deep[Math.floor(rng() * deep.length)]; this.boats.push({ x: t.x, y: t.y, tx: t.x, ty: t.y, f: 1, seed: i * 2.3 }); }
+  }
+  updateBoats(dt) {
+    const w = this.sim.world;
+    for (const b of this.boats || []) {
+      const dx = b.tx - b.x, dy = b.ty - b.y, d = Math.hypot(dx, dy);
+      if (d < 0.02) {
+        const opts = DIRS.map(([ax, ay]) => w.tile(Math.round(b.x) + ax, Math.round(b.y) + ay)).filter(t => t && t.type === 'water' && this.waterDepth[t.y * w.w + t.x] >= 2);
+        if (opts.length && Math.random() < 0.02) { const t = opts[Math.floor(Math.random() * opts.length)]; b.tx = t.x; b.ty = t.y; }
+        continue;
+      }
+      const v = Math.min(d, dt * 0.25); b.x += dx / d * v; b.y += dy / d * v;
+      if (Math.abs(dx - dy) > 0.01) b.f = dx - dy > 0 ? 1 : -1; // Blickrichtung auf dem Bildschirm
+    }
+  }
+
   spawnAnimals() {
     const w = this.sim.world, rng = mulberry32(this.sim.seed * 3 + 1);
     this.animals = [];
@@ -1091,6 +1112,24 @@ class Renderer {
     }
   }
 
+  /** Stücke der Stadtmauer auf dem Ring um die Hauptstadt (zwischengespeichert, nur wo Platz ist). */
+  wallPieces() {
+    const sim = this.sim, wall = sim.realm && sim.realm.wall;
+    if (!wall) return null;
+    const key = `${wall.progress}|${wall.r}|${sim.capital.buildings.length}|${sim.minutes / 720 | 0}`;
+    if (this.wallKey === key) return this.wallCache;
+    const map = new Map(), w = sim.world, cap = sim.capital.camp, n = Math.round(TAU * wall.r / 0.95), built = Math.round(n * wall.progress);
+    for (let k = 0; k < built; k++) {
+      const a = k / n * TAU, fx = cap.x + Math.cos(a) * wall.r, fy = cap.y + Math.sin(a) * wall.r, tx = Math.round(fx), ty = Math.round(fy), t = w.tile(tx, ty);
+      if (!t || !['grass', 'stump', 'field'].includes(t.type)) continue;
+      const kind = t.traffic > 30 ? 'tor' : k % 9 === 0 ? 'turm' : 'mauer';
+      const piece = { x: fx - 0.5, y: fy - 0.5, tx: -Math.sin(a), ty: Math.cos(a), kind };
+      (map.get(ty * w.w + tx) || map.set(ty * w.w + tx, []).get(ty * w.w + tx)).push(piece);
+    }
+    this.wallKey = key; this.wallCache = map;
+    return map;
+  }
+
   /** Garten: ruhige Wiese direkt neben einem Wohnhaus → Richtung zum Haus, sonst null. */
   gardenDir(t) {
     if (t.traffic > 14 || ((t.x * 7 + t.y * 13) % 10) > 7) return null;
@@ -1145,7 +1184,7 @@ class Renderer {
     const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy', 'market', 'tower', 'tavern', 'temple', 'forsthaus', 'bauernhof', 'gildenhalle', 'lagerhaus'].includes(t.type);
     const pick = t => t && t.part ? t.part : t;
     // hohe Gebäude ragen nach oben: ein Tipp darüber trifft die Kachel davor (diagonal unten)
-    for (let dd = 1; dd <= 3; dd++) { const t = w.tile(tx + dd, ty + dd); if (t && t.type === 'castle' && (!here || here.type === 'grass')) return pick(t); }
+    for (let dd = 1; dd <= 3; dd++) { const t = w.tile(tx + dd, ty + dd); if (t && (t.type === 'castle' || t.type === 'feste') && (!here || here.type === 'grass')) return pick(t); }
     if (!tall(here)) for (let dd = 1; dd <= 2; dd++) { const t = w.tile(tx + dd, ty + dd); if (tall(t)) return pick(t); }
     return pick(here);
   }
@@ -1159,7 +1198,7 @@ class Renderer {
       cv.width = w.w; cv.height = w.h;
       const ctx = cv.getContext('2d'), img = ctx.createImageData(w.w, w.h);
       const COL = { grass: [77, 122, 58], tree: [36, 80, 44], stump: [90, 110, 60], water: [47, 111, 159], ford: [90, 159, 192], bush: [60, 125, 63],
-        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], tower: [200, 195, 185], tavern: [190, 120, 60], temple: [250, 240, 200], forsthaus: [90, 150, 70], bauernhof: [200, 70, 55], gildenhalle: [70, 110, 200], lagerhaus: [150, 100, 60], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
+        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], tower: [200, 195, 185], tavern: [190, 120, 60], temple: [250, 240, 200], forsthaus: [90, 150, 70], bauernhof: [200, 70, 55], gildenhalle: [70, 110, 200], lagerhaus: [150, 100, 60], feste: [130, 40, 60], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
       w.tiles.forEach((t, i) => {
         let col = COL[t.type] || COL.grass;
         if (t.type === 'grass' && t.traffic > 25) col = [138, 115, 80];
@@ -1343,7 +1382,7 @@ class Renderer {
     if (this.spriteTs !== this.ts && (settled || !this.spriteTs)) this.buildSprites();
     this.chunkBudget = 4;
     this.refreshDirtyGround();
-    this.updateAnimals(dt);
+    this.updateAnimals(dt); this.updateBoats(dt);
     const s = this.ts, sk = s / this.spriteTs; // während des Zoomens Sprites skalieren
     const { w, h } = sim.world, dpr = this.dpr, W = this.canvas.width, H = this.canvas.height;
 
@@ -1437,6 +1476,10 @@ class Renderer {
       const fy = m.prevY + (m.y - m.prevY) * alpha, fx = m.prevX + (m.x - m.prevX) * alpha, r = depth(fx, fy);
       (rows.get(r) || rows.set(r, []).get(r)).push({ monster: m, fy, fx, d: fx + fy });
     }
+    for (const bt of this.boats || []) {
+      if (bt.x < x0 - 1 || bt.x > x1 + 1 || bt.y < y0 - 1 || bt.y > y1 + 1) continue;
+      const r = depth(bt.x, bt.y); (rows.get(r) || rows.set(r, []).get(r)).push({ boat: bt, fx: bt.x, fy: bt.y, d: bt.x + bt.y });
+    }
     if (s >= 10) for (const a of this.animals) {
       if (a.x < x0 - 1 || a.x > x1 + 1 || a.y < y0 - 1 || a.y > y1) continue;
       const r = depth(a.x, a.y);
@@ -1456,7 +1499,7 @@ class Renderer {
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const t = sim.world.tile(x, y);
         if (t.type === 'tree') { const [bx, by] = this.treeBase(t, s); shadow(this.treeSprite(t), bx, by); }
-        else if (BLDG_SHADOW[t.type] && !(t.type === 'castle' && t.part)) {
+        else if (BLDG_SHADOW[t.type] && !((t.type === 'castle' || t.type === 'feste') && t.part)) {
           const [r, hgt] = BLDG_SHADOW[t.type], ox = -sun.dx * sun.len * hgt * s, oy = sun.dx * sun.len * hgt * s * 0.6;
           sc.fillStyle = '#000';
           for (let k = 0; k <= 6; k++) sc.fillRect((x + 0.5 - r) * s + ox * k / 6, (y + 0.5 - r) * s + oy * k / 6, 2 * r * s, 2 * r * s);
@@ -1498,12 +1541,15 @@ class Renderer {
       c.stroke(); c.setLineDash([]);
     }
 
+    const wallMap = this.wallPieces();
     // 4) Objekte und Siedler Diagonale für Diagonale (hinten → vorn)
     for (let dg = D0; dg <= D1; dg++) {
       for (let x = Math.max(x0, dg - y1); x <= Math.min(x1, dg - y0); x++) {
         const y = dg - x, t = sim.world.tile(x, y);
         if (SCALED.has(t.type)) atB(t); else at((x + 0.5) * s, (y + 0.5) * s);
         if (t.type === 'grass' && detail) { const gd = this.gardenDir(t); if (gd) this.drawFence(c, t, s, gd); }
+        const wp = wallMap && wallMap.get(y * w + x);
+        if (wp) for (const q of wp) { c.save(); at((q.x + 0.5) * s, (q.y + 0.5) * s); c.translate((q.x + 0.5) * s, (q.y + 0.5) * s); drawWallPiece(c, s, q.tx, q.ty, q.kind); c.restore(); at((x + 0.5) * s, (y + 0.5) * s); }
         switch (t.type) {
           case 'tree': {
             const [bx, by] = this.treeBase(t, s), sp = this.treeSprite(t);
@@ -1552,6 +1598,24 @@ class Renderer {
             break;
           }
           case 'camp': this.drawCamp(c, t, s, now); break;
+          case 'feste': { // Burg des Nachbarreichs
+            const rv = sim.realm.rival;
+            if (!rv || !t.part || t.x !== t.part.x + 1 || t.y !== t.part.y + 1) break;
+            const sp = this.sprites.feste, bx = (t.part.x + 0.5) * s, by = (t.part.y + 0.5) * s;
+            at(bx, by); c.drawImage(sp.cv, bx - sp.ax * sk, by - sp.ay * sk, sp.w * sk, sp.h * sk);
+            for (const [fx0, fy0, len] of sp.meta.flags) {
+              const fx = bx + fx0 * s, fy = by + fy0 * s, wave = Math.sin(now / 280 + fx0 * 3) * s * 0.04, top = fy - len * s;
+              c.strokeStyle = '#2a2a2a'; c.lineWidth = Math.max(1, s * 0.025); c.beginPath(); c.moveTo(fx, fy); c.lineTo(fx, top); c.stroke();
+              c.fillStyle = rv.color; c.beginPath(); c.moveTo(fx, top); c.quadraticCurveTo(fx + s * 0.25, top + wave, fx + s * 0.5, top + s * 0.05 + wave); c.lineTo(fx + s * 0.5, top + s * 0.27 + wave); c.quadraticCurveTo(fx + s * 0.25, top + s * 0.22 - wave, fx, top + s * 0.25); c.fill();
+            }
+            break;
+          }
+          case 'ford': { // Brücke über die Furt
+            const w = sim.world, wx = (dx, dy) => { const q = w.tile(x + dx, y + dy); return q && q.type === 'water'; };
+            const alongX = !(wx(1, 0) || wx(-1, 0)) || (wx(0, 1) && wx(0, -1));
+            c.save(); c.translate((x + 0.5) * s, (y + 0.5) * s); drawBridge(c, s, alongX, !!sim.kingdom); c.restore();
+            break;
+          }
           case 'rock': {
             const sp = this.sprites['rock' + (t.shade < 0.5 ? 0 : 1)], k = sk * (0.55 + 0.45 * Math.min(1, (t.wood || CONFIG.resources.rockStone) / CONFIG.resources.rockStone));
             const shake = t.hitAt && now - t.hitAt < 200 ? Math.sin(now / 20) * s * 0.02 : 0;
@@ -1610,6 +1674,7 @@ class Renderer {
         for (const e of list) {
           if (e.n) at(e.px, e.py); else at((e.fx + 0.5) * s, (e.fy + 0.5) * s);
           if (e.animal) { this.drawAnimal(c, e.animal, s); continue; }
+          if (e.boat) { c.save(); c.translate((e.fx + 0.5) * s, (e.fy + 0.5) * s); drawBoat(c, s, e.boat.f, now, e.boat.seed); c.restore(); continue; }
           if (e.pet) {
             const fly = e.kind === 'eule' || e.kind === 'drache', px = (e.fx + 0.5) * s, py = (e.fy + 0.85) * s;
             c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(px, py, s * 0.13, s * 0.04, 0, 0, TAU); c.fill();
@@ -1618,7 +1683,7 @@ class Renderer {
           }
           if (e.cart) { drawCart(c, e.cart, s, now, (e.fx + 0.5) * s, (e.fy + 0.85) * s); continue; }
           if (e.monster) {
-            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s, bs = m.boss ? s * 2.1 : m.kind === 'banditenboss' ? s * 1.25 : s; // Boss: doppelt so groß
+            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s, bs = m.boss ? s * 2.1 : m.kind === 'banditenboss' || m.kind === 'feldherr' ? s * 1.25 : s; // Boss: doppelt so groß
             const look = m.boss ? 'aschegolem' : m.kind;
             if (m.boss) { // rotes Glühen um den Kronenfresser
               const gl = c.createRadialGradient(mx, my - bs * 0.4, 0, mx, my - bs * 0.4, bs * 0.9);
@@ -1637,7 +1702,7 @@ class Renderer {
               c.fillStyle = '#c9b48a'; c.beginPath(); c.ellipse(sx, sy, bs * 0.11, bs * 0.13, 0, 0, TAU); c.fill(); c.strokeStyle = '#5a4428'; c.lineWidth = Math.max(1, s * 0.02); c.stroke();
               c.fillStyle = '#f0c35a'; c.beginPath(); c.arc(sx, sy - bs * 0.13, bs * 0.03, 0, TAU); c.fill();
             }
-            const bw = bs * 0.7, by = my - bs * (look === 'aschegolem' ? 1.15 : m.bandit ? 1.0 : 0.75);
+            const bw = bs * 0.7, by = my - bs * (look === 'aschegolem' ? 1.15 : m.bandit || m.army ? 1.0 : 0.75);
             c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(mx - bw / 2, by, bw, Math.max(3, s * 0.07));
             c.fillStyle = '#e04848'; c.fillRect(mx - bw / 2, by, bw * Math.max(0, m.hp / m.maxHp), Math.max(3, s * 0.07));
             continue;

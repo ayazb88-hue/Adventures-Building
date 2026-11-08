@@ -289,24 +289,68 @@ function isoBauernhof(c, s) {
 }
 
 /* ---- Burg (3×3 Kacheln): Ringmauer mit Ecktürmen, Tor, Bergfried ---- */
-function isoCastle(c, s) {
-  const K = isoKit(c, s), wall = '#bdb8ae', R = 1.35, H = 0.7;
-  K.tower(-R, -R, 0.28, 0, 1.1, wall, '#3d4a66', 0.5); // hinterer Turm zuerst
+function isoCastle(c, s, pal = {}) {
+  const K = isoKit(c, s), wall = pal.wall || '#bdb8ae', roof = pal.roof || '#3d4a66', keepC = pal.keep || '#c9c4b8', R = 1.35, H = 0.7;
+  K.tower(-R, -R, 0.28, 0, 1.1, wall, roof, 0.5); // hinterer Turm zuerst
   const back = { ox: 0, oy: 0, a: R, b: R, z: 0, H };
   K.poly([K.P(-R, -R, H), K.P(R, -R, H), K.P(R, R, H), K.P(-R, R, H)], '#8e9a7a', null); // Burghof
   // Bergfried in der Mitte
   const keep = { ox: -0.2, oy: -0.2, a: 0.45, b: 0.45, z: 0, H: 2.1 };
-  K.box(keep, '#c9c4b8', '#9a958a'); K.stones(keep, 'L'); K.stones(keep, 'R'); K.battlements(keep, '#c9c4b8');
+  K.box(keep, keepC, '#9a958a'); K.stones(keep, 'L'); K.stones(keep, 'R'); K.battlements(keep, keepC);
   const wins = [];
   for (const v of [0.8, 1.3, 1.75]) { wins.push(K.win(keep, 'L', -0.15, v, 0.08, 0.16)); wins.push(K.win(keep, 'L', 0.18, v, 0.08, 0.16)); wins.push(K.win(keep, 'R', 0, v, 0.08, 0.16)); }
-  K.tower(R, -R, 0.28, 0, 1.1, wall, '#3d4a66', 0.5); K.tower(-R, R, 0.28, 0, 1.1, wall, '#3d4a66', 0.5);
+  K.tower(R, -R, 0.28, 0, 1.1, wall, roof, 0.5); K.tower(-R, R, 0.28, 0, 1.1, wall, roof, 0.5);
   // vordere Mauern mit Zinnen und Tor
   const wl = { ox: 0, oy: R - 0.1, a: R, b: 0.1, z: 0, H }, wr = { ox: R - 0.1, oy: 0, a: 0.1, b: R, z: 0, H };
   K.box(wr, wall, shadeHex(wall, -30), shadeHex(wall, 10)); K.stones(wr, 'R'); K.battlements(wr, wall);
   K.box(wl, wall, shadeHex(wall, -30), shadeHex(wall, 10)); K.stones(wl, 'L'); K.battlements(wl, wall);
   const gq = K.wallQuad(wl, 'L', -0.22, 0, 0.22, 0.5); K.poly(gq, '#2a1e16', '#4a3a2a', K.lw * 2);
   for (let u = -0.18; u <= 0.18; u += 0.09) K.line(K.onWall(wl, 'L', u, 0), K.onWall(wl, 'L', u, 0.48), '#6a6a70');
-  const T = K.tower(R, R, 0.3, 0, 1.2, wall, '#3d4a66', 0.55);
+  const T = K.tower(R, R, 0.3, 0, 1.2, wall, roof, 0.55);
   const flags = [K.P(-0.2, -0.2, 2.2), K.P(R, R, 1.75), K.P(-R, R, 1.6), K.P(R, -R, 1.6)].map(([x, y], i) => [x / s, y / s, i ? 0.4 : 0.6]);
   return { windows: wins, flags };
+}
+
+/** Brücke über eine Furt: Holzdeck mit Geländer, quer über das Wasser. */
+function drawBridge(c, s, alongX, stone) {
+  const K = isoKit(c, s), a = alongX ? 0.52 : 0.22, b = alongX ? 0.22 : 0.52, deck = stone ? '#a49e92' : '#8a6239';
+  K.box({ ox: 0, oy: 0, a, b, z: 0.04, H: 0.06 }, shadeHex(deck, -10), shadeHex(deck, -35), deck);
+  for (let k = -4; k <= 4; k++) { const f = k / 4 * 0.48; K.line(alongX ? K.P(f, -b, 0.1) : K.P(-a, f, 0.1), alongX ? K.P(f, b, 0.1) : K.P(a, f, 0.1), 'rgba(40,24,12,.35)'); }
+  for (const side of [-1, 1]) {
+    const p0 = alongX ? K.P(-a, side * b, 0.1) : K.P(side * a, -b, 0.1), p1 = alongX ? K.P(a, side * b, 0.1) : K.P(side * a, b, 0.1);
+    K.line([p0[0], p0[1] - s * 0.12], [p1[0], p1[1] - s * 0.12], stone ? '#c9c4b8' : '#6b4526', Math.max(1.5, s * 0.025));
+    for (let k = 0; k <= 4; k++) { const f = k / 4; const x = p0[0] + (p1[0] - p0[0]) * f, y = p0[1] + (p1[1] - p0[1]) * f; K.line([x, y], [x, y - s * 0.12], stone ? '#c9c4b8' : '#6b4526', Math.max(1, s * 0.02)); }
+  }
+}
+
+/** Kleines Boot mit Segel, schaukelt auf dem Wasser. */
+function drawBoat(c, s, facing, now, seed) {
+  const bob = Math.sin(now / 600 + seed) * s * 0.03, tilt = Math.sin(now / 900 + seed) * 0.05;
+  c.save(); c.translate(0, bob); c.rotate(tilt); c.scale(facing, 1);
+  c.fillStyle = 'rgba(0,30,60,.25)'; c.beginPath(); c.ellipse(0, s * 0.06, s * 0.36, s * 0.08, 0, 0, TAU); c.fill();
+  c.fillStyle = '#7a4e2a'; c.beginPath(); c.moveTo(-s * 0.32, -s * 0.04); c.lineTo(s * 0.34, -s * 0.06); c.lineTo(s * 0.22, s * 0.06); c.lineTo(-s * 0.24, s * 0.06); c.closePath(); c.fill();
+  c.strokeStyle = ISO_OL; c.lineWidth = Math.max(1, s * 0.015); c.stroke();
+  c.fillStyle = '#a8784a'; c.fillRect(-s * 0.28, -s * 0.06, s * 0.58, s * 0.03);
+  c.strokeStyle = '#4a2e18'; c.lineWidth = Math.max(1, s * 0.02); c.beginPath(); c.moveTo(0, -s * 0.05); c.lineTo(0, -s * 0.55); c.stroke();
+  c.fillStyle = '#f2ebe0'; c.beginPath(); c.moveTo(s * 0.02, -s * 0.53); c.quadraticCurveTo(s * 0.26, -s * 0.32, s * 0.02, -s * 0.1); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#c84a3a'; c.fillRect(s * 0.03, -s * 0.36, s * 0.12, s * 0.04);
+  c.restore();
+}
+
+/** Ein Stück Stadtmauer (tangential zum Ring), wahlweise mit Turm oder Tor. */
+function drawWallPiece(c, s, tx, ty, kind) {
+  const K = isoKit(c, s), L = 0.48, th = 0.09, H = 0.5, col = '#b8b2a6';
+  const pt = (u, v, z) => K.P(tx * u - ty * v, ty * u + tx * v, z); // u entlang der Mauer, v quer dazu
+  const face = v => [pt(-L, v, 0), pt(L, v, 0), pt(L, v, H), pt(-L, v, H)];
+  const front = (tx * 1 + ty * 1) * 0 + (-ty + tx) > 0 ? th : -th; // die zum Betrachter zeigende Seite
+  if (kind === 'tor') {
+    for (const u of [-L * 0.8, L * 0.8]) K.box({ ox: tx * u, oy: ty * u, a: 0.1, b: 0.1, z: 0, H: H + 0.25 }, col, shadeHex(col, -30), shadeHex(col, 10));
+    K.line(pt(-L * 0.7, 0, H + 0.12), pt(L * 0.7, 0, H + 0.12), '#6b4526', Math.max(2, s * 0.04));
+    return;
+  }
+  K.poly(face(-front), shadeHex(col, -30)); K.poly(face(front), col);
+  K.poly([pt(-L, -th, H), pt(L, -th, H), pt(L, th, H), pt(-L, th, H)], shadeHex(col, 12));
+  for (let u = -L + 0.08; u < L; u += 0.2) K.poly([pt(u, front, H), pt(u + 0.1, front, H), pt(u + 0.1, front, H + 0.08), pt(u, front, H + 0.08)], col);
+  for (let r = 1; r < 4; r++) K.line(pt(-L, front, r * H / 4), pt(L, front, r * H / 4), 'rgba(40,34,28,.25)');
+  if (kind === 'turm') K.tower(0, 0, 0.17, 0, H + 0.35, col, '#3d4a66', 0.3);
 }

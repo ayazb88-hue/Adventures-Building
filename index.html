@@ -59,6 +59,15 @@
   #chapter .ch-text { max-width: 440px; font: italic 15px/1.55 Georgia, serif; color: #e8dcc0; }
   #chapter .ch-tap { margin-top: 16px; font-size: 11px; color: #ffffff66; }
   @keyframes chIn { from { opacity: 0; } to { opacity: 1; } }
+  #diplo { position: absolute; left: 8px; right: 56px; bottom: 8px; z-index: 6; padding: 10px 12px; border-radius: 12px; border: 1px solid #f0b54acc;
+    background: linear-gradient(180deg, #2a1c0cf0, #140c06f4); color: #f3ead6; box-shadow: 0 6px 24px #000a; font-size: 13px; }
+  #diplo[hidden] { display: none; }
+  #diplo .d-top { font-size: 10px; letter-spacing: .25em; color: #f0b54a; font-weight: 800; }
+  #diplo .d-title { font: 700 15px Georgia, serif; margin: 2px 0 4px; }
+  #diplo .d-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+  #diplo button { padding: 7px 6px; border-radius: 9px; border: 1px solid #f0b54a88; background: #3a2810; color: #fff; font-size: 12px; font-weight: 700; }
+  #diplo button:disabled { opacity: .4; }
+  #diplo button small { display: block; font-weight: 500; color: #d9cfb8; }
   #scene { position: absolute; inset: 0; z-index: 8; background: #000; cursor: pointer; user-select: none; -webkit-user-select: none; }
   #scene[hidden] { display: none; }
   #sceneCv { display: block; }
@@ -228,6 +237,7 @@
     <button id="chronikBtn" class="mapBtn" style="top:56px" aria-label="Chronik der Geschichte">📖</button>
     <button id="cineBtn" class="mapBtn" style="top:104px" aria-label="Erzähler-Modus">🎬</button>
     <div id="narr" hidden></div>
+    <div id="diplo" hidden></div>
     <div id="scene" hidden>
       <canvas id="sceneCv"></canvas>
       <div id="sceneTitle" hidden><div class="st-top"></div><div class="st-main"></div><div class="st-sub"></div></div>
@@ -471,6 +481,7 @@ const TILE_DEFS = {
   bauernhof:   { name: 'Bauernhof',   walkable: false },
   gildenhalle: { name: 'Gildenhalle', walkable: false },
   lagerhaus:   { name: 'Lagerhaus',   walkable: false },
+  feste:       { name: 'Feste',       walkable: false }, // Burg des Nachbarreichs
 };
 
 class World {
@@ -1393,6 +1404,8 @@ const MONSTERS = {
   aschegolem:   { name: 'Aschegolem', hp: 180, atk: 14, speed: 0.13, tier: 3, xp: 110 },
   bandit:       { name: 'Bandit', hp: 55, atk: 6, speed: 0.2, tier: 2, xp: 40 },
   banditenboss: { name: 'Rotschal-Hauptmann', hp: 200, atk: 11, speed: 0.17, tier: 3, xp: 150 },
+  ritter:       { name: 'Dornritter', hp: 85, atk: 8, speed: 0.22, tier: 2, xp: 60 },
+  feldherr:     { name: 'Feldherr', hp: 300, atk: 13, speed: 0.2, tier: 3, xp: 250 },
   kronenfresser:{ name: 'Kronenfresser', hp: 1400, atk: 13, speed: 0.11, tier: 4, xp: 600 }, // Boss der Geschichte
 };
 function nearestMonster(n, sim, r) {
@@ -1402,8 +1415,10 @@ function nearestMonster(n, sim, r) {
 }
 function killMonster(m, n, sim) {
   const M = MONSTERS[m.kind];
+  if (m.gone) return; // schon abgezogen
   m.hp = 0; m.killer = n;
   if (m.bandit) return defeatBandit(m, n, sim);
+  if (m.army) return defeatSoldier(m, n, sim);
   const drop = M.tier >= 4 ? 15 : M.tier === 3 ? 2 : sim.rng() < 0.4 ? 1 : 0;
   n.town.stock.crystals += drop;
   sim.log(`⚔️ besiegt einen ${M.name}! (+${M.xp} EP${drop ? `, +${drop} 💎` : ''})`, n, true);
@@ -1447,7 +1462,7 @@ defineAction({
     const res = sim.world.findAdjacent(n.x, n.y, t => t === mt, 3000);
     n.foe = m;
     return [move(res ? res.path.slice(0, 8) : []), act((n, sim, s) => {
-      if (m.hp <= 0 || Math.hypot(m.x - n.x, m.y - n.y) > 1.7) return 'done';
+      if (m.hp <= 0 || m.gone || Math.hypot(m.x - n.x, m.y - n.y) > 1.7) return 'done';
       if (Math.abs(m.x - n.x) > 0.1) n.facing = m.x > n.x ? 1 : -1;
       if (s.t % 2) return;
       const dmg = Math.round(n.attack * (0.8 + sim.rng() * 0.4));
@@ -2036,7 +2051,7 @@ class NPC {
  * 7) SIMULATION: Zeit, Wetter, Wachstum, Ereignisse, Log, Speichern
  * ===================================================================== */
 const TILE_TYPES = Object.keys(TILE_DEFS);
-const SAVE_VERSION = 7; // 6: Geschichte (story), Lebensziele, Tagebuch · 7: Folgen und Höhepunkte (story.episode/highlights)
+const SAVE_VERSION = 8; // 6: Geschichte · 7: Folgen und Höhepunkte · 8: Nachbarreich, Diplomatie, Stadtmauer (realm)
 // Reihenfolge der Geländearten in älteren Spielständen (dort wurden Kacheln als Nummer gespeichert)
 const BASE_TYPES = ['grass', 'tree', 'stump', 'water', 'bush', 'camp', 'site', 'house', 'rock'];
 const OLD_TYPE_LISTS = {
@@ -2068,6 +2083,7 @@ class Simulation {
     this.firstAwakening = !!(save && save.firstAwakening);
     this.on('buildingCompleted', b => this.onHouseBuilt(b));
     this.story = new Story(this, save ? save.story : null, !!save);
+    this.realm = new Realm(this, save ? save.realm : null);
   }
 
   get settlement() { return this.towns[0]; }
@@ -2316,6 +2332,7 @@ class Simulation {
       if (best.hp <= 0) {
         const M = MONSTERS[best.kind];
         if (best.bandit) { best.hp = 0; defeatBandit(best, null, this); continue; }
+        if (best.army) { best.hp = 0; defeatSoldier(best, null, this); continue; }
         tw.stock.crystals += M.tier === 3 ? 2 : 1;
         this.log(`🏹 Ein Wachturm von ${tw.name} erlegt einen ${M.name}! (+💎)`, null, true);
         this.emit('monsterKilled', best);
@@ -2448,6 +2465,7 @@ class Simulation {
 
   updateMonster(m) {
     if (m.bandit) return this.updateBandit(m);
+    if (m.army) return updateArmy(this, m);
     const M = MONSTERS[m.kind];
     m.prevX = m.x; m.prevY = m.y;
     let target = null, bd = 9;
@@ -2564,6 +2582,7 @@ class Simulation {
     if (this.minutes % 1440 === 20 * 60) for (const m of this.monsters) if (m.bandit && m.state !== 'flee') this.banditFlee(m); // bei Einbruch der Nacht
     for (const npc of this.npcs) npc.update(this);
     this.story.update();
+    this.realm.update();
     this.updateMonsters();
     this.updateTowers();
     this.updateTrade();
@@ -2583,7 +2602,7 @@ class Simulation {
     return {
       v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock, items: t.items || [],
         site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work, upgrade: t.site.upgrade ? t.site.upgrade.id : null } })),
-      story: this.story.serialize(), guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
+      story: this.story.serialize(), realm: this.realm.serialize(), guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
       seed: this.seed, minutes: this.minutes, weather: this.weather, firstAwakening: this.firstAwakening,
       gates: this.world.gates.map(g => [g.gate.cleared, g.gate.failed]),
@@ -2780,6 +2799,21 @@ const CHAPTERS = [
   { id: 'krone', req: 'gilde', title: 'Ein Königreich wird geboren', when: sim => !!sim.kingdom,
     text: sim => `${sim.kingdom.regent} steigt auf einen Steinblock. „Von heute an sind wir nicht mehr nur ein Dorf. Wir sind ${sim.kingdom.name}!“ Jubel, Banner, Tränen. Und irgendwo hinter den Rissen öffnet etwas die Augen.`,
     hint: 'Etwas Großes regt sich hinter den Rissen.' },
+  { id: 'nachbarn', req: 'krone', title: 'Fremde Banner im Osten', when: sim => !!(sim.realm && sim.realm.rival),
+    text: sim => `Hinter den Wäldern erhebt sich die Feste ${sim.realm.rival.name}. ${sim.realm.rival.ruler} beobachtet das junge Königreich – mit Neugier oder mit Gier?`,
+    hint: 'Gesandte werden kommen. Freundschaft oder Krieg – eure Antworten entscheiden.' },
+  { id: 'krieg', req: 'nachbarn', title: 'Trommeln im Osten', when: sim => sim.realm.rival && (sim.realm.rival.state === 'war' || sim.realm.sieges > 0),
+    text: sim => `${sim.realm.rival.ruler} hat den Krieg erklärt. Ein Heer aus Dornrittern sammelt sich. Jetzt zählt jede Mauer, jeder Turm, jede Klinge.`,
+    hint: 'Brecht die Belagerung – zweimal, und das Nachbarreich muss sich beugen.' },
+  { id: 'vasall', req: 'krieg', title: 'Die gebeugte Krone', when: sim => sim.realm.rival && sim.realm.rival.state === 'vassal',
+    text: sim => `Zweimal ist das Heer von ${sim.realm.rival.name} an euren Mauern zerschellt. Nun beugt ${sim.realm.rival.ruler} das Knie und zahlt Abgaben.`,
+    hint: 'Das Reich wächst – über die eigenen Grenzen hinaus.' },
+  { id: 'freunde', req: 'nachbarn', title: 'Ein Bund über die Wälder', when: sim => sim.realm.rival && sim.realm.rival.state === 'allied',
+    text: sim => `Händler und Boten ziehen nun täglich zwischen ${sim.kingdom.name} und ${sim.realm.rival.name} hin und her. Aus Fremden wurden Verbündete.`,
+    hint: 'Mit Verbündeten im Rücken lässt sich vieles wagen.' },
+  { id: 'mauer', req: 'krone', title: 'Die Mauer steht', when: sim => sim.realm && sim.realm.wallDone,
+    text: sim => `Stein auf Stein haben die Steinmetze gebaut. Nun umschließt eine Mauer mit Türmen und Toren ${sim.capital.name}.`,
+    hint: 'Hinter Mauern schläft es sich ruhiger.' },
   { id: 'roterRiss', req: 'gilde', title: 'Der rote Riss',
     when: sim => sim.world.gates.length > 0 && ((sim.kingdom && sim.day >= Math.max(12, sim.kingdom.founded + 4)) || sim.day >= 24),
     start(sim, st) {
@@ -2992,6 +3026,250 @@ class Story {
     this.sim.log(`☀️ Der Kronenfresser weicht vor dem Morgenlicht in den roten Riss zurück – verwundet (${Math.round(m.hp / m.maxHp * 100)} %). Heute Nacht kommt er wieder.`, null, true);
   }
 }
+
+/* =====================================================================
+ * 15) NACHBARREICH, DIPLOMATIE, BELAGERUNG, STADTMAUER
+ *     Ein rivalisierendes Königreich am Kartenrand. Gesandte bringen
+ *     Entscheidungen (die Spielerin/der Spieler darf wählen, sonst
+ *     entscheidet die Regentschaft), daraus folgen Bündnis oder Krieg.
+ * ===================================================================== */
+const RIVAL_REALMS = [
+  { name: 'Dornwacht', ruler: 'Herrschaft Vaelor', color: '#7a1e3a', temper: -7, mood: 'angriffslustig' },
+  { name: 'Grauhafen', ruler: 'Herrschaft Isveth', color: '#3a4a7a', temper: 1, mood: 'freundlich' },
+  { name: 'Aschenthal', ruler: 'Herrschaft Korrin', color: '#6a3a1a', temper: -3, mood: 'gierig' },
+];
+const DIPLO_OPTIONS = {
+  buendnis: { label: '🤝 Bündnis anbieten', cost: { coins: 20 }, rel: 25, text: 'bietet ein Bündnis an' },
+  geschenk: { label: '🎁 Geschenke senden', cost: { coins: 12, crystals: 1 }, rel: 14, text: 'schickt Geschenke' },
+  tribut:   { label: '⚔️ Tribut fordern', cost: {}, rel: -30, text: 'fordert Tribut' },
+  ablehnen: { label: '🙅 Ablehnen', cost: {}, rel: -6, text: 'schickt den Gesandten fort' },
+};
+
+class Realm {
+  constructor(sim, data) {
+    this.sim = sim;
+    Object.assign(this, { rival: null, wall: null, sieges: 0, siegeWins: 0 }, data || {});
+    if (this.rival) this.markFeste();
+  }
+  serialize() { const { sim, ...d } = this; return JSON.parse(JSON.stringify(d)); }
+
+  get strength() { // eigene Stärke: Erwachte, Türme, Mauer
+    const sim = this.sim, aw = sim.npcs.filter(n => n.awakened).reduce((a, n) => a + n.level, 0);
+    return aw + sim.capital.towers.length * 4 + (this.wallDone ? 15 : 0);
+  }
+  get rivalStrength() { return 25 + this.sim.day * 2.2 + (this.rival ? this.rival.losses * -8 : 0); }
+  get wallDone() { return !!(this.wall && this.wall.progress >= 1); }
+
+  update() {
+    const sim = this.sim, m = sim.minutes % 1440;
+    if (!this.rival && sim.kingdom && sim.day >= sim.kingdom.founded + 1 && m === 9 * 60) this.foundRival();
+    if (m === 9 * 60 + 30) this.growWall();
+    const r = this.rival; if (!r) return;
+    if (r.pending && sim.minutes >= r.pending.until) this.choose(this.regentChoice(), true); // keine Wahl → Regentschaft entscheidet
+    if (m === 10 * 60 && !r.pending) this.dailyDiplomacy();
+    if (r.state === 'war' && sim.day >= r.nextSiege && m === 9 * 60 && !sim.monsters.some(x => x.army)) this.startSiege();
+    if (sim.monsters.some(x => x.army)) this.updateSiege();
+    if (m === 7 * 60 + 30 && (r.state === 'allied' || r.state === 'vassal')) {
+      const cap = sim.capital, coins = r.state === 'vassal' ? 18 : 10, food = r.state === 'allied' ? 12 : 0, cr = r.state === 'vassal' ? 2 : 0;
+      cap.stock.coins += coins; cap.stock.food += food; cap.stock.crystals += cr;
+      cap.addTrade(`${r.state === 'vassal' ? 'Abgaben' : 'Handelszug'} aus ${r.name}: +${coins} 🪙${food ? `, +${food} 🍞` : ''}${cr ? `, +${cr} 💎` : ''}`);
+    }
+  }
+
+  /* ---- Gründung: Feste am Kartenrand ---- */
+  foundRival() {
+    const sim = this.sim, w = sim.world, cap = sim.capital, reach = new Uint8Array(w.w * w.h);
+    w.bfs(cap.camp.x, cap.camp.y + 1, (x, y) => { reach[y * w.w + x] = 1; return null; });
+    let best = null, bd = -1;
+    for (let y = 3; y < w.h - 3; y++) for (let x = 3; x < w.w - 3; x++) {
+      const d = Math.min(...sim.towns.map(t => Math.hypot(t.camp.x - x, t.camp.y - y)));
+      if (d < 24 || d <= bd || w.gates.some(g => Math.hypot(g.x - x, g.y - y) < 6)) continue;
+      let ok = true;
+      for (let dy = -1; dy <= 1 && ok; dy++) for (let dx = -1; dx <= 1; dx++) { const t = w.tile(x + dx, y + dy); if (!t || t.type !== 'grass') { ok = false; break; } }
+      if (!ok || !DIRS.some(([dx, dy]) => reach[(y + 2 * dy) * w.w + x + 2 * dx])) continue;
+      best = { x, y }; bd = d;
+    }
+    if (!best) { this.rival = null; return; }
+    const R = RIVAL_REALMS[sim.seed % RIVAL_REALMS.length];
+    this.rival = { ...R, x: best.x, y: best.y, relation: 0, state: 'neutral', contactDay: sim.day, nextSiege: 0, losses: 0, pending: null, history: [] };
+    this.markFeste();
+    sim.log(`🏰 Hinter den Wäldern im Osten erhebt sich die Feste ${R.name}. ${R.ruler} herrscht dort – und beobachtet ${sim.kingdom.name} genau.`, null, true);
+    sim.emit('system', `NACHBARREICH ENTDECKT: ${R.name}`);
+    sim.emit('diplo', { kind: 'contact', realm: this.rival });
+    this.offer('Der Gesandte überbringt Grüße und fragt, wie ihr zu euren Nachbarn steht.');
+  }
+  markFeste() {
+    const w = this.sim.world, r = this.rival, c = w.tile(r.x, r.y);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const t = w.tile(r.x + dx, r.y + dy); if (!t) continue; if (t.type !== 'feste') w.setType(t, 'feste'); if (t !== c) t.part = c; }
+    w.dirty = true;
+  }
+
+  /* ---- Diplomatie ---- */
+  note(text) { const r = this.rival; r.history.unshift(`T${this.sim.day}: ${text}`); if (r.history.length > 8) r.history.pop(); }
+  shift(d, why) {
+    const r = this.rival, sim = this.sim, before = r.relation;
+    r.relation = clamp(r.relation + d, -100, 100);
+    if (why) this.note(`${why} (${d > 0 ? '+' : ''}${d})`);
+    if (r.state === 'neutral' && r.relation >= 60) { r.state = 'allied'; sim.log(`🤝 ${sim.kingdom.name} und ${r.name} schließen ein Bündnis!`, null, true); sim.emit('system', `BÜNDNIS MIT ${r.name.toUpperCase()}`); sim.emit('diplo', { kind: 'alliance', realm: r }); }
+    if ((r.state === 'neutral' || r.state === 'allied') && r.relation <= -50) {
+      r.state = 'war'; r.nextSiege = sim.day + 1;
+      sim.log(`⚔️ ${r.ruler} erklärt ${sim.kingdom.name} den Krieg! Morgen marschiert das Heer von ${r.name}.`, null, true);
+      sim.emit('system', `KRIEG! ${r.name.toUpperCase()} GREIFT AN`); sim.emit('diplo', { kind: 'war', realm: r });
+    }
+    if (r.state === 'allied' && r.relation < 30) { r.state = 'neutral'; sim.log(`💔 Das Bündnis mit ${r.name} zerbricht.`, null, true); }
+    return before;
+  }
+  offer(text) {
+    const r = this.rival, sim = this.sim;
+    r.pending = { text, until: sim.minutes + 150, day: sim.day };
+    sim.emit('diplo', { kind: 'offer', realm: r });
+  }
+  regentChoice() {
+    const sim = this.sim, k = sim.kingdom, reg = k && sim.npcs.find(n => n.id === k.regentId), amb = reg && reg.ambition, cap = sim.capital;
+    if (amb === 'staerke' && this.strength > this.rivalStrength) return 'tribut';
+    if ((amb === 'ruhm' || amb === 'reichtum') && cap.stock.coins >= 20) return 'buendnis';
+    if (cap.stock.coins >= 12 && cap.stock.crystals >= 1) return 'geschenk';
+    return 'ablehnen';
+  }
+  /** Antwort auf den Gesandten (von der Oberfläche oder automatisch). */
+  choose(key, auto = false) {
+    const sim = this.sim, r = this.rival, o = DIPLO_OPTIONS[key], cap = sim.capital;
+    if (!r || !r.pending || !o) return false;
+    if (!cap.canAfford(o.cost)) { if (!auto) return false; key = 'ablehnen'; }
+    const opt = DIPLO_OPTIONS[key];
+    cap.pay(opt.cost); r.pending = null;
+    const who = auto ? `Die Regentschaft von ${sim.kingdom.name}` : 'Ihr';
+    if (key === 'tribut') {
+      if (this.strength > this.rivalStrength * 1.2) { cap.stock.coins += 30; this.shift(-15, 'Tribut gezahlt – zähneknirschend'); sim.log(`💰 ${r.name} beugt sich und zahlt 30 Münzen Tribut.`, null, true); }
+      else this.shift(opt.rel, 'Tribut gefordert – eine Beleidigung');
+    } else this.shift(opt.rel, `${who} ${opt.text}`);
+    sim.log(`📜 ${who} ${opt.text}. Beziehung zu ${r.name}: ${r.relation}.`, null, true);
+    sim.emit('diplo', { kind: 'answer', realm: r, key, auto });
+    return true;
+  }
+  dailyDiplomacy() {
+    const sim = this.sim, r = this.rival, rng = sim.rng;
+    if (r.state === 'vassal') return;
+    if (r.state === 'war') { if (r.losses >= 2) this.surrender(); return; }
+    if ((sim.day - r.contactDay) % 3 === 0) { this.offer(pick(sim, ['Der Gesandte bittet um eine Antwort seiner Herrschaft.', `${r.ruler} lässt fragen, ob ihr Freunde oder Feinde sein wollt.`, 'Ein Bote mit versiegeltem Brief wartet am Tor.'])); return; }
+    if (r.temper) this.shift(r.temper, r.temper < 0 ? `${r.ruler} ist ${r.mood}` : 'gute Nachbarschaft');
+    if (!this.rival || this.rival.state === 'war') return;
+    const roll = rng();
+    if (roll < 0.3) this.shift(8, `${r.name} schickt Geschenke`);
+    else if (roll < 0.55) this.shift(-12, 'Streit an der Grenze');
+    else if (roll < 0.7 && this.strength > this.rivalStrength) this.shift(-8, `${r.name} fürchtet eure Stärke`);
+    else if (roll < 0.85 && sim.capital.market) { this.shift(5, 'Händler ziehen hin und her'); sim.capital.stock.coins += 6; }
+  }
+
+  /* ---- Belagerung ---- */
+  startSiege() {
+    const sim = this.sim, r = this.rival, w = sim.world, n = Math.min(8, 3 + Math.floor(sim.day / 5));
+    const spot = w.bfs(r.x, r.y + 2, (x, y) => w.walkable(x, y), 200) || w.bfs(r.x + 2, r.y, (x, y) => w.walkable(x, y), 200);
+    if (!spot) return;
+    this.sieges++; this.siegeTicks = 0; this.siegeOver = false;
+    const kinds = [...Array(n).fill('ritter'), 'feldherr'];
+    kinds.forEach((kind, i) => {
+      const M = MONSTERS[kind], hp = Math.round(M.hp * (1 + sim.day * 0.06)), p = spot.stand;
+      sim.monsters.push({ id: ++sim.monsterId, kind, army: true, x: p.x + (i % 3) * 0.3, y: p.y, prevX: p.x, prevY: p.y, hp, maxHp: hp, path: [], repath: 0, facing: -1, cd: 0, t: 0 });
+    });
+    sim.log(`🚩 Das Heer von ${r.name} marschiert! ${n} Dornritter und ihr Feldherr ziehen gegen ${sim.capital.name}.`, null, true);
+    sim.emit('system', `BELAGERUNG! Das Heer von ${r.name} naht`);
+    sim.emit('diplo', { kind: 'siege', realm: r });
+  }
+  updateSiege() {
+    const sim = this.sim, army = sim.monsters.filter(x => x.army);
+    if (sim.minutes % 1440 === 23 * 60) { // Rückzug bei Nacht
+      for (const m of army) m.gone = true;
+      this.rival.nextSiege = sim.day + 2; this.siegeOver = true; this.stalemates = (this.stalemates || 0) + 1;
+      if (this.stalemates >= 3) { // keine Seite gewinnt: Waffenstillstand
+        const r = this.rival; r.state = 'neutral'; r.relation = 0; this.stalemates = 0;
+        sim.log(`🕊️ Nach drei zähen Belagerungen schließen ${sim.kingdom.name} und ${r.name} einen Waffenstillstand.`, null, true);
+        sim.emit('system', 'WAFFENSTILLSTAND'); this.note('Waffenstillstand');
+      } else sim.log(`🌙 Das Heer von ${this.rival.name} zieht sich für die Nacht zurück. Die Belagerung geht weiter …`, null, true);
+      return;
+    }
+    const cap = sim.capital.camp, at = army.filter(m => Math.hypot(m.x - cap.x, m.y - cap.y) < 2.5).length;
+    if (at) this.siegeTicks = (this.siegeTicks || 0) + at;
+    if (this.siegeTicks > (this.wallDone ? 1800 : 900)) this.siegeLost(army);
+  }
+  siegeLost(army) {
+    const sim = this.sim, r = this.rival, cap = sim.capital, coins = Math.floor(cap.stock.coins * 0.4), cr = Math.floor(cap.stock.crystals * 0.3);
+    for (const m of army) m.gone = true; this.siegeOver = true;
+    cap.stock.coins -= coins; cap.stock.crystals -= cr; r.nextSiege = sim.day + 2;
+    sim.log(`🏳️ Die Hauptstadt muss sich beugen: ${coins} 🪙 und ${cr} 💎 gehen an ${r.name}.`, null, true);
+    sim.emit('system', 'Die Belagerung ist verloren …');
+    sim.emit('diplo', { kind: 'siegeLost', realm: r });
+  }
+  armyDefeated() {
+    const sim = this.sim, r = this.rival;
+    if (this.siegeOver) return; this.siegeOver = true;
+    r.losses++; this.siegeWins++; r.nextSiege = sim.day + 2;
+    sim.log(`🏆 Das Heer von ${r.name} ist zerschlagen! ${sim.capital.name} hält stand.`, null, true);
+    sim.emit('system', 'SIEG! Die Belagerung ist gebrochen');
+    sim.emit('diplo', { kind: 'siegeWon', realm: r });
+    for (const n of sim.npcs) { n.mood = Math.min(100, n.mood + 20); }
+    if (r.losses >= 2) this.surrender();
+  }
+  surrender() {
+    const sim = this.sim, r = this.rival;
+    r.state = 'vassal'; r.relation = 10;
+    sim.log(`👑 ${r.ruler} unterwirft sich. ${r.name} wird zum Vasallen von ${sim.kingdom.name} und zahlt jeden Morgen Abgaben.`, null, true);
+    sim.emit('system', `${r.name.toUpperCase()} UNTERWIRFT SICH`);
+    sim.emit('diplo', { kind: 'vassal', realm: r });
+  }
+
+  /* ---- Stadtmauer der Hauptstadt ---- */
+  growWall() {
+    const sim = this.sim, cap = sim.capital;
+    if (!sim.kingdom || this.wallDone) return;
+    if (cap.stock.stone < 12 || cap.stock.wood < 10) { cap.stoneWanted = true; return; }
+    if (!this.wall) { this.wall = { progress: 0, r: Math.round(5 + Math.sqrt(cap.houses.length) * 2.1) }; sim.log(`🧱 Die Steinmetze beginnen mit der Stadtmauer von ${cap.name}.`, null, true); }
+    cap.stock.stone -= 12; cap.stock.wood -= 10;
+    this.wall.progress = Math.min(1, Math.round((this.wall.progress + 0.125) * 1000) / 1000);
+    if (this.wall.progress >= 1) { sim.log(`🏰 Die Stadtmauer von ${cap.name} ist vollendet! Belagerer haben es jetzt schwer.`, null, true); sim.emit('system', 'STADTMAUER VOLLENDET'); sim.emit('wallDone', this.wall); }
+  }
+}
+
+/** Ritter des Nachbarreichs: marschieren zur Hauptstadt und kämpfen gegen alle, die sich in den Weg stellen. */
+function updateArmy(sim, m) {
+  const M = MONSTERS[m.kind];
+  m.prevX = m.x; m.prevY = m.y; m.t++;
+  let target = null, bd = 1.6;
+  for (const n of sim.npcs) { if (n.inside) continue; const d = Math.hypot(n.x - m.x, n.y - m.y); if (d < bd) { bd = d; target = n; } }
+  if (target) {
+    if (Math.abs(target.x - m.x) > 0.1) m.facing = target.x > m.x ? 1 : -1;
+    if (++m.cd >= 3) {
+      m.cd = 0; m.attackAt = performance.now();
+      const wallCut = sim.realm.wallDone && Math.hypot(target.x - sim.capital.camp.x, target.y - sim.capital.camp.y) < sim.realm.wall.r ? 0.75 : 1;
+      const dmg = Math.max(1, Math.round(M.atk * (1 + sim.day * 0.05) * wallCut * (0.8 + sim.rng() * 0.4) * (1 - target.defense / (target.defense + 60))));
+      target.hp -= dmg; sim.float(target.x, target.y - 0.4, `-${dmg}`, '#ff6b6b'); sim.emit('hit', target);
+      if (target.hp <= 0) sim.knockOut(target, m);
+    }
+    return;
+  }
+  const cap = sim.capital.campTile;
+  if (Math.hypot(cap.x - m.x, cap.y - m.y) < 1.8) return; // am Ziel: belagern
+  if (--m.repath <= 0 || !m.path.length) { m.repath = 25; const res = sim.world.findAdjacent(m.x, m.y, t => t === cap, 9000); m.path = res ? res.path : []; }
+  let budget = M.speed;
+  while (budget > 0 && m.path.length) {
+    const nx = m.path[0], dx = nx.x - m.x, dy = nx.y - m.y, d = Math.hypot(dx, dy);
+    if (Math.abs(dx) > 0.01) m.facing = dx > 0 ? 1 : -1;
+    if (d <= budget) { m.x = nx.x; m.y = nx.y; budget -= d; m.path.shift(); } else { m.x += dx / d * budget; m.y += dy / d * budget; budget = 0; }
+  }
+}
+function defeatSoldier(m, n, sim) {
+  const M = MONSTERS[m.kind], coins = m.kind === 'feldherr' ? 25 : 4;
+  sim.capital.stock.coins += coins;
+  if (n) {
+    sim.log(`⚔️ besiegt ${m.kind === 'feldherr' ? 'den Feldherrn' : 'einen Dornritter'}! (+${M.xp} EP, +${coins} 🪙)`, n, true);
+    n.kills = (n.kills || 0) + 1; n.gainXp('combat', 1); n.addXp(sim, M.xp);
+    n.remember(sim, `Hat ${m.kind === 'feldherr' ? 'den Feldherrn' : 'einen Dornritter'} besiegt ⚔️`);
+    if (m.kind === 'feldherr') n.addTitle(sim, 'Bezwinger des Feldherrn');
+  } else sim.log(`🗼 Ein Wachturm streckt ${m.kind === 'feldherr' ? 'den Feldherrn' : 'einen Dornritter'} nieder!`, null, true);
+  sim.emit('system', `${M.name} besiegt!`);
+  sim.emit('monsterKilled', m);
+  if (!sim.monsters.some(x => x.army && x !== m && x.hp > 0 && !x.gone)) sim.realm.armyDefeated();
+}
 /* =====================================================================
  * 8) DARSTELLUNG (Canvas 2D)
  * Pipeline pro Bild: Boden (zwischengespeichert) → Wasseranimation →
@@ -3007,7 +3285,7 @@ const EYES = ['#3a7bd5', '#2e9e6a', '#9b4fd1', '#d0453a', '#d4a017', '#6b4a30', 
  * Boden wird mit dieser affinen Abbildung gezeichnet, aufrechte Dinge nur an ihren Platz verschoben. */
 const ISO_X = 0.7, ISO_Y = 0.35;
 const BSCALE = 1, SCALED = new Set(['house', 'smithy', 'market', 'tower', 'tavern', 'temple', 'forsthaus', 'bauernhof', 'gildenhalle', 'lagerhaus', 'site']);
-const BLDG_SHADOW = { house: [0.36, 1.0], smithy: [0.38, 1.1], tower: [0.26, 2.0], tavern: [0.45, 1.2], temple: [0.45, 1.2], forsthaus: [0.36, 0.9], bauernhof: [0.42, 1.0], gildenhalle: [0.5, 1.5], lagerhaus: [0.42, 1.0], market: [0.4, 0.5], castle: [1.4, 1.6] };
+const BLDG_SHADOW = { house: [0.36, 1.0], smithy: [0.38, 1.1], tower: [0.26, 2.0], tavern: [0.45, 1.2], temple: [0.45, 1.2], forsthaus: [0.36, 0.9], bauernhof: [0.42, 1.0], gildenhalle: [0.5, 1.5], lagerhaus: [0.42, 1.0], market: [0.4, 0.5], castle: [1.4, 1.6], feste: [1.4, 1.6] };
 const isoX = (wx, wy) => (wx - wy) * ISO_X, isoY = (wx, wy) => (wx + wy) * ISO_Y;
 const unIso = (ix, iy) => [(ix / ISO_X + iy / ISO_Y) / 2, (iy / ISO_Y - ix / ISO_X) / 2];
 const ROOFS = ['#a8432f', '#7d4a2b', '#56606e', '#8e3d55', '#3f6e5a', '#b0683a'];
@@ -3277,7 +3555,7 @@ class Renderer {
   setSim(sim) {
     this.sim = sim; this.follow = null; this.ts = 0; this.particles = []; this.groundTs = 0;
     this.chunks.clear(); this.anim.clear(); this.petPos.clear(); this.effects = []; this.miniBase = null;
-    this.buildDecor(); this.spawnAnimals();
+    this.buildDecor(); this.spawnAnimals(); this.spawnBoats();
     this.resize();
     this.centerOn(sim.world.camp.x + 0.5, sim.world.camp.y + 0.5);
   }
@@ -3453,6 +3731,7 @@ class Renderer {
     S.gildenhalle = this.makeSprite(2.2, 2.9, 1.1, 2.5, isoGildenhalle);
     S.bauernhof = this.makeSprite(2.2, 1.9, 1.15, 1.5, isoBauernhof);
     S.lagerhaus = this.makeSprite(1.9, 1.8, 0.95, 1.45, isoLagerhaus);
+    S.feste = this.makeSprite(4.6, 4.6, 2.3, 3.6, (c, s) => isoCastle(c, s, { wall: '#8e8478', roof: '#5a1e2a', keep: '#9a9084' }));
     this.sprites = S; this.spriteTs = this.ts;
   }
 
@@ -3499,7 +3778,7 @@ class Renderer {
 
   pathLevel(t) {
     if (!t) return 0;
-    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market' || t.type === 'tower' || t.type === 'tavern' || t.type === 'temple' || t.type === 'forsthaus' || t.type === 'bauernhof' || t.type === 'gildenhalle' || t.type === 'lagerhaus') return 1;
+    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market' || t.type === 'tower' || t.type === 'tavern' || t.type === 'temple' || t.type === 'forsthaus' || t.type === 'bauernhof' || t.type === 'gildenhalle' || t.type === 'lagerhaus' || t.type === 'feste') return 1;
     return t.type === 'grass' ? Math.min(1, t.traffic / 50) : 0;
   }
 
@@ -3940,6 +4219,26 @@ class Renderer {
   }
 
   /** Wildtiere: Rehe und Hasen, rein zur Atmosphäre. */
+  /** Boote auf größeren Seen (nur Anzeige). */
+  spawnBoats() {
+    const w = this.sim.world, rng = mulberry32(this.sim.seed * 5 + 3), deep = w.tiles.filter(t => t.type === 'water' && this.waterDepth[t.y * w.w + t.x] >= 2);
+    this.boats = [];
+    for (let i = 0; i < Math.min(5, Math.floor(deep.length / 25)); i++) { const t = deep[Math.floor(rng() * deep.length)]; this.boats.push({ x: t.x, y: t.y, tx: t.x, ty: t.y, f: 1, seed: i * 2.3 }); }
+  }
+  updateBoats(dt) {
+    const w = this.sim.world;
+    for (const b of this.boats || []) {
+      const dx = b.tx - b.x, dy = b.ty - b.y, d = Math.hypot(dx, dy);
+      if (d < 0.02) {
+        const opts = DIRS.map(([ax, ay]) => w.tile(Math.round(b.x) + ax, Math.round(b.y) + ay)).filter(t => t && t.type === 'water' && this.waterDepth[t.y * w.w + t.x] >= 2);
+        if (opts.length && Math.random() < 0.02) { const t = opts[Math.floor(Math.random() * opts.length)]; b.tx = t.x; b.ty = t.y; }
+        continue;
+      }
+      const v = Math.min(d, dt * 0.25); b.x += dx / d * v; b.y += dy / d * v;
+      if (Math.abs(dx - dy) > 0.01) b.f = dx - dy > 0 ? 1 : -1; // Blickrichtung auf dem Bildschirm
+    }
+  }
+
   spawnAnimals() {
     const w = this.sim.world, rng = mulberry32(this.sim.seed * 3 + 1);
     this.animals = [];
@@ -4085,6 +4384,24 @@ class Renderer {
     }
   }
 
+  /** Stücke der Stadtmauer auf dem Ring um die Hauptstadt (zwischengespeichert, nur wo Platz ist). */
+  wallPieces() {
+    const sim = this.sim, wall = sim.realm && sim.realm.wall;
+    if (!wall) return null;
+    const key = `${wall.progress}|${wall.r}|${sim.capital.buildings.length}|${sim.minutes / 720 | 0}`;
+    if (this.wallKey === key) return this.wallCache;
+    const map = new Map(), w = sim.world, cap = sim.capital.camp, n = Math.round(TAU * wall.r / 0.95), built = Math.round(n * wall.progress);
+    for (let k = 0; k < built; k++) {
+      const a = k / n * TAU, fx = cap.x + Math.cos(a) * wall.r, fy = cap.y + Math.sin(a) * wall.r, tx = Math.round(fx), ty = Math.round(fy), t = w.tile(tx, ty);
+      if (!t || !['grass', 'stump', 'field'].includes(t.type)) continue;
+      const kind = t.traffic > 30 ? 'tor' : k % 9 === 0 ? 'turm' : 'mauer';
+      const piece = { x: fx - 0.5, y: fy - 0.5, tx: -Math.sin(a), ty: Math.cos(a), kind };
+      (map.get(ty * w.w + tx) || map.set(ty * w.w + tx, []).get(ty * w.w + tx)).push(piece);
+    }
+    this.wallKey = key; this.wallCache = map;
+    return map;
+  }
+
   /** Garten: ruhige Wiese direkt neben einem Wohnhaus → Richtung zum Haus, sonst null. */
   gardenDir(t) {
     if (t.traffic > 14 || ((t.x * 7 + t.y * 13) % 10) > 7) return null;
@@ -4139,7 +4456,7 @@ class Renderer {
     const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy', 'market', 'tower', 'tavern', 'temple', 'forsthaus', 'bauernhof', 'gildenhalle', 'lagerhaus'].includes(t.type);
     const pick = t => t && t.part ? t.part : t;
     // hohe Gebäude ragen nach oben: ein Tipp darüber trifft die Kachel davor (diagonal unten)
-    for (let dd = 1; dd <= 3; dd++) { const t = w.tile(tx + dd, ty + dd); if (t && t.type === 'castle' && (!here || here.type === 'grass')) return pick(t); }
+    for (let dd = 1; dd <= 3; dd++) { const t = w.tile(tx + dd, ty + dd); if (t && (t.type === 'castle' || t.type === 'feste') && (!here || here.type === 'grass')) return pick(t); }
     if (!tall(here)) for (let dd = 1; dd <= 2; dd++) { const t = w.tile(tx + dd, ty + dd); if (tall(t)) return pick(t); }
     return pick(here);
   }
@@ -4153,7 +4470,7 @@ class Renderer {
       cv.width = w.w; cv.height = w.h;
       const ctx = cv.getContext('2d'), img = ctx.createImageData(w.w, w.h);
       const COL = { grass: [77, 122, 58], tree: [36, 80, 44], stump: [90, 110, 60], water: [47, 111, 159], ford: [90, 159, 192], bush: [60, 125, 63],
-        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], tower: [200, 195, 185], tavern: [190, 120, 60], temple: [250, 240, 200], forsthaus: [90, 150, 70], bauernhof: [200, 70, 55], gildenhalle: [70, 110, 200], lagerhaus: [150, 100, 60], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
+        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], tower: [200, 195, 185], tavern: [190, 120, 60], temple: [250, 240, 200], forsthaus: [90, 150, 70], bauernhof: [200, 70, 55], gildenhalle: [70, 110, 200], lagerhaus: [150, 100, 60], feste: [130, 40, 60], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
       w.tiles.forEach((t, i) => {
         let col = COL[t.type] || COL.grass;
         if (t.type === 'grass' && t.traffic > 25) col = [138, 115, 80];
@@ -4337,7 +4654,7 @@ class Renderer {
     if (this.spriteTs !== this.ts && (settled || !this.spriteTs)) this.buildSprites();
     this.chunkBudget = 4;
     this.refreshDirtyGround();
-    this.updateAnimals(dt);
+    this.updateAnimals(dt); this.updateBoats(dt);
     const s = this.ts, sk = s / this.spriteTs; // während des Zoomens Sprites skalieren
     const { w, h } = sim.world, dpr = this.dpr, W = this.canvas.width, H = this.canvas.height;
 
@@ -4431,6 +4748,10 @@ class Renderer {
       const fy = m.prevY + (m.y - m.prevY) * alpha, fx = m.prevX + (m.x - m.prevX) * alpha, r = depth(fx, fy);
       (rows.get(r) || rows.set(r, []).get(r)).push({ monster: m, fy, fx, d: fx + fy });
     }
+    for (const bt of this.boats || []) {
+      if (bt.x < x0 - 1 || bt.x > x1 + 1 || bt.y < y0 - 1 || bt.y > y1 + 1) continue;
+      const r = depth(bt.x, bt.y); (rows.get(r) || rows.set(r, []).get(r)).push({ boat: bt, fx: bt.x, fy: bt.y, d: bt.x + bt.y });
+    }
     if (s >= 10) for (const a of this.animals) {
       if (a.x < x0 - 1 || a.x > x1 + 1 || a.y < y0 - 1 || a.y > y1) continue;
       const r = depth(a.x, a.y);
@@ -4450,7 +4771,7 @@ class Renderer {
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const t = sim.world.tile(x, y);
         if (t.type === 'tree') { const [bx, by] = this.treeBase(t, s); shadow(this.treeSprite(t), bx, by); }
-        else if (BLDG_SHADOW[t.type] && !(t.type === 'castle' && t.part)) {
+        else if (BLDG_SHADOW[t.type] && !((t.type === 'castle' || t.type === 'feste') && t.part)) {
           const [r, hgt] = BLDG_SHADOW[t.type], ox = -sun.dx * sun.len * hgt * s, oy = sun.dx * sun.len * hgt * s * 0.6;
           sc.fillStyle = '#000';
           for (let k = 0; k <= 6; k++) sc.fillRect((x + 0.5 - r) * s + ox * k / 6, (y + 0.5 - r) * s + oy * k / 6, 2 * r * s, 2 * r * s);
@@ -4492,12 +4813,15 @@ class Renderer {
       c.stroke(); c.setLineDash([]);
     }
 
+    const wallMap = this.wallPieces();
     // 4) Objekte und Siedler Diagonale für Diagonale (hinten → vorn)
     for (let dg = D0; dg <= D1; dg++) {
       for (let x = Math.max(x0, dg - y1); x <= Math.min(x1, dg - y0); x++) {
         const y = dg - x, t = sim.world.tile(x, y);
         if (SCALED.has(t.type)) atB(t); else at((x + 0.5) * s, (y + 0.5) * s);
         if (t.type === 'grass' && detail) { const gd = this.gardenDir(t); if (gd) this.drawFence(c, t, s, gd); }
+        const wp = wallMap && wallMap.get(y * w + x);
+        if (wp) for (const q of wp) { c.save(); at((q.x + 0.5) * s, (q.y + 0.5) * s); c.translate((q.x + 0.5) * s, (q.y + 0.5) * s); drawWallPiece(c, s, q.tx, q.ty, q.kind); c.restore(); at((x + 0.5) * s, (y + 0.5) * s); }
         switch (t.type) {
           case 'tree': {
             const [bx, by] = this.treeBase(t, s), sp = this.treeSprite(t);
@@ -4546,6 +4870,24 @@ class Renderer {
             break;
           }
           case 'camp': this.drawCamp(c, t, s, now); break;
+          case 'feste': { // Burg des Nachbarreichs
+            const rv = sim.realm.rival;
+            if (!rv || !t.part || t.x !== t.part.x + 1 || t.y !== t.part.y + 1) break;
+            const sp = this.sprites.feste, bx = (t.part.x + 0.5) * s, by = (t.part.y + 0.5) * s;
+            at(bx, by); c.drawImage(sp.cv, bx - sp.ax * sk, by - sp.ay * sk, sp.w * sk, sp.h * sk);
+            for (const [fx0, fy0, len] of sp.meta.flags) {
+              const fx = bx + fx0 * s, fy = by + fy0 * s, wave = Math.sin(now / 280 + fx0 * 3) * s * 0.04, top = fy - len * s;
+              c.strokeStyle = '#2a2a2a'; c.lineWidth = Math.max(1, s * 0.025); c.beginPath(); c.moveTo(fx, fy); c.lineTo(fx, top); c.stroke();
+              c.fillStyle = rv.color; c.beginPath(); c.moveTo(fx, top); c.quadraticCurveTo(fx + s * 0.25, top + wave, fx + s * 0.5, top + s * 0.05 + wave); c.lineTo(fx + s * 0.5, top + s * 0.27 + wave); c.quadraticCurveTo(fx + s * 0.25, top + s * 0.22 - wave, fx, top + s * 0.25); c.fill();
+            }
+            break;
+          }
+          case 'ford': { // Brücke über die Furt
+            const w = sim.world, wx = (dx, dy) => { const q = w.tile(x + dx, y + dy); return q && q.type === 'water'; };
+            const alongX = !(wx(1, 0) || wx(-1, 0)) || (wx(0, 1) && wx(0, -1));
+            c.save(); c.translate((x + 0.5) * s, (y + 0.5) * s); drawBridge(c, s, alongX, !!sim.kingdom); c.restore();
+            break;
+          }
           case 'rock': {
             const sp = this.sprites['rock' + (t.shade < 0.5 ? 0 : 1)], k = sk * (0.55 + 0.45 * Math.min(1, (t.wood || CONFIG.resources.rockStone) / CONFIG.resources.rockStone));
             const shake = t.hitAt && now - t.hitAt < 200 ? Math.sin(now / 20) * s * 0.02 : 0;
@@ -4604,6 +4946,7 @@ class Renderer {
         for (const e of list) {
           if (e.n) at(e.px, e.py); else at((e.fx + 0.5) * s, (e.fy + 0.5) * s);
           if (e.animal) { this.drawAnimal(c, e.animal, s); continue; }
+          if (e.boat) { c.save(); c.translate((e.fx + 0.5) * s, (e.fy + 0.5) * s); drawBoat(c, s, e.boat.f, now, e.boat.seed); c.restore(); continue; }
           if (e.pet) {
             const fly = e.kind === 'eule' || e.kind === 'drache', px = (e.fx + 0.5) * s, py = (e.fy + 0.85) * s;
             c.fillStyle = 'rgba(0,0,0,.22)'; c.beginPath(); c.ellipse(px, py, s * 0.13, s * 0.04, 0, 0, TAU); c.fill();
@@ -4612,7 +4955,7 @@ class Renderer {
           }
           if (e.cart) { drawCart(c, e.cart, s, now, (e.fx + 0.5) * s, (e.fy + 0.85) * s); continue; }
           if (e.monster) {
-            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s, bs = m.boss ? s * 2.1 : m.kind === 'banditenboss' ? s * 1.25 : s; // Boss: doppelt so groß
+            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s, bs = m.boss ? s * 2.1 : m.kind === 'banditenboss' || m.kind === 'feldherr' ? s * 1.25 : s; // Boss: doppelt so groß
             const look = m.boss ? 'aschegolem' : m.kind;
             if (m.boss) { // rotes Glühen um den Kronenfresser
               const gl = c.createRadialGradient(mx, my - bs * 0.4, 0, mx, my - bs * 0.4, bs * 0.9);
@@ -4631,7 +4974,7 @@ class Renderer {
               c.fillStyle = '#c9b48a'; c.beginPath(); c.ellipse(sx, sy, bs * 0.11, bs * 0.13, 0, 0, TAU); c.fill(); c.strokeStyle = '#5a4428'; c.lineWidth = Math.max(1, s * 0.02); c.stroke();
               c.fillStyle = '#f0c35a'; c.beginPath(); c.arc(sx, sy - bs * 0.13, bs * 0.03, 0, TAU); c.fill();
             }
-            const bw = bs * 0.7, by = my - bs * (look === 'aschegolem' ? 1.15 : m.bandit ? 1.0 : 0.75);
+            const bw = bs * 0.7, by = my - bs * (look === 'aschegolem' ? 1.15 : m.bandit || m.army ? 1.0 : 0.75);
             c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(mx - bw / 2, by, bw, Math.max(3, s * 0.07));
             c.fillStyle = '#e04848'; c.fillRect(mx - bw / 2, by, bw * Math.max(0, m.hp / m.maxHp), Math.max(3, s * 0.07));
             continue;
@@ -5164,26 +5507,70 @@ function isoBauernhof(c, s) {
 }
 
 /* ---- Burg (3×3 Kacheln): Ringmauer mit Ecktürmen, Tor, Bergfried ---- */
-function isoCastle(c, s) {
-  const K = isoKit(c, s), wall = '#bdb8ae', R = 1.35, H = 0.7;
-  K.tower(-R, -R, 0.28, 0, 1.1, wall, '#3d4a66', 0.5); // hinterer Turm zuerst
+function isoCastle(c, s, pal = {}) {
+  const K = isoKit(c, s), wall = pal.wall || '#bdb8ae', roof = pal.roof || '#3d4a66', keepC = pal.keep || '#c9c4b8', R = 1.35, H = 0.7;
+  K.tower(-R, -R, 0.28, 0, 1.1, wall, roof, 0.5); // hinterer Turm zuerst
   const back = { ox: 0, oy: 0, a: R, b: R, z: 0, H };
   K.poly([K.P(-R, -R, H), K.P(R, -R, H), K.P(R, R, H), K.P(-R, R, H)], '#8e9a7a', null); // Burghof
   // Bergfried in der Mitte
   const keep = { ox: -0.2, oy: -0.2, a: 0.45, b: 0.45, z: 0, H: 2.1 };
-  K.box(keep, '#c9c4b8', '#9a958a'); K.stones(keep, 'L'); K.stones(keep, 'R'); K.battlements(keep, '#c9c4b8');
+  K.box(keep, keepC, '#9a958a'); K.stones(keep, 'L'); K.stones(keep, 'R'); K.battlements(keep, keepC);
   const wins = [];
   for (const v of [0.8, 1.3, 1.75]) { wins.push(K.win(keep, 'L', -0.15, v, 0.08, 0.16)); wins.push(K.win(keep, 'L', 0.18, v, 0.08, 0.16)); wins.push(K.win(keep, 'R', 0, v, 0.08, 0.16)); }
-  K.tower(R, -R, 0.28, 0, 1.1, wall, '#3d4a66', 0.5); K.tower(-R, R, 0.28, 0, 1.1, wall, '#3d4a66', 0.5);
+  K.tower(R, -R, 0.28, 0, 1.1, wall, roof, 0.5); K.tower(-R, R, 0.28, 0, 1.1, wall, roof, 0.5);
   // vordere Mauern mit Zinnen und Tor
   const wl = { ox: 0, oy: R - 0.1, a: R, b: 0.1, z: 0, H }, wr = { ox: R - 0.1, oy: 0, a: 0.1, b: R, z: 0, H };
   K.box(wr, wall, shadeHex(wall, -30), shadeHex(wall, 10)); K.stones(wr, 'R'); K.battlements(wr, wall);
   K.box(wl, wall, shadeHex(wall, -30), shadeHex(wall, 10)); K.stones(wl, 'L'); K.battlements(wl, wall);
   const gq = K.wallQuad(wl, 'L', -0.22, 0, 0.22, 0.5); K.poly(gq, '#2a1e16', '#4a3a2a', K.lw * 2);
   for (let u = -0.18; u <= 0.18; u += 0.09) K.line(K.onWall(wl, 'L', u, 0), K.onWall(wl, 'L', u, 0.48), '#6a6a70');
-  const T = K.tower(R, R, 0.3, 0, 1.2, wall, '#3d4a66', 0.55);
+  const T = K.tower(R, R, 0.3, 0, 1.2, wall, roof, 0.55);
   const flags = [K.P(-0.2, -0.2, 2.2), K.P(R, R, 1.75), K.P(-R, R, 1.6), K.P(R, -R, 1.6)].map(([x, y], i) => [x / s, y / s, i ? 0.4 : 0.6]);
   return { windows: wins, flags };
+}
+
+/** Brücke über eine Furt: Holzdeck mit Geländer, quer über das Wasser. */
+function drawBridge(c, s, alongX, stone) {
+  const K = isoKit(c, s), a = alongX ? 0.52 : 0.22, b = alongX ? 0.22 : 0.52, deck = stone ? '#a49e92' : '#8a6239';
+  K.box({ ox: 0, oy: 0, a, b, z: 0.04, H: 0.06 }, shadeHex(deck, -10), shadeHex(deck, -35), deck);
+  for (let k = -4; k <= 4; k++) { const f = k / 4 * 0.48; K.line(alongX ? K.P(f, -b, 0.1) : K.P(-a, f, 0.1), alongX ? K.P(f, b, 0.1) : K.P(a, f, 0.1), 'rgba(40,24,12,.35)'); }
+  for (const side of [-1, 1]) {
+    const p0 = alongX ? K.P(-a, side * b, 0.1) : K.P(side * a, -b, 0.1), p1 = alongX ? K.P(a, side * b, 0.1) : K.P(side * a, b, 0.1);
+    K.line([p0[0], p0[1] - s * 0.12], [p1[0], p1[1] - s * 0.12], stone ? '#c9c4b8' : '#6b4526', Math.max(1.5, s * 0.025));
+    for (let k = 0; k <= 4; k++) { const f = k / 4; const x = p0[0] + (p1[0] - p0[0]) * f, y = p0[1] + (p1[1] - p0[1]) * f; K.line([x, y], [x, y - s * 0.12], stone ? '#c9c4b8' : '#6b4526', Math.max(1, s * 0.02)); }
+  }
+}
+
+/** Kleines Boot mit Segel, schaukelt auf dem Wasser. */
+function drawBoat(c, s, facing, now, seed) {
+  const bob = Math.sin(now / 600 + seed) * s * 0.03, tilt = Math.sin(now / 900 + seed) * 0.05;
+  c.save(); c.translate(0, bob); c.rotate(tilt); c.scale(facing, 1);
+  c.fillStyle = 'rgba(0,30,60,.25)'; c.beginPath(); c.ellipse(0, s * 0.06, s * 0.36, s * 0.08, 0, 0, TAU); c.fill();
+  c.fillStyle = '#7a4e2a'; c.beginPath(); c.moveTo(-s * 0.32, -s * 0.04); c.lineTo(s * 0.34, -s * 0.06); c.lineTo(s * 0.22, s * 0.06); c.lineTo(-s * 0.24, s * 0.06); c.closePath(); c.fill();
+  c.strokeStyle = ISO_OL; c.lineWidth = Math.max(1, s * 0.015); c.stroke();
+  c.fillStyle = '#a8784a'; c.fillRect(-s * 0.28, -s * 0.06, s * 0.58, s * 0.03);
+  c.strokeStyle = '#4a2e18'; c.lineWidth = Math.max(1, s * 0.02); c.beginPath(); c.moveTo(0, -s * 0.05); c.lineTo(0, -s * 0.55); c.stroke();
+  c.fillStyle = '#f2ebe0'; c.beginPath(); c.moveTo(s * 0.02, -s * 0.53); c.quadraticCurveTo(s * 0.26, -s * 0.32, s * 0.02, -s * 0.1); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#c84a3a'; c.fillRect(s * 0.03, -s * 0.36, s * 0.12, s * 0.04);
+  c.restore();
+}
+
+/** Ein Stück Stadtmauer (tangential zum Ring), wahlweise mit Turm oder Tor. */
+function drawWallPiece(c, s, tx, ty, kind) {
+  const K = isoKit(c, s), L = 0.48, th = 0.09, H = 0.5, col = '#b8b2a6';
+  const pt = (u, v, z) => K.P(tx * u - ty * v, ty * u + tx * v, z); // u entlang der Mauer, v quer dazu
+  const face = v => [pt(-L, v, 0), pt(L, v, 0), pt(L, v, H), pt(-L, v, H)];
+  const front = (tx * 1 + ty * 1) * 0 + (-ty + tx) > 0 ? th : -th; // die zum Betrachter zeigende Seite
+  if (kind === 'tor') {
+    for (const u of [-L * 0.8, L * 0.8]) K.box({ ox: tx * u, oy: ty * u, a: 0.1, b: 0.1, z: 0, H: H + 0.25 }, col, shadeHex(col, -30), shadeHex(col, 10));
+    K.line(pt(-L * 0.7, 0, H + 0.12), pt(L * 0.7, 0, H + 0.12), '#6b4526', Math.max(2, s * 0.04));
+    return;
+  }
+  K.poly(face(-front), shadeHex(col, -30)); K.poly(face(front), col);
+  K.poly([pt(-L, -th, H), pt(L, -th, H), pt(L, th, H), pt(-L, th, H)], shadeHex(col, 12));
+  for (let u = -L + 0.08; u < L; u += 0.2) K.poly([pt(u, front, H), pt(u + 0.1, front, H), pt(u + 0.1, front, H + 0.08), pt(u, front, H + 0.08)], col);
+  for (let r = 1; r < 4; r++) K.line(pt(-L, front, r * H / 4), pt(L, front, r * H / 4), 'rgba(40,34,28,.25)');
+  if (kind === 'turm') K.tower(0, 0, 0.17, 0, H + 0.35, col, '#3d4a66', 0.3);
 }
 /* =====================================================================
  * 8c) PIXEL-FIGUREN
@@ -5716,6 +6103,20 @@ function pixCreature(kind, frame, attack, flash, antlers) {
     el(FX, y - 4, 4, 3, '#9c8a76'); el(FX - 1, y - 3, 3, 1, '#857462'); el(FX + 4, y - 7, 2, 2, '#9c8a76');
     pr(FX + 3, y - 12, 1, 4, '#9c8a76'); pr(FX + 5, y - 12, 1, 4, '#8a7864'); pr(FX + 5, y - 8, 1, 1, '#1d1410');
     pr(FX - 5, y - 5, 2, 2, '#ffffff');
+  } else if (kind === 'ritter' || kind === 'feldherr') { // Heer des Nachbarreichs: Rüstung, Wappenrock, Helm
+    const boss = kind === 'feldherr', sw = [0, 2, 0, -2][frame & 3], atk = attack ? 3 : 0;
+    const steel = '#9aa3ad', dark = '#5c646e', tab = '#7a1e3a', skin = '#e0b08a';
+    if (boss) pr(FX - 6, FY - 18, 3, 14, '#5a1428');
+    pl(FX - 2, FY - 7, FX - 2 - sw / 2, FY - 1, 2, dark); pl(FX + 2, FY - 7, FX + 2 + sw / 2, FY - 1, 2, dark);
+    pr(FX - 4 - sw / 2, FY - 1, 3, 1, '#2a2a30'); pr(FX + 1 + sw / 2, FY - 1, 3, 1, '#2a2a30');
+    pr(FX - 4, FY - 16, 8, 9, steel); pr(FX - 3, FY - 15, 6, 8, tab); pr(FX - 1, FY - 13, 2, 3, '#f0c35a');
+    pl(FX - 3, FY - 15, FX - 5, FY - 10, 2, steel); pr(FX - 7, FY - 13, 3, 5, '#7a5a3a'); // Schild
+    pl(FX + 3, FY - 15, FX + 6 + atk, FY - 11, 2, steel); pr(FX + 6 + atk, FY - 12, 2, 2, skin);
+    if (boss) { pl(FX + 7 + atk, FY - 11, FX + 13 + atk, FY - 19, 1, '#e8eef2'); pr(FX + 6 + atk, FY - 12, 3, 1, '#c9a032'); }
+    else pl(FX + 7 + atk, FY - 6, FX + 9 + atk, FY - 24, 1, '#6b4426'), pr(FX + 9 + atk, FY - 26, 1, 3, '#d8dde2');
+    el(FX, FY - 21, 4, 4, steel); pr(FX - 4, FY - 25, 8, 2, dark); pr(FX + 1, FY - 21, 4, 1, '#1a1a20'); // Helm mit Sehschlitz
+    if (boss) { pr(FX - 1, FY - 29, 2, 4, '#c8302a'); pr(FX - 3, FY - 27, 6, 1, '#c9a032'); }
+    else pr(FX - 1, FY - 27, 2, 2, tab);
   } else if (kind === 'bandit' || kind === 'banditenboss') { // Rotschal-Bande: Schal, Maske, Dolch / Hauptmann mit Axt
     const boss = kind === 'banditenboss', sw = [0, 2, 0, -2][frame & 3], atk = attack ? 3 : 0;
     const coat = boss ? '#4a2a22' : '#5a4632', dark = '#2a2018', scarf = '#c8302a', skin = '#e0b08a', hood = boss ? '#2a1e18' : '#3a3228';
@@ -6187,7 +6588,7 @@ function voice(n, sit, fallback = 'lager') {
 
 /* ---- Bausteine für Drehbücher ------------------------------------------- */
 const T = (top, main, sub = '') => ({ title: { top, main, sub } });
-const S = (who, text, mood = 'normal') => ({ say: { who, text, mood } });
+const S = (who, text, mood = 'normal', kind = null) => ({ say: { who, text, mood, kind } });
 const N = text => ({ say: { who: null, text, mood: 'normal' } });
 const FX = (fx, ms = 900) => ({ fx, ms });
 const SHOUT = (text, color = '#ffe14a') => ({ shout: { text, color } });
@@ -6366,6 +6767,32 @@ const SCENES = {
   milestone(n) {
     return [BG('wald'), CAST({ n, x: 0.5, pose: 'cheer' }), FX('flash'), FX('speed'), SND('triumph'), SHOUT(`LEVEL ${n.level}!`, '#8fd3ff'), SYS(`Alle Werte steigen · ${n.titles[n.titles.length - 1] || 'Erwachte Seele'}`), S(n, voice(n, 'entschlossen', 'jubel'), 'entschlossen')];
   },
+  diplo(e) {
+    const r = e.realm, k = sim.kingdom, reg = (k && sim.npcs.find(n => n.id === k.regentId)) || sim.story.hero, h = sim.story.hero, envoy = `Gesandter aus ${r.name}`;
+    const cast = [...(reg ? [{ n: reg, x: 0.28 }] : []), { kind: 'ritter', x: 0.7, face: -1, name: envoy }];
+    switch (e.kind) {
+      case 'contact': return [BG('burg'), CAST(...cast), N(`Ein Reiter mit fremdem Banner hält vor ${sim.capital.name}. Das Wappen: ${r.name}.`),
+        S(envoy, `${r.ruler} grüßt ${k.name}. Mein Reich liegt hinter den östlichen Wäldern. Seid ihr Freunde … oder Beute?`, 'normal', 'ritter'),
+        ...(reg ? [S(reg, 'Das hängt ganz von euch ab.', 'entschlossen')] : []), N('Was antwortet ihr? Wähle unten – sonst entscheidet die Regentschaft.')];
+      case 'offer': return sim.minutes - scn.lastAt > 200 ? [BG('burg'), CAST(...cast), S(envoy, r.pending ? r.pending.text : 'Meine Herrschaft erwartet eine Antwort.', 'normal', 'ritter'), N('Wähle unten eine Antwort.')] : null;
+      case 'war': return [BG('burg'), CAST(...cast), SND('spannung'), S(envoy, `${r.ruler} hat genug von euch. Morgen marschiert unser Heer. Bereitet euch vor – oder flieht.`, 'wut', 'ritter'),
+        ...(h ? [S(h, voice(h, 'kampf'), 'wut')] : []), FX('shake'), SHOUT('KRIEG!', '#ff6b6b')];
+      case 'siege': return [BG('dorf'), CAST(...(h ? [{ n: h, x: 0.22 }] : []), { kind: 'feldherr', x: 0.62, face: -1, scale: 1.2 }, { kind: 'ritter', x: 0.78, face: -1 }, { kind: 'ritter', x: 0.9, face: -1 }), SND('kampf'),
+        N(`Trommeln. Banner von ${r.name} am Waldrand. Ein ganzes Heer zieht auf die Stadt zu.`), S('Feldherr', 'Öffnet die Tore – oder wir reißen sie ein!', 'wut', 'feldherr'),
+        ...(h ? [S(h, voice(h, 'kampf'), 'entschlossen'), ACT(0, { pose: 'fight', tx: 0.35 })] : []), FX('speed'), SHOUT('ZU DEN WAFFEN!', '#ffd166')];
+      case 'siegeWon': return [BG('burg'), CAST(...others(null, 4).map((n, i) => ({ n, x: 0.2 + i * 0.2, pose: 'cheer' }))), FX('flash'), SND('triumph'), SHOUT('SIEG!', '#ffd76a'),
+        N(`Das Heer von ${r.name} ist zerschlagen. ${sim.capital.name} hält stand!`), ...(h ? [S(h, voice(h, 'sieg', 'jubel'), 'lachen')] : [])];
+      case 'siegeLost': return [BG('burg'), CAST(...(h ? [{ n: h, x: 0.4 }] : [])), SND('traurig'), N(`Die Belagerer plündern die Schatzkammer und ziehen ab.`), ...(h ? [S(h, voice(h, 'niederlage'), 'traurig'), S(h, 'Das nächste Mal halten wir stand. Wir brauchen eine Mauer.', 'entschlossen')] : [])];
+      case 'vassal': return [BG('burg'), CAST(...cast), S(envoy, `${r.ruler} beugt sich. ${r.name} zahlt ab heute Abgaben an ${k.name}.`, 'traurig', 'ritter'), FX('flash'), SND('triumph'), SHOUT(`${r.name.toUpperCase()} UNTERWIRFT SICH`, '#ffd76a')];
+      case 'alliance': return [BG('burg'), CAST(...cast), S(envoy, `${r.ruler} nimmt euer Bündnis an. Unsere Wege sind ab heute eure Wege.`, 'lachen', 'ritter'), ...(reg ? [S(reg, 'Auf eine lange Freundschaft!', 'lachen')] : []), SND('triumph'), SHOUT('BÜNDNIS!', '#8fd3ff')];
+    }
+    return null;
+  },
+  wall() {
+    const h = sim.story.hero, f = friendOf(h);
+    return [BG('burg'), CAST(...(h ? [{ n: h, x: 0.35, pose: 'cheer' }] : []), ...(f ? [{ n: f, x: 0.65, face: -1, pose: 'cheer' }] : [])), FX('flash'), SND('triumph'), SHOUT('DIE MAUER STEHT!', '#d8d4cc'),
+      N(`Stein auf Stein, Tag für Tag – nun umschließt eine Mauer ${sim.capital.name}.`), ...(f ? [S(f, voice(f, 'jubel'), 'lachen')] : [])];
+  },
   bund() {
     const st = sim.story, h = st.hero, r = st.rival; if (!h || !r) return null;
     return [BG('lager'), CAST({ n: h, x: 0.35 }, { n: r, x: 0.65, face: -1 }), S(r, voice(r, 'respekt'), 'normal'), S(h, 'Heißt das … wir sind jetzt Freunde?', 'lachen'),
@@ -6383,7 +6810,7 @@ function chapterScene(ch) {
     case 'sieg': return [...head, ...SCENES.bossWin()];
     case 'krone': return sim.kingdom ? [...head, ...SCENES.crown()] : null;
     case 'hauptmann': { const c = SCENES.captainFall(); return c ? [...head, ...c] : null; }
-    case 'treue': return null; // eigene Szene über das Treue-Ereignis
+    case 'treue': case 'nachbarn': case 'krieg': case 'vasall': case 'freunde': case 'mauer': return null; // eigene Szenen über die Ereignisse
     case 'kronenfresser': case 'banditen': return null; // eigene Szenen kommen über die Ereignisse
   }
   const steps = [...head, BG(ch.id === 'krone' ? 'burg' : ch.id === 'roterRiss' ? 'riss' : ch.id === 'legende' ? 'schmiede' : ch.id === 'fluestern' ? 'ruine' : ch.id === 'rissnacht' ? 'riss' : 'dorf')];
@@ -6435,20 +6862,20 @@ function advance() {
   }
   if (S0) nextScene();
 }
-function showSay({ who, text, mood }) {
+function showSay({ who, text, mood, kind }) {
   const S0 = scn.cur, n = who && typeof who === 'object' ? who : null, name = n ? n.name : who || 'Erzähler';
   $('sceneBox').hidden = false;
   $('sceneName').textContent = name; $('sceneName').style.color = n ? n.color : who ? '#ff9a9a' : '#f0b54a';
   $('sceneText').textContent = '';
   $('sceneBox').classList.toggle('narr', !who);
-  drawFace($('sceneFace'), n, who, mood);
+  drawFace($('sceneFace'), n, who, mood, kind);
   S0.typing = { text, shown: 0, t0: performance.now() };
   // wer spricht, rückt leicht nach vorn
   for (const a of S0.actors) a.speaking = !!(n && a.n === n) || (!n && who && a.name === who);
 }
 /** Porträt mit Gefühls-Zeichen (Anime-Symbole) und farbigem Hintergrund. */
 const MOOD = { normal: ['#1b2a3a', ''], wut: ['#4a1414', '💢'], lachen: ['#3a3014', '✨'], traurig: ['#14223a', '💧'], entschlossen: ['#3a2410', '🔥'], spott: ['#2a1a3a', '😏'], schock: ['#1a3a3a', '❗'] };
-function drawFace(cv, n, who, mood) {
+function drawFace(cv, n, who, mood, faceKind = null) {
   const c = cv.getContext('2d'), [bg, sym] = MOOD[mood] || MOOD.normal, W = cv.width;
   const g = c.createRadialGradient(W / 2, W / 2, 4, W / 2, W / 2, W * 0.7); g.addColorStop(0, shadeHex(bg, 40)); g.addColorStop(1, bg);
   c.fillStyle = g; c.fillRect(0, 0, W, W);
@@ -6458,7 +6885,7 @@ function drawFace(cv, n, who, mood) {
     c.drawImage(f, 9, 3, 22, 22, 0, 0, W, W);
     drawExpression(c, n, mood, W / 22);
   } else if (who) {
-    const kind = who === 'Kronenfresser' ? 'aschegolem' : 'banditenboss';
+    const kind = faceKind || (who === 'Kronenfresser' ? 'aschegolem' : 'banditenboss');
     c.save(); if (who === 'Kronenfresser') c.filter = 'hue-rotate(-30deg) saturate(1.5)';
     const cvC = pixCreature(kind, 0, false, false, false); c.drawImage(cvC, 10, kind === 'aschegolem' ? 4 : 8, 20, 20, 0, 0, W, W); c.restore();
   } else { c.font = `${W * 0.55}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('📖', W / 2, W / 2 + 2); }
@@ -6659,6 +7086,8 @@ function directorEvents(s) {
   });
   s.on('loyal', e => { highlight(`${e.who.name} schwor ${e.smith.name} die Treue.`); playScene(SCENES.loyal(e), 2); });
   s.on('guildLevel', g => playScene(SCENES.guildLevel(g)));
+  s.on('diplo', e => { if (['war', 'siegeWon', 'vassal', 'alliance'].includes(e.kind)) highlight({ war: `${e.realm.name} erklärte den Krieg.`, siegeWon: `Die Belagerung durch ${e.realm.name} wurde gebrochen.`, vassal: `${e.realm.name} unterwarf sich.`, alliance: `Bündnis mit ${e.realm.name}.` }[e.kind]); playScene(SCENES.diplo(e), e.kind === 'offer' ? 1 : 2); });
+  s.on('wallDone', () => { highlight('Die Stadtmauer wurde vollendet.'); playScene(SCENES.wall(), 2); });
   s.on('tamed', e => { if (e.n === s.story.hero || sim.minutes - scn.lastAt > 240) { highlight(`${e.n.name} zähmte ${PETS[e.pet.kind].name} „${e.pet.name}“.`); playScene(SCENES.tamed(e)); } });
   s.on('gateDone', e => { if (e.n === s.story.hero) { highlight(`${e.n.name} ${e.ok ? 'bezwang' : 'floh aus'} dem ${e.gate.name}.`); playScene(SCENES.gateReturn(e)); } });
 }
@@ -6733,6 +7162,7 @@ const CARD = {
   temple: ['HEILIGTUM', 'B', '<b>Heilung</b> · <b>Laune +</b>', 'Ein Ort, an dem selbst Erwachte ihre Waffen ablegen.'],
   rock:   ['RESSOURCE', 'E', 'Ertrag: <b>Stein</b>', 'Grau, schwer, geduldig. Aus Steinen wie diesem werden Burgen.'],
   market: ['GEBÄUDE', 'B', 'Markttag um 12 Uhr: Überschuss → <b>Münzen</b>', 'Händlerrufe, Gewürzduft und das Klimpern von Münzen.'],
+  feste: ['NACHBARREICH', 'A', '', 'Dunkle Mauern, fremde Banner. Hinter diesen Zinnen wird über euer Schicksal beraten.'],
   lagerhaus: ['LAGER', 'C', 'Hier liegt alles, was gesammelt und hergestellt wird · übrige Ausrüstung wird verteilt', 'Kisten, Säcke, Fässer – und irgendwo ganz hinten eine Kiste, die niemand mehr öffnen will.'],
   smithy: ['WERKSTATT', 'B', '💎 + 🪵 → <b>Ausrüstung</b> in 5 Seltenheiten', 'Hier entsteht, worüber man Lieder singt. Oder zumindest ordentliche Stiefel.'],
   grass:  ['GELÄNDE', '–', 'Bauland', 'Weites Land voller Möglichkeiten.'],
@@ -6773,6 +7203,8 @@ const MON_CARD = {
   aschegolem: ['B', 'Glühende Kohle unter Steinhaut. Jeder Schritt lässt den Boden zittern.'],
   bandit: ['D', 'Rote Schals, schnelle Messer und keine Lust auf ehrliche Arbeit. Sie wollen nur eins: das Lager.'],
   banditenboss: ['B', 'Der Hauptmann der Rotschal-Bande. Man sagt, er habe noch nie einen Kampf fair begonnen – und noch nie einen Sack Münzen liegen lassen.'],
+  ritter: ['C', 'Gepanzert, diszipliniert, gehorsam. Ein Dornritter stellt keine Fragen – er marschiert.'],
+  feldherr: ['A', 'Der Feldherr des Nachbarreichs. Wer ihn fällt, bricht die Belagerung.'],
   kronenfresser: ['S', 'Der Herr des roten Risses. Er frisst keine Menschen. Er frisst Königreiche.'],
 };
 function monsterInfo(m) {
@@ -6780,12 +7212,12 @@ function monsterInfo(m) {
   const top = sim.npcs.filter(n => n.awakened).sort((a, b) => b.attack - a.attack)[0];
   const danger = !top ? 'unbekannt' : m.boss ? 'tödlich' : atk * 4 > top.maxHp * 0.5 ? 'hoch' : atk * 4 > top.maxHp * 0.25 ? 'mittel' : 'gering';
   const loot = m.bandit ? lootText(m.loot) : '';
-  return sysCard(m.boss ? 'BOSS' : m.bandit ? 'FEIND · BANDIT' : 'MONSTER', rank,
-    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : m.bandit ? '🗡️' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : m.bandit ? `Rotschal-Bande · ${m.state === 'flee' ? 'flieht!' : `will ins Lager von ${esc(m.town.name)}`}` : 'Kreatur aus dem Riss'}</div></div></div>`
+  return sysCard(m.boss ? 'BOSS' : m.bandit ? 'FEIND · BANDIT' : m.army ? 'FEIND · HEER' : 'MONSTER', rank,
+    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : m.bandit ? '🗡️' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : m.bandit ? `Rotschal-Bande · ${m.state === 'flee' ? 'flieht!' : `will ins Lager von ${esc(m.town.name)}`}` : m.army ? `Heer von ${esc(sim.realm.rival ? sim.realm.rival.name : 'fernem Land')} · belagert ${esc(sim.capital.name)}` : 'Kreatur aus dem Riss'}</div></div></div>`
     + (m.bandit ? `<div class="muted small">💰 Beute im Sack: <b>${loot || 'noch nichts'}</b></div>` : '')
     + `<div class="lbl"><span>Leben</span><span>${Math.max(0, Math.round(m.hp))} / ${m.maxHp}</span></div><div class="bar"><i style="width:${Math.max(0, m.hp / m.maxHp * 100)}%;background:#e04848"></i></div>`
     + `<div class="stats"><span><small>Angriff</small><b>${atk}</b></span><span><small>Tempo</small><b>${M.speed >= 0.3 ? 'schnell' : M.speed >= 0.2 ? 'mittel' : 'langsam'}</b></span><span><small>EP</small><b>${M.xp}</b></span><span><small>Gefahr</small><b>${danger}</b></span></div>`,
-    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : m.bandit ? 'Wer ihn besiegt, holt die Beute zurück' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
+    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : m.bandit ? 'Wer ihn besiegt, holt die Beute zurück' : m.army ? 'Zieht sich bei Nacht zurück · ist das ganze Heer besiegt, ist die Belagerung gebrochen' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
 }
 
 const ITEM_LORE = [
@@ -6923,6 +7355,14 @@ function tileBody(t) {
         + `<div class="sec"><h4>Vorräte</h4><span class="score">💎 ${st.stock.crystals} Kristalle</span><span class="score">🪵 ${st.stock.wood} Holz</span></div>`
         + `<div class="sec"><h4>Schmiede</h4>${smiths.length ? smiths.map(n => npcLink(n) + ` ${n.forged}×`).join('') : '<span class="muted">noch nichts geschmiedet</span>'}</div>`;
     }
+    case 'feste': {
+      const r = sim.realm.rival; if (!r) return head('🏰', 'Verlassene Feste');
+      const st = { neutral: '🤨 Neutral', allied: '🤝 Verbündet', war: '⚔️ Krieg', vassal: '👑 Vasall' }[r.state];
+      return head('🏰', `Feste ${esc(r.name)}`, `${esc(r.ruler)} · ${st}`)
+        + `<div class="lbl"><span>Beziehung</span><span>${r.relation}</span></div><div class="bar"><i style="width:${(r.relation + 100) / 2}%;background:${r.relation >= 0 ? '#7ac74f' : '#e04848'}"></i></div>`
+        + `<div class="stats"><span><small>Eure Stärke</small><b>${Math.round(sim.realm.strength)}</b></span><span><small>Ihre Stärke</small><b>${Math.round(sim.realm.rivalStrength)}</b></span><span><small>Belagerungen</small><b>${sim.realm.sieges}</b></span><span><small>Siege</small><b>${sim.realm.siegeWins}</b></span></div>`
+        + `<div class="sec"><h4>Was geschah</h4>${r.history.length ? `<ul>${r.history.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<span class="muted">noch nichts</span>'}</div>`;
+    }
     case 'lagerhaus': { const tw = t.building.town || sim.capital; return head('📦', `Lagerhaus von ${esc(tw.name)}`, 'Alles, was gesammelt und hergestellt wird, landet hier') + townInventory(tw); }
     case 'forsthaus': return head('🌲', 'Forsthaus', 'Hier wohnt die Liebe zum Wald') + `<div class="sec"><h4>Holzfäller</h4>${sim.npcs.filter(n => n.profession === 'holzfaeller' && n.town === t.building.town).slice(0, 8).map(npcLink).join('') || '<span class="muted">noch niemand</span>'}</div>`;
     case 'bauernhof': return head('🐄', 'Bauernhof', 'Hühner, eine Kuh und viel Heu') + `<div class="sec"><h4>Bauern</h4>${sim.npcs.filter(n => n.profession === 'bauer' && n.town === t.building.town).slice(0, 8).map(npcLink).join('') || '<span class="muted">noch niemand</span>'}</div>`;
@@ -7029,6 +7469,24 @@ function openChronik() {
     + (st.done.epilog ? '' : `<div class="chap next"><small>Was als Nächstes geschieht …</small><p>${esc(st.hint)}</p></div>`);
   $('modalHtml').hidden = false; $('modalArea').hidden = true; $('modalOk').hidden = true;
   $('modal').hidden = false;
+}
+
+/** Gesandter des Nachbarreichs wartet auf eine Antwort: Wahl mit Knöpfen, sonst entscheidet die Regentschaft. */
+function updateDiplo() {
+  const r = sim.realm && sim.realm.rival, box = $('diplo');
+  if (!r || !r.pending || scn.cur) { box.hidden = true; ui.diploKey = null; return; }
+  const left = Math.max(0, r.pending.until - sim.minutes), cap = sim.capital;
+  const key = `${r.pending.day}|${r.relation}|${cap.stock.coins}|${cap.stock.crystals}|${Math.floor(left / 10)}`;
+  if (key === ui.diploKey && !box.hidden) return;
+  ui.diploKey = key;
+  const cost = c => Object.entries(c).map(([k, v]) => `${v} ${RES_INFO[k].icon}`).join(' ') || 'kostenlos';
+  box.innerHTML = `<div class="d-top">[ DIPLOMATIE ] · ${esc(r.name)}</div><div class="d-title">📜 Ein Gesandter von ${esc(r.ruler)}</div>
+    <div>${esc(r.pending.text)}</div>
+    <div class="lbl"><span>Beziehung ${r.relation}</span><span>⏳ Regentschaft entscheidet in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} h</span></div>
+    <div class="bar"><i style="width:${(r.relation + 100) / 2}%;background:${r.relation >= 0 ? '#7ac74f' : '#e04848'}"></i></div>
+    <div class="d-opts">${Object.entries(DIPLO_OPTIONS).map(([k, o]) => `<button data-dip="${k}" ${cap.canAfford(o.cost) ? '' : 'disabled'}>${o.label}<small>${cost(o.cost)}</small></button>`).join('')}</div>`;
+  box.hidden = false;
+  box.querySelectorAll('[data-dip]').forEach(b => b.addEventListener('click', () => { sim.realm.choose(b.dataset.dip); ui.diploKey = null; updateDiplo(); }));
 }
 
 function setCine(on) {
@@ -7313,7 +7771,7 @@ function frame(now) {
   if (now - lastMini > 400) { renderer.drawMinimap($('minimap').getContext('2d'), MINI); lastMini = now; }
   sound.update(sim, renderer);
   updateHud();
-  if (now - lastPanel > 300) { updateNarrator(now); updateRoster(); updateInspector(); lastPanel = now; }
+  if (now - lastPanel > 300) { updateDiplo(); updateNarrator(now); updateRoster(); updateInspector(); lastPanel = now; }
   if (ui.chapterUntil && now > ui.chapterUntil) hideChapter();
   requestAnimationFrame(frame);
 }

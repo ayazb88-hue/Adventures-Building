@@ -69,6 +69,7 @@ const CARD = {
   temple: ['HEILIGTUM', 'B', '<b>Heilung</b> · <b>Laune +</b>', 'Ein Ort, an dem selbst Erwachte ihre Waffen ablegen.'],
   rock:   ['RESSOURCE', 'E', 'Ertrag: <b>Stein</b>', 'Grau, schwer, geduldig. Aus Steinen wie diesem werden Burgen.'],
   market: ['GEBÄUDE', 'B', 'Markttag um 12 Uhr: Überschuss → <b>Münzen</b>', 'Händlerrufe, Gewürzduft und das Klimpern von Münzen.'],
+  feste: ['NACHBARREICH', 'A', '', 'Dunkle Mauern, fremde Banner. Hinter diesen Zinnen wird über euer Schicksal beraten.'],
   lagerhaus: ['LAGER', 'C', 'Hier liegt alles, was gesammelt und hergestellt wird · übrige Ausrüstung wird verteilt', 'Kisten, Säcke, Fässer – und irgendwo ganz hinten eine Kiste, die niemand mehr öffnen will.'],
   smithy: ['WERKSTATT', 'B', '💎 + 🪵 → <b>Ausrüstung</b> in 5 Seltenheiten', 'Hier entsteht, worüber man Lieder singt. Oder zumindest ordentliche Stiefel.'],
   grass:  ['GELÄNDE', '–', 'Bauland', 'Weites Land voller Möglichkeiten.'],
@@ -109,6 +110,8 @@ const MON_CARD = {
   aschegolem: ['B', 'Glühende Kohle unter Steinhaut. Jeder Schritt lässt den Boden zittern.'],
   bandit: ['D', 'Rote Schals, schnelle Messer und keine Lust auf ehrliche Arbeit. Sie wollen nur eins: das Lager.'],
   banditenboss: ['B', 'Der Hauptmann der Rotschal-Bande. Man sagt, er habe noch nie einen Kampf fair begonnen – und noch nie einen Sack Münzen liegen lassen.'],
+  ritter: ['C', 'Gepanzert, diszipliniert, gehorsam. Ein Dornritter stellt keine Fragen – er marschiert.'],
+  feldherr: ['A', 'Der Feldherr des Nachbarreichs. Wer ihn fällt, bricht die Belagerung.'],
   kronenfresser: ['S', 'Der Herr des roten Risses. Er frisst keine Menschen. Er frisst Königreiche.'],
 };
 function monsterInfo(m) {
@@ -116,12 +119,12 @@ function monsterInfo(m) {
   const top = sim.npcs.filter(n => n.awakened).sort((a, b) => b.attack - a.attack)[0];
   const danger = !top ? 'unbekannt' : m.boss ? 'tödlich' : atk * 4 > top.maxHp * 0.5 ? 'hoch' : atk * 4 > top.maxHp * 0.25 ? 'mittel' : 'gering';
   const loot = m.bandit ? lootText(m.loot) : '';
-  return sysCard(m.boss ? 'BOSS' : m.bandit ? 'FEIND · BANDIT' : 'MONSTER', rank,
-    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : m.bandit ? '🗡️' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : m.bandit ? `Rotschal-Bande · ${m.state === 'flee' ? 'flieht!' : `will ins Lager von ${esc(m.town.name)}`}` : 'Kreatur aus dem Riss'}</div></div></div>`
+  return sysCard(m.boss ? 'BOSS' : m.bandit ? 'FEIND · BANDIT' : m.army ? 'FEIND · HEER' : 'MONSTER', rank,
+    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : m.bandit ? '🗡️' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : m.bandit ? `Rotschal-Bande · ${m.state === 'flee' ? 'flieht!' : `will ins Lager von ${esc(m.town.name)}`}` : m.army ? `Heer von ${esc(sim.realm.rival ? sim.realm.rival.name : 'fernem Land')} · belagert ${esc(sim.capital.name)}` : 'Kreatur aus dem Riss'}</div></div></div>`
     + (m.bandit ? `<div class="muted small">💰 Beute im Sack: <b>${loot || 'noch nichts'}</b></div>` : '')
     + `<div class="lbl"><span>Leben</span><span>${Math.max(0, Math.round(m.hp))} / ${m.maxHp}</span></div><div class="bar"><i style="width:${Math.max(0, m.hp / m.maxHp * 100)}%;background:#e04848"></i></div>`
     + `<div class="stats"><span><small>Angriff</small><b>${atk}</b></span><span><small>Tempo</small><b>${M.speed >= 0.3 ? 'schnell' : M.speed >= 0.2 ? 'mittel' : 'langsam'}</b></span><span><small>EP</small><b>${M.xp}</b></span><span><small>Gefahr</small><b>${danger}</b></span></div>`,
-    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : m.bandit ? 'Wer ihn besiegt, holt die Beute zurück' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
+    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : m.bandit ? 'Wer ihn besiegt, holt die Beute zurück' : m.army ? 'Zieht sich bei Nacht zurück · ist das ganze Heer besiegt, ist die Belagerung gebrochen' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
 }
 
 const ITEM_LORE = [
@@ -259,6 +262,14 @@ function tileBody(t) {
         + `<div class="sec"><h4>Vorräte</h4><span class="score">💎 ${st.stock.crystals} Kristalle</span><span class="score">🪵 ${st.stock.wood} Holz</span></div>`
         + `<div class="sec"><h4>Schmiede</h4>${smiths.length ? smiths.map(n => npcLink(n) + ` ${n.forged}×`).join('') : '<span class="muted">noch nichts geschmiedet</span>'}</div>`;
     }
+    case 'feste': {
+      const r = sim.realm.rival; if (!r) return head('🏰', 'Verlassene Feste');
+      const st = { neutral: '🤨 Neutral', allied: '🤝 Verbündet', war: '⚔️ Krieg', vassal: '👑 Vasall' }[r.state];
+      return head('🏰', `Feste ${esc(r.name)}`, `${esc(r.ruler)} · ${st}`)
+        + `<div class="lbl"><span>Beziehung</span><span>${r.relation}</span></div><div class="bar"><i style="width:${(r.relation + 100) / 2}%;background:${r.relation >= 0 ? '#7ac74f' : '#e04848'}"></i></div>`
+        + `<div class="stats"><span><small>Eure Stärke</small><b>${Math.round(sim.realm.strength)}</b></span><span><small>Ihre Stärke</small><b>${Math.round(sim.realm.rivalStrength)}</b></span><span><small>Belagerungen</small><b>${sim.realm.sieges}</b></span><span><small>Siege</small><b>${sim.realm.siegeWins}</b></span></div>`
+        + `<div class="sec"><h4>Was geschah</h4>${r.history.length ? `<ul>${r.history.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<span class="muted">noch nichts</span>'}</div>`;
+    }
     case 'lagerhaus': { const tw = t.building.town || sim.capital; return head('📦', `Lagerhaus von ${esc(tw.name)}`, 'Alles, was gesammelt und hergestellt wird, landet hier') + townInventory(tw); }
     case 'forsthaus': return head('🌲', 'Forsthaus', 'Hier wohnt die Liebe zum Wald') + `<div class="sec"><h4>Holzfäller</h4>${sim.npcs.filter(n => n.profession === 'holzfaeller' && n.town === t.building.town).slice(0, 8).map(npcLink).join('') || '<span class="muted">noch niemand</span>'}</div>`;
     case 'bauernhof': return head('🐄', 'Bauernhof', 'Hühner, eine Kuh und viel Heu') + `<div class="sec"><h4>Bauern</h4>${sim.npcs.filter(n => n.profession === 'bauer' && n.town === t.building.town).slice(0, 8).map(npcLink).join('') || '<span class="muted">noch niemand</span>'}</div>`;
@@ -365,6 +376,24 @@ function openChronik() {
     + (st.done.epilog ? '' : `<div class="chap next"><small>Was als Nächstes geschieht …</small><p>${esc(st.hint)}</p></div>`);
   $('modalHtml').hidden = false; $('modalArea').hidden = true; $('modalOk').hidden = true;
   $('modal').hidden = false;
+}
+
+/** Gesandter des Nachbarreichs wartet auf eine Antwort: Wahl mit Knöpfen, sonst entscheidet die Regentschaft. */
+function updateDiplo() {
+  const r = sim.realm && sim.realm.rival, box = $('diplo');
+  if (!r || !r.pending || scn.cur) { box.hidden = true; ui.diploKey = null; return; }
+  const left = Math.max(0, r.pending.until - sim.minutes), cap = sim.capital;
+  const key = `${r.pending.day}|${r.relation}|${cap.stock.coins}|${cap.stock.crystals}|${Math.floor(left / 10)}`;
+  if (key === ui.diploKey && !box.hidden) return;
+  ui.diploKey = key;
+  const cost = c => Object.entries(c).map(([k, v]) => `${v} ${RES_INFO[k].icon}`).join(' ') || 'kostenlos';
+  box.innerHTML = `<div class="d-top">[ DIPLOMATIE ] · ${esc(r.name)}</div><div class="d-title">📜 Ein Gesandter von ${esc(r.ruler)}</div>
+    <div>${esc(r.pending.text)}</div>
+    <div class="lbl"><span>Beziehung ${r.relation}</span><span>⏳ Regentschaft entscheidet in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} h</span></div>
+    <div class="bar"><i style="width:${(r.relation + 100) / 2}%;background:${r.relation >= 0 ? '#7ac74f' : '#e04848'}"></i></div>
+    <div class="d-opts">${Object.entries(DIPLO_OPTIONS).map(([k, o]) => `<button data-dip="${k}" ${cap.canAfford(o.cost) ? '' : 'disabled'}>${o.label}<small>${cost(o.cost)}</small></button>`).join('')}</div>`;
+  box.hidden = false;
+  box.querySelectorAll('[data-dip]').forEach(b => b.addEventListener('click', () => { sim.realm.choose(b.dataset.dip); ui.diploKey = null; updateDiplo(); }));
 }
 
 function setCine(on) {
@@ -649,7 +678,7 @@ function frame(now) {
   if (now - lastMini > 400) { renderer.drawMinimap($('minimap').getContext('2d'), MINI); lastMini = now; }
   sound.update(sim, renderer);
   updateHud();
-  if (now - lastPanel > 300) { updateNarrator(now); updateRoster(); updateInspector(); lastPanel = now; }
+  if (now - lastPanel > 300) { updateDiplo(); updateNarrator(now); updateRoster(); updateInspector(); lastPanel = now; }
   if (ui.chapterUntil && now > ui.chapterUntil) hideChapter();
   requestAnimationFrame(frame);
 }

@@ -84,7 +84,7 @@ function voice(n, sit, fallback = 'lager') {
 
 /* ---- Bausteine für Drehbücher ------------------------------------------- */
 const T = (top, main, sub = '') => ({ title: { top, main, sub } });
-const S = (who, text, mood = 'normal') => ({ say: { who, text, mood } });
+const S = (who, text, mood = 'normal', kind = null) => ({ say: { who, text, mood, kind } });
 const N = text => ({ say: { who: null, text, mood: 'normal' } });
 const FX = (fx, ms = 900) => ({ fx, ms });
 const SHOUT = (text, color = '#ffe14a') => ({ shout: { text, color } });
@@ -263,6 +263,32 @@ const SCENES = {
   milestone(n) {
     return [BG('wald'), CAST({ n, x: 0.5, pose: 'cheer' }), FX('flash'), FX('speed'), SND('triumph'), SHOUT(`LEVEL ${n.level}!`, '#8fd3ff'), SYS(`Alle Werte steigen · ${n.titles[n.titles.length - 1] || 'Erwachte Seele'}`), S(n, voice(n, 'entschlossen', 'jubel'), 'entschlossen')];
   },
+  diplo(e) {
+    const r = e.realm, k = sim.kingdom, reg = (k && sim.npcs.find(n => n.id === k.regentId)) || sim.story.hero, h = sim.story.hero, envoy = `Gesandter aus ${r.name}`;
+    const cast = [...(reg ? [{ n: reg, x: 0.28 }] : []), { kind: 'ritter', x: 0.7, face: -1, name: envoy }];
+    switch (e.kind) {
+      case 'contact': return [BG('burg'), CAST(...cast), N(`Ein Reiter mit fremdem Banner hält vor ${sim.capital.name}. Das Wappen: ${r.name}.`),
+        S(envoy, `${r.ruler} grüßt ${k.name}. Mein Reich liegt hinter den östlichen Wäldern. Seid ihr Freunde … oder Beute?`, 'normal', 'ritter'),
+        ...(reg ? [S(reg, 'Das hängt ganz von euch ab.', 'entschlossen')] : []), N('Was antwortet ihr? Wähle unten – sonst entscheidet die Regentschaft.')];
+      case 'offer': return sim.minutes - scn.lastAt > 200 ? [BG('burg'), CAST(...cast), S(envoy, r.pending ? r.pending.text : 'Meine Herrschaft erwartet eine Antwort.', 'normal', 'ritter'), N('Wähle unten eine Antwort.')] : null;
+      case 'war': return [BG('burg'), CAST(...cast), SND('spannung'), S(envoy, `${r.ruler} hat genug von euch. Morgen marschiert unser Heer. Bereitet euch vor – oder flieht.`, 'wut', 'ritter'),
+        ...(h ? [S(h, voice(h, 'kampf'), 'wut')] : []), FX('shake'), SHOUT('KRIEG!', '#ff6b6b')];
+      case 'siege': return [BG('dorf'), CAST(...(h ? [{ n: h, x: 0.22 }] : []), { kind: 'feldherr', x: 0.62, face: -1, scale: 1.2 }, { kind: 'ritter', x: 0.78, face: -1 }, { kind: 'ritter', x: 0.9, face: -1 }), SND('kampf'),
+        N(`Trommeln. Banner von ${r.name} am Waldrand. Ein ganzes Heer zieht auf die Stadt zu.`), S('Feldherr', 'Öffnet die Tore – oder wir reißen sie ein!', 'wut', 'feldherr'),
+        ...(h ? [S(h, voice(h, 'kampf'), 'entschlossen'), ACT(0, { pose: 'fight', tx: 0.35 })] : []), FX('speed'), SHOUT('ZU DEN WAFFEN!', '#ffd166')];
+      case 'siegeWon': return [BG('burg'), CAST(...others(null, 4).map((n, i) => ({ n, x: 0.2 + i * 0.2, pose: 'cheer' }))), FX('flash'), SND('triumph'), SHOUT('SIEG!', '#ffd76a'),
+        N(`Das Heer von ${r.name} ist zerschlagen. ${sim.capital.name} hält stand!`), ...(h ? [S(h, voice(h, 'sieg', 'jubel'), 'lachen')] : [])];
+      case 'siegeLost': return [BG('burg'), CAST(...(h ? [{ n: h, x: 0.4 }] : [])), SND('traurig'), N(`Die Belagerer plündern die Schatzkammer und ziehen ab.`), ...(h ? [S(h, voice(h, 'niederlage'), 'traurig'), S(h, 'Das nächste Mal halten wir stand. Wir brauchen eine Mauer.', 'entschlossen')] : [])];
+      case 'vassal': return [BG('burg'), CAST(...cast), S(envoy, `${r.ruler} beugt sich. ${r.name} zahlt ab heute Abgaben an ${k.name}.`, 'traurig', 'ritter'), FX('flash'), SND('triumph'), SHOUT(`${r.name.toUpperCase()} UNTERWIRFT SICH`, '#ffd76a')];
+      case 'alliance': return [BG('burg'), CAST(...cast), S(envoy, `${r.ruler} nimmt euer Bündnis an. Unsere Wege sind ab heute eure Wege.`, 'lachen', 'ritter'), ...(reg ? [S(reg, 'Auf eine lange Freundschaft!', 'lachen')] : []), SND('triumph'), SHOUT('BÜNDNIS!', '#8fd3ff')];
+    }
+    return null;
+  },
+  wall() {
+    const h = sim.story.hero, f = friendOf(h);
+    return [BG('burg'), CAST(...(h ? [{ n: h, x: 0.35, pose: 'cheer' }] : []), ...(f ? [{ n: f, x: 0.65, face: -1, pose: 'cheer' }] : [])), FX('flash'), SND('triumph'), SHOUT('DIE MAUER STEHT!', '#d8d4cc'),
+      N(`Stein auf Stein, Tag für Tag – nun umschließt eine Mauer ${sim.capital.name}.`), ...(f ? [S(f, voice(f, 'jubel'), 'lachen')] : [])];
+  },
   bund() {
     const st = sim.story, h = st.hero, r = st.rival; if (!h || !r) return null;
     return [BG('lager'), CAST({ n: h, x: 0.35 }, { n: r, x: 0.65, face: -1 }), S(r, voice(r, 'respekt'), 'normal'), S(h, 'Heißt das … wir sind jetzt Freunde?', 'lachen'),
@@ -280,7 +306,7 @@ function chapterScene(ch) {
     case 'sieg': return [...head, ...SCENES.bossWin()];
     case 'krone': return sim.kingdom ? [...head, ...SCENES.crown()] : null;
     case 'hauptmann': { const c = SCENES.captainFall(); return c ? [...head, ...c] : null; }
-    case 'treue': return null; // eigene Szene über das Treue-Ereignis
+    case 'treue': case 'nachbarn': case 'krieg': case 'vasall': case 'freunde': case 'mauer': return null; // eigene Szenen über die Ereignisse
     case 'kronenfresser': case 'banditen': return null; // eigene Szenen kommen über die Ereignisse
   }
   const steps = [...head, BG(ch.id === 'krone' ? 'burg' : ch.id === 'roterRiss' ? 'riss' : ch.id === 'legende' ? 'schmiede' : ch.id === 'fluestern' ? 'ruine' : ch.id === 'rissnacht' ? 'riss' : 'dorf')];
@@ -332,20 +358,20 @@ function advance() {
   }
   if (S0) nextScene();
 }
-function showSay({ who, text, mood }) {
+function showSay({ who, text, mood, kind }) {
   const S0 = scn.cur, n = who && typeof who === 'object' ? who : null, name = n ? n.name : who || 'Erzähler';
   $('sceneBox').hidden = false;
   $('sceneName').textContent = name; $('sceneName').style.color = n ? n.color : who ? '#ff9a9a' : '#f0b54a';
   $('sceneText').textContent = '';
   $('sceneBox').classList.toggle('narr', !who);
-  drawFace($('sceneFace'), n, who, mood);
+  drawFace($('sceneFace'), n, who, mood, kind);
   S0.typing = { text, shown: 0, t0: performance.now() };
   // wer spricht, rückt leicht nach vorn
   for (const a of S0.actors) a.speaking = !!(n && a.n === n) || (!n && who && a.name === who);
 }
 /** Porträt mit Gefühls-Zeichen (Anime-Symbole) und farbigem Hintergrund. */
 const MOOD = { normal: ['#1b2a3a', ''], wut: ['#4a1414', '💢'], lachen: ['#3a3014', '✨'], traurig: ['#14223a', '💧'], entschlossen: ['#3a2410', '🔥'], spott: ['#2a1a3a', '😏'], schock: ['#1a3a3a', '❗'] };
-function drawFace(cv, n, who, mood) {
+function drawFace(cv, n, who, mood, faceKind = null) {
   const c = cv.getContext('2d'), [bg, sym] = MOOD[mood] || MOOD.normal, W = cv.width;
   const g = c.createRadialGradient(W / 2, W / 2, 4, W / 2, W / 2, W * 0.7); g.addColorStop(0, shadeHex(bg, 40)); g.addColorStop(1, bg);
   c.fillStyle = g; c.fillRect(0, 0, W, W);
@@ -355,7 +381,7 @@ function drawFace(cv, n, who, mood) {
     c.drawImage(f, 9, 3, 22, 22, 0, 0, W, W);
     drawExpression(c, n, mood, W / 22);
   } else if (who) {
-    const kind = who === 'Kronenfresser' ? 'aschegolem' : 'banditenboss';
+    const kind = faceKind || (who === 'Kronenfresser' ? 'aschegolem' : 'banditenboss');
     c.save(); if (who === 'Kronenfresser') c.filter = 'hue-rotate(-30deg) saturate(1.5)';
     const cvC = pixCreature(kind, 0, false, false, false); c.drawImage(cvC, 10, kind === 'aschegolem' ? 4 : 8, 20, 20, 0, 0, W, W); c.restore();
   } else { c.font = `${W * 0.55}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('📖', W / 2, W / 2 + 2); }
@@ -556,6 +582,8 @@ function directorEvents(s) {
   });
   s.on('loyal', e => { highlight(`${e.who.name} schwor ${e.smith.name} die Treue.`); playScene(SCENES.loyal(e), 2); });
   s.on('guildLevel', g => playScene(SCENES.guildLevel(g)));
+  s.on('diplo', e => { if (['war', 'siegeWon', 'vassal', 'alliance'].includes(e.kind)) highlight({ war: `${e.realm.name} erklärte den Krieg.`, siegeWon: `Die Belagerung durch ${e.realm.name} wurde gebrochen.`, vassal: `${e.realm.name} unterwarf sich.`, alliance: `Bündnis mit ${e.realm.name}.` }[e.kind]); playScene(SCENES.diplo(e), e.kind === 'offer' ? 1 : 2); });
+  s.on('wallDone', () => { highlight('Die Stadtmauer wurde vollendet.'); playScene(SCENES.wall(), 2); });
   s.on('tamed', e => { if (e.n === s.story.hero || sim.minutes - scn.lastAt > 240) { highlight(`${e.n.name} zähmte ${PETS[e.pet.kind].name} „${e.pet.name}“.`); playScene(SCENES.tamed(e)); } });
   s.on('gateDone', e => { if (e.n === s.story.hero) { highlight(`${e.n.name} ${e.ok ? 'bezwang' : 'floh aus'} dem ${e.gate.name}.`); playScene(SCENES.gateReturn(e)); } });
 }
