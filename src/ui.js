@@ -94,6 +94,7 @@ function tileInfo(t) {
     if (isSRift(sim, t)) { const B = RIFT_BOSSES[sim.srift.kind]; rank = 'S'; fx = sim.srift.broken ? `Boss <b>${B.name}</b> ist ausgebrochen!` : `Boss: <b>${B.name}</b> · nur für die Gilde · Ausbruch in <b>${Math.max(0, Math.ceil((sim.srift.breakAt - sim.minutes) / 60))} h</b>`; }
     lore = isSRift(sim, t) ? 'Gold und Schwärze wirbeln umeinander. Der Riss hat einen Rang erreicht, den es nicht geben dürfte.' : g.red ? 'Er pulsiert wie ein Herz. Etwas Uraltes wartet dahinter – und es hat Hunger.' : 'Ein Spalt zwischen den Welten. Wer hineingeht, kommt stärker zurück – oder gar nicht.';
   }
+  if (t.type === 'field') { const f = fieldShape(t); top = f.crop.name.toUpperCase(); lore = f.crop.lore; fx = `Frucht: <b>${f.crop.name.replace(/feld|acker/i, '')}</b> · Ertrag: <b>Vorräte</b> nach einem Tag`; }
   if (t.type === 'ruin' && t.searched) { rank = 'E'; fx = 'Bereits durchsucht'; }
   if (t.type === 'camp' && sim.kingdom && (t.town || sim.capital).capital) rank = 'A';
   const b = t.building;

@@ -3746,6 +3746,42 @@ function drawCart(c, cart, s, now, px, py) {
 const star5 = (c, x, y, r) => { c.beginPath(); for (let k = 0; k < 5; k++) { const a = -Math.PI / 2 + k * TAU * 2 / 5; c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } c.fill(); };
 
 /* ---- Weitere Hausformen: Strohdach-Kate, Steinhaus, Walmdachhaus mit Gaube ---- */
+
+/* ---- Felder: jede Kachel bekommt eine eigene, unregelmäßige Form, Furchenrichtung und Frucht ---- */
+const CROPS = [
+  { id: 'weizen', name: 'Weizenfeld', lore: 'Goldene Ähren, die im Wind miteinander flüstern.', w: 4 },
+  { id: 'kohl', name: 'Kohlfeld', lore: 'Dicke, runde Köpfe – und mindestens eine fette Raupe.', w: 2 },
+  { id: 'rueben', name: 'Rübenacker', lore: 'Oben grün und unscheinbar, unten süß und orange.', w: 2 },
+  { id: 'sonnenblume', name: 'Sonnenblumenfeld', lore: 'Sie drehen sich alle nach der Sonne. Fast alle.', w: 1 },
+  { id: 'lavendel', name: 'Lavendelfeld', lore: 'Duftet bis ins Dorf. Die Bienen sind begeistert.', w: 1 },
+];
+const fieldCache = new Map();
+function fieldShape(t) {
+  const key = t.y * 4096 + t.x; let f = fieldCache.get(key);
+  if (f) return f;
+  const R = mulberry32(((t.x * 2654435761) ^ (t.y * 40503) ^ 0x5f17) >>> 0);
+  const big = R() < 0.3, hw = big ? 0.44 + R() * 0.06 : 0.3 + R() * 0.14, hh = big ? 0.42 + R() * 0.07 : 0.3 + R() * 0.14; // halbe Breite/Höhe in Kacheln
+  const ox = (0.5 - hw) * (R() * 2 - 1) * 0.8, oy = (0.5 - hh) * (R() * 2 - 1) * 0.8, rot = (R() - 0.5) * 0.35, dir = R() < 0.5 ? 0 : 1;
+  let r = R() * CROPS.reduce((a, c) => a + c.w, 0), crop = CROPS[0]; for (const c of CROPS) { if ((r -= c.w) < 0) { crop = c; break; } }
+  const pts = [], N = 20, noise = Array.from({ length: 5 }, () => R() * TAU);
+  for (let i = 0; i < N; i++) { // abgerundetes Rechteck (Superellipse) mit leichtem Wackeln
+    const a = i / N * TAU, ca = Math.cos(a), sa = Math.sin(a), k = 1 + 0.05 * Math.sin(a * 3 + noise[0]) + 0.03 * Math.sin(a * 5 + noise[1]);
+    const ex = Math.sign(ca) * Math.abs(ca) ** 0.45 * hw * k, ey = Math.sign(sa) * Math.abs(sa) ** 0.45 * hh * k;
+    pts.push([0.5 + ox + ex * Math.cos(rot) - ey * Math.sin(rot), 0.5 + oy + ex * Math.sin(rot) + ey * Math.cos(rot)]);
+  }
+  const plants = [], sp = crop.id === 'kohl' ? 0.16 : crop.id === 'sonnenblume' ? 0.17 : 0.12, rowSp = crop.id === 'kohl' || crop.id === 'sonnenblume' ? 0.17 : 0.14;
+  const A = dir ? hh : hw, B = dir ? hw : hh; // A: entlang der Furche, B: quer
+  for (let b = -B + rowSp * 0.6; b <= B - rowSp * 0.4; b += rowSp) for (let a = -A + sp * 0.5; a <= A - sp * 0.3; a += sp) {
+    const lx = dir ? b : a, ly = dir ? a : b, e = (Math.abs(lx) / hw) ** 2.2 + (Math.abs(ly) / hh) ** 2.2;
+    if (e > 0.82) continue;
+    const jx = lx + (R() - 0.5) * 0.03, jy = ly + (R() - 0.5) * 0.03;
+    plants.push({ u: 0.5 + ox + jx * Math.cos(rot) - jy * Math.sin(rot), v: 0.5 + oy + jx * Math.sin(rot) + jy * Math.cos(rot), r: R() });
+  }
+  plants.sort((p, q) => p.u + p.v - q.u - q.v); // von hinten nach vorn
+  f = { pts, hw, hh, ox, oy, rot, dir, crop, plants }; fieldCache.set(key, f);
+  return f;
+}
+
 class Renderer {
   constructor(canvas, sim) {
     this.canvas = canvas;
@@ -4005,14 +4041,24 @@ class Renderer {
     const e = 0.75; // leicht überlappen, damit keine Kanten sichtbar werden
     const R = mulberry32(((t.x * 73856093) ^ (t.y * 19349663)) >>> 0), fine = s >= 14; // fester Zufall je Kachel für scharfe Details
     c.save(); c.beginPath(); c.rect(x - e, y - e, s + 2 * e, s + 2 * e); c.clip();
-    if (t.type === 'field') { // gepflügte Erde mit Furchen
-      const g = c.createLinearGradient(x, y, x, y + s); g.addColorStop(0, '#7a5a3a'); g.addColorStop(1, '#5e4329');
-      c.fillStyle = 'hsl(100, 40%, 35%)'; c.fillRect(x - e, y - e, s + 2 * e, s + 2 * e);
-      c.fillStyle = g; c.fillRect(x + s * 0.05, y + s * 0.08, s * 0.9, s * 0.86);
-      c.strokeStyle = 'rgba(40,25,12,.45)'; c.lineWidth = Math.max(1, s * 0.025);
-      for (let k = 0; k < 4; k++) { const yy = y + s * (0.22 + k * 0.2); c.beginPath(); c.moveTo(x + s * 0.09, yy); c.lineTo(x + s * 0.91, yy); c.stroke(); }
-      c.strokeStyle = '#8a6a42'; c.lineWidth = Math.max(1, s * 0.03); c.strokeRect(x + s * 0.05, y + s * 0.08, s * 0.9, s * 0.86);
-      if (fine) for (let k = 0; k < 22; k++) { c.fillStyle = R() < 0.5 ? 'rgba(40,25,12,.45)' : 'rgba(170,130,80,.5)'; c.fillRect(x + s * (0.08 + R() * 0.84), y + s * (0.1 + R() * 0.8), s * 0.03, s * 0.022); }
+    if (t.type === 'field') { // Acker mit eigener Form: Gras drumherum, Erde mit Furchen, Grasbüschel am Rand
+      c.restore(); this.drawGroundTile(c, { __proto__: t, type: 'grass', traffic: 0 }, s); c.save(); c.beginPath(); c.rect(x - e, y - e, s + 2 * e, s + 2 * e); c.clip();
+      const f = fieldShape(t), P = f.pts.map(([u, v]) => [x + u * s, y + v * s]);
+      const path = () => { c.beginPath(); const m0 = P.length; for (let k = 0; k <= m0; k++) { const a = P[k % m0], b = P[(k + 1) % m0], mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2; k ? c.quadraticCurveTo(a[0], a[1], mx, my) : c.moveTo(mx, my); } c.closePath(); };
+      c.fillStyle = 'rgba(60,40,20,.35)'; c.save(); c.translate(s * 0.02, s * 0.03); path(); c.fill(); c.restore(); // weicher Rand
+      const g = c.createLinearGradient(x, y, x + s, y + s); g.addColorStop(0, '#7e5c3a'); g.addColorStop(1, '#5c4128');
+      c.fillStyle = g; path(); c.fill();
+      c.save(); path(); c.clip();
+      const cx = x + (0.5 + f.ox) * s, cy = y + (0.5 + f.oy) * s; c.translate(cx, cy); c.rotate(f.rot + (f.dir ? Math.PI / 2 : 0));
+      const L = s * 0.7, step = s * (f.crop.id === 'kohl' || f.crop.id === 'sonnenblume' ? 0.17 : 0.14);
+      for (let k = -6; k <= 6; k++) { const yy = k * step; // Furchen: dunkle Rinne + helle Krume
+        c.fillStyle = 'rgba(40,24,10,.5)'; c.fillRect(-L, yy - s * 0.022, L * 2, s * 0.03);
+        c.fillStyle = 'rgba(160,120,74,.55)'; c.fillRect(-L, yy + s * 0.02, L * 2, s * 0.022);
+      }
+      c.restore();
+      if (fine) for (let k = 0; k < 18; k++) { c.fillStyle = R() < 0.5 ? 'rgba(40,25,12,.4)' : 'rgba(180,140,90,.45)'; const [u, v] = [0.5 + f.ox + (R() - 0.5) * f.hw * 1.6, 0.5 + f.oy + (R() - 0.5) * f.hh * 1.6]; c.fillRect(x + u * s, y + v * s, s * 0.025, s * 0.02); }
+      c.strokeStyle = 'rgba(70,48,24,.7)'; c.lineWidth = Math.max(1, s * 0.022); path(); c.stroke();
+      if (fine) for (let k = 0; k < P.length; k += 2) { const [px, py] = P[k]; c.fillStyle = k % 4 ? '#5f9a3a' : '#4d8530'; c.beginPath(); c.ellipse(px, py, s * 0.035, s * 0.025, 0, 0, TAU); c.fill(); } // Grasbüschel am Rand
     } else if (t.type === 'ford') { // flaches Wasser mit Trittsteinen
       c.fillStyle = 'hsl(195, 45%, 52%)'; c.fillRect(x - e, y - e, s + 2 * e, s + 2 * e);
       c.fillStyle = '#9b958a';
@@ -4555,17 +4601,41 @@ class Renderer {
   /** Getreide auf dem Feld: keimt, wächst, wird golden. */
   drawCrops(c, t, s, now) {
     const p = Math.min(1, t.timer / CONFIG.farming.growMinutes);
-    if (p < 0.12) return;
-    const stage = p < 0.45 ? 1 : p < 1 ? 2 : 3, h = [0, 0.14, 0.3, 0.4][stage] * s, ripe = stage === 3;
+    if (p < 0.1) return;
+    const f = fieldShape(t), stage = p < 0.45 ? 1 : p < 1 ? 2 : 3, ripe = stage === 3, g = Math.min(1, p * 1.1), cid = f.crop.id;
+    const cx = (t.x + 0.5) * s, cy = (t.y + 0.5) * s, lw = Math.max(1, s * 0.018);
     c.lineCap = 'round';
-    for (let row = 0; row < 4; row++) for (let col = 0; col < 5; col++) {
-      const px = (t.x + 0.16 + col * 0.17) * s, py = (t.y + 0.28 + row * 0.2) * s;
-      const sway = Math.sin(now / 700 + px * 0.05 + row) * 0.05 * s * (stage / 3);
-      c.strokeStyle = ripe ? '#c9a94a' : stage === 2 ? '#6fae45' : '#8fd06a';
-      c.lineWidth = Math.max(1, s * 0.022);
-      c.beginPath(); c.moveTo(px, py); c.quadraticCurveTo(px + sway * 0.5, py - h * 0.6, px + sway, py - h); c.stroke();
-      if (stage >= 2) { c.beginPath(); c.moveTo(px, py - h * 0.4); c.lineTo(px + s * 0.05, py - h * 0.55); c.stroke(); }
-      if (ripe) { c.fillStyle = '#f2d27a'; c.beginPath(); c.ellipse(px + sway, py - h - s * 0.03, s * 0.022, s * 0.05, sway / s, 0, TAU); c.fill(); }
+    const thin = s < 24 ? 2 : 1, stems = s < 40 ? [0] : [-0.025, 0, 0.025];
+    for (let i = 0; i < f.plants.length; i += thin) {
+      const q = f.plants[i], wx = (t.x + q.u) * s - cx, wy = (t.y + q.v) * s - cy, px = cx + isoX(wx, wy), py = cy + isoY(wx, wy);
+      const sway = Math.sin(now / 700 + q.u * 9 + q.v * 5) * 0.035 * s * g, sz = 0.8 + q.r * 0.4;
+      if (cid === 'weizen') {
+        const h = (0.08 + 0.3 * g) * s * sz;
+        c.strokeStyle = ripe ? '#c9a94a' : stage === 2 ? '#79b04a' : '#94d06a'; c.lineWidth = lw * (stems.length > 1 ? 1 : 2);
+        for (const d of stems) { c.beginPath(); c.moveTo(px + d * s, py); c.quadraticCurveTo(px + d * s + sway * 0.4, py - h * 0.6, px + d * s * 1.6 + sway, py - h); c.stroke(); }
+        if (stage >= 2) { c.fillStyle = ripe ? '#f0cf6e' : '#a8cf68'; for (const d of stems) { c.beginPath(); c.ellipse(px + d * s * 1.6 + sway, py - h - s * 0.025, s * 0.016, s * 0.04, d * 6, 0, TAU); c.fill(); } }
+      } else if (cid === 'kohl') {
+        const r = (0.03 + 0.06 * g) * s * sz;
+        c.fillStyle = '#3f7d34'; for (const a of [-1, 1]) { c.beginPath(); c.ellipse(px + a * r * 0.9, py - r * 0.4, r * 0.9, r * 0.45, a * 0.4, 0, TAU); c.fill(); }
+        c.fillStyle = ripe ? '#b8dc8a' : '#6fae4c'; c.beginPath(); c.arc(px, py - r * 0.8, r * 0.8, 0, TAU); c.fill();
+        c.strokeStyle = 'rgba(40,80,30,.6)'; c.lineWidth = lw * 0.8; c.beginPath(); c.arc(px, py - r * 0.8, r * 0.45, Math.PI * 1.1, Math.PI * 1.9); c.stroke();
+      } else if (cid === 'rueben') {
+        const h = (0.05 + 0.13 * g) * s * sz;
+        if (ripe) { c.fillStyle = '#e8873a'; c.beginPath(); c.ellipse(px, py - s * 0.01, s * 0.026, s * 0.018, 0, 0, TAU); c.fill(); }
+        c.strokeStyle = stage === 1 ? '#94d06a' : '#4f9a3c'; c.lineWidth = lw * 1.4;
+        for (const a of [-0.6, -0.2, 0.2, 0.6]) { c.beginPath(); c.moveTo(px, py - s * 0.015); c.quadraticCurveTo(px + a * h * 0.5 + sway * 0.5, py - h * 0.7, px + a * h * 0.9 + sway, py - h * (1 - Math.abs(a) * 0.3)); c.stroke(); }
+      } else if (cid === 'sonnenblume') {
+        const h = (0.08 + 0.5 * g) * s * sz, hx = px + sway, hy = py - h;
+        c.strokeStyle = '#4f8f36'; c.lineWidth = lw * 1.5; c.beginPath(); c.moveTo(px, py); c.quadraticCurveTo(px + sway * 0.3, py - h * 0.5, hx, hy); c.stroke();
+        c.fillStyle = '#5ea443'; for (const a of [-1, 1]) { c.beginPath(); c.ellipse(px + a * s * 0.035 + sway * 0.4, py - h * 0.45, s * 0.035, s * 0.016, a * 0.5, 0, TAU); c.fill(); }
+        if (stage >= 2) { const r = s * (ripe ? 0.05 : 0.025) * sz; c.fillStyle = ripe ? '#ffd23a' : '#9cc85a';
+          if (ripe) for (let k = 0; k < 8; k++) { const a = k / 8 * TAU; c.beginPath(); c.ellipse(hx + Math.cos(a) * r, hy + Math.sin(a) * r * 0.9, r * 0.55, r * 0.3, a, 0, TAU); c.fill(); }
+          c.fillStyle = ripe ? '#6a3e1a' : '#9cc85a'; c.beginPath(); c.arc(hx, hy, r * 0.6, 0, TAU); c.fill(); }
+      } else { // Lavendel: runde Büsche mit lila Ähren
+        const r = (0.03 + 0.06 * g) * s * sz;
+        c.fillStyle = '#6f9a6a'; c.beginPath(); c.ellipse(px, py - r * 0.5, r * 1.1, r * 0.7, 0, 0, TAU); c.fill();
+        if (stage >= 2) { c.strokeStyle = ripe ? '#9a6ad8' : '#8aa88a'; c.lineWidth = lw * 1.6; for (const a of [-0.7, -0.25, 0.2, 0.65]) { c.beginPath(); c.moveTo(px + a * r, py - r); c.lineTo(px + a * r * 1.4 + sway, py - r - s * 0.07 * g); c.stroke(); } }
+      }
     }
   }
 
@@ -7638,6 +7708,7 @@ function tileInfo(t) {
     if (isSRift(sim, t)) { const B = RIFT_BOSSES[sim.srift.kind]; rank = 'S'; fx = sim.srift.broken ? `Boss <b>${B.name}</b> ist ausgebrochen!` : `Boss: <b>${B.name}</b> · nur für die Gilde · Ausbruch in <b>${Math.max(0, Math.ceil((sim.srift.breakAt - sim.minutes) / 60))} h</b>`; }
     lore = isSRift(sim, t) ? 'Gold und Schwärze wirbeln umeinander. Der Riss hat einen Rang erreicht, den es nicht geben dürfte.' : g.red ? 'Er pulsiert wie ein Herz. Etwas Uraltes wartet dahinter – und es hat Hunger.' : 'Ein Spalt zwischen den Welten. Wer hineingeht, kommt stärker zurück – oder gar nicht.';
   }
+  if (t.type === 'field') { const f = fieldShape(t); top = f.crop.name.toUpperCase(); lore = f.crop.lore; fx = `Frucht: <b>${f.crop.name.replace(/feld|acker/i, '')}</b> · Ertrag: <b>Vorräte</b> nach einem Tag`; }
   if (t.type === 'ruin' && t.searched) { rank = 'E'; fx = 'Bereits durchsucht'; }
   if (t.type === 'camp' && sim.kingdom && (t.town || sim.capital).capital) rank = 'A';
   const b = t.building;
