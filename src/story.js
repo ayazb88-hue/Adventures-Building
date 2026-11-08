@@ -85,6 +85,12 @@ const CHAPTERS = [
     start(sim, st) { st.spawnRival(); },
     text: (sim, st) => { const r = st.rival; return r ? `Am Waldrand taucht eine Gestalt im schwarzen Mantel auf: ${r.name}, Level ${r.level}. „Du bist also ${st.H}? Alle reden nur von dir. Enttäuschend.“ Ein Rivale ist geboren – jeden Nachmittag gibt es ein Duell am Lagerfeuer.` : 'Ein Fremder beobachtet die Siedlung aus der Ferne – und verschwindet wieder.'; },
     hint: 'Jeden Nachmittag um 16 Uhr: Duell am Lagerfeuer.' },
+  { id: 'banditen', req: 'licht', title: 'Die Rotschal-Bande', when: (sim, st) => st.raidSeen,
+    text: (sim, st) => `Am helllichten Tag tauchen Gestalten mit roten Schals am Waldrand auf. Keine Monster – Menschen. Sie wollen nicht kämpfen, sie wollen das Lager. „Holt euch, was ihr tragen könnt!“, ruft eine Stimme. Ab heute muss ${sim.capital.name} nicht nur die Nächte fürchten.`,
+    hint: 'Irgendwo führt ein Hauptmann die Bande an …' },
+  { id: 'hauptmann', req: 'banditen', title: 'Der Fall des Hauptmanns', when: (sim, st) => st.captainKills > 0,
+    text: (sim, st) => `Der Rotschal-Hauptmann geht in die Knie. ${nameOf(sim, st.captainKiller, st.H)} steht über ihm, die Waffe gesenkt. „Sag deinen Leuten: Dieses Lager gehört dem Volk.“ Die Bande zerstreut sich – für eine Weile.`,
+    hint: 'Die Straßen sind sicherer – aber die Bande ist nicht ganz verschwunden.' },
   { id: 'bund', req: 'rivale', title: 'Vom Rivalen zum Gefährten', when: (sim, st) => !st.rival || st.duel.heroWins >= 2 || st.duel.count >= 5,
     start(sim, st) {
       const r = st.rival, h = st.hero;
@@ -151,6 +157,8 @@ class Story {
     sim.on('legendary', ({ n, item }) => { if (!this.legend) this.legend = { smith: n.name, item: item.name }; });
     sim.on('monsterKilled', m => { if (m.boss) { this.bossDead = true; this.bossKiller = m.killer ? m.killer.id : this.heroId; } });
     sim.on('levelup', n => this.onLevelUp(n));
+    sim.on('raid', () => { this.raidSeen = true; });
+    sim.on('monsterKilled', m => { if (m.kind === 'banditenboss') { this.captainKills = (this.captainKills || 0) + 1; if (m.killer) this.captainKiller = m.killer.id; } });
   }
 
   get hero() { return this.sim.npcs.find(n => n.id === this.heroId) || null; }

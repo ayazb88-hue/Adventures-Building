@@ -56,6 +56,7 @@ const CONFIG = {
     lagerhaus:   { name: 'Lagerhaus', cost: { wood: 30, stone: 8 }, work: 280, beds: 0 },
   },
   farming: { growMinutes: 1440, harvestFood: 6, foodPerMeal: 40, plantMinutes: 40, harvestMinutes: 20 },
+  bandits: { fromDay: 7, chance: 0.06, bossDay: 12 },
   monsters: { fromDay: 3, maxAlive: 6, spawnChance: 0.2, growthPerDay: 0.15 },
   // Berufe der Arbeiter: Gewichte verändern, welche Tätigkeit bevorzugt wird; hat = Kopfbedeckung
   professions: {

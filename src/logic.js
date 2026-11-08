@@ -548,6 +548,8 @@ const MONSTERS = {
   rissling:     { name: 'Rissling', hp: 40, atk: 5, speed: 0.22, tier: 1, xp: 25 },
   schattenwolf: { name: 'Schattenwolf', hp: 75, atk: 8, speed: 0.32, tier: 2, xp: 50 },
   aschegolem:   { name: 'Aschegolem', hp: 180, atk: 14, speed: 0.13, tier: 3, xp: 110 },
+  bandit:       { name: 'Bandit', hp: 55, atk: 6, speed: 0.2, tier: 2, xp: 40 },
+  banditenboss: { name: 'Rotschal-Hauptmann', hp: 200, atk: 11, speed: 0.17, tier: 3, xp: 150 },
   kronenfresser:{ name: 'Kronenfresser', hp: 1400, atk: 13, speed: 0.11, tier: 4, xp: 600 }, // Boss der Geschichte
 };
 function nearestMonster(n, sim, r) {
@@ -558,6 +560,7 @@ function nearestMonster(n, sim, r) {
 function killMonster(m, n, sim) {
   const M = MONSTERS[m.kind];
   m.hp = 0; m.killer = n;
+  if (m.bandit) return defeatBandit(m, n, sim);
   const drop = M.tier >= 4 ? 15 : M.tier === 3 ? 2 : sim.rng() < 0.4 ? 1 : 0;
   n.town.stock.crystals += drop;
   sim.log(`⚔️ besiegt einen ${M.name}! (+${M.xp} EP${drop ? `, +${drop} 💎` : ''})`, n, true);
@@ -568,6 +571,25 @@ function killMonster(m, n, sim) {
   n.addXp(sim, M.xp);
   n.remember(sim, `Hat einen ${M.name} besiegt ⚔️`);
   if (n.kills >= 5) n.addTitle(sim, 'Wächter des Dorfes');
+}
+
+/* ---- Banditen: überfallen das Lager und fliehen mit der Beute ---------- */
+const LOOT_ICON = { coins: '🪙', crystals: '💎', food: '🍞', wood: '🪵' };
+const lootText = l => Object.entries(l || {}).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${LOOT_ICON[k]}`).join(', ');
+function defeatBandit(m, n, sim) {
+  const M = MONSTERS[m.kind], tw = m.town || sim.capital, coins = 3 + Math.floor(sim.rng() * 6) + (m.kind === 'banditenboss' ? 20 : 0);
+  for (const [k, v] of Object.entries(m.loot || {})) tw.stock[k] = (tw.stock[k] || 0) + v;
+  tw.stock.coins += coins;
+  const back = lootText(m.loot);
+  if (n) {
+    sim.log(`⚔️ besiegt ${m.kind === 'banditenboss' ? 'den' : 'einen'} ${M.name}! (+${M.xp} EP, +${coins} 🪙${back ? `, Beute zurück: ${back}` : ''})`, n, true);
+    n.kills = (n.kills || 0) + 1; n.gainXp('combat', 1); n.addXp(sim, M.xp);
+    n.remember(sim, `Hat ${m.kind === 'banditenboss' ? 'den Rotschal-Hauptmann' : 'einen Banditen'} besiegt ⚔️`);
+    if (m.kind === 'banditenboss') n.addTitle(sim, 'Schrecken der Rotschals');
+  } else sim.log(`🗼 Ein Wachturm streckt ${m.kind === 'banditenboss' ? 'den' : 'einen'} ${M.name} nieder!${back ? ` Beute zurück: ${back}` : ''}`, null, true);
+  sim.emit('system', `${M.name} besiegt!`);
+  sim.emit('monsterKilled', m);
+  if (back) tw.addTrade(`Beute von Banditen zurückgeholt: ${back}`);
 }
 
 defineAction({
@@ -1225,6 +1247,78 @@ class Simulation {
     return npc;
   }
 
+  /** Die Rotschal-Bande überfällt den reichsten Ort. */
+  spawnRaid() {
+    const worth = t => (t.stock.coins || 0) * 2 + (t.stock.crystals || 0) * 10 + (t.stock.food || 0) + (t.stock.wood || 0) * 0.5;
+    const town = this.towns.reduce((a, b) => worth(b) > worth(a) ? b : a), entry = this.findEntryTile(town);
+    if (!entry) return;
+    this.lastRaid = this.day;
+    const n = Math.min(6, 2 + Math.floor(this.day / 6)), boss = this.day >= CONFIG.bandits.bossDay;
+    const kinds = [...Array(n).fill('bandit'), ...(boss ? ['banditenboss'] : [])];
+    kinds.forEach((kind, i) => {
+      const M = MONSTERS[kind], hp = Math.round(M.hp * this.monsterScale);
+      const spot = this.world.bfs(entry.x, entry.y, (x, y) => this.world.walkable(x, y) && (i === 0 || Math.hypot(x - entry.x, y - entry.y) >= Math.min(i, 2)), 200);
+      const p = spot ? spot.stand : entry;
+      this.monsters.push({ id: ++this.monsterId, kind, bandit: true, town, exit: { x: entry.x, y: entry.y }, loot: {}, state: 'raid', t: 0,
+        x: p.x, y: p.y, prevX: p.x, prevY: p.y, hp, maxHp: hp, path: [], repath: 0, facing: 1, cd: 0 });
+    });
+    this.log(`🗡️ Die Rotschal-Bande taucht am Rand von ${town.name} auf – ${n} Banditen${boss ? ' und ihr Hauptmann' : ''} wollen das Lager plündern!`, null, true);
+    this.emit('system', `ÜBERFALL! Banditen greifen ${town.name} an!`);
+    this.emit('raid', { town, n, boss });
+  }
+
+  storeTile(town) { return (town.lagerhaus || {}).tile || town.campTile; }
+
+  banditFlee(m) {
+    m.state = 'flee'; m.repath = 0;
+    const res = this.world.findAdjacent(m.x, m.y, t => t.x === m.exit.x && t.y === m.exit.y, 9000) || this.world.bfs(m.x, m.y, (x, y) => x === m.exit.x && y === m.exit.y, 9000);
+    m.path = res ? res.path : [];
+    if (!m.path.length) m.gone = true;
+  }
+
+  /** Banditen: zum Lager, plündern, fliehen. Wer im Weg steht, wird angegriffen. */
+  updateBandit(m) {
+    const M = MONSTERS[m.kind], tw = m.town;
+    m.prevX = m.x; m.prevY = m.y; m.t++;
+    let target = null, bd = 1.5;
+    for (const n of this.npcs) { if (n.inside) continue; const d = Math.hypot(n.x - m.x, n.y - m.y); if (d < bd) { bd = d; target = n; } }
+    if (target && (target.awakened || m.state !== 'flee')) {
+      if (Math.abs(target.x - m.x) > 0.1) m.facing = target.x > m.x ? 1 : -1;
+      if (++m.cd >= 3) {
+        m.cd = 0; m.attackAt = performance.now();
+        const dmg = Math.max(1, Math.round(M.atk * this.monsterScale * (0.8 + this.rng() * 0.4) * (1 - target.defense / (target.defense + 60))));
+        target.hp -= dmg; this.float(target.x, target.y - 0.4, `-${dmg}`, '#ff6b6b'); this.emit('hit', target);
+        if (target.hp <= 0) this.knockOut(target, m);
+      }
+      return;
+    }
+    const st = this.storeTile(tw), atStore = Math.hypot(st.x - m.x, st.y - m.y) < 1.6;
+    if (m.state === 'raid') {
+      if (atStore) {
+        if (m.t % 8 === 0) { // plündern
+          const carried = Object.values(m.loot).reduce((a, b) => a + b, 0), cap = m.kind === 'banditenboss' ? 60 : 25;
+          const key = ['coins', 'crystals', 'food', 'wood'].find(k => (tw.stock[k] || 0) > 0);
+          if (!key || carried >= cap) this.banditFlee(m);
+          else { const take = Math.min(tw.stock[key], key === 'crystals' ? 1 : 6); tw.stock[key] -= take; m.loot[key] = (m.loot[key] || 0) + take; this.float(st.x, st.y, `-${take} ${LOOT_ICON[key]}`, '#ff9a9a'); }
+        }
+        if (m.t > 600) this.banditFlee(m);
+        return;
+      }
+      if (--m.repath <= 0 || !m.path.length) { m.repath = 15; const res = this.world.findAdjacent(m.x, m.y, t => t === st, 6000); m.path = res ? res.path : []; }
+    } else if (!m.path.length) { // entkommen
+      m.gone = true;
+      const l = lootText(m.loot);
+      if (l) { this.log(`💨 Ein ${M.name} entkommt mit der Beute: ${l}!`, null, true); tw.addTrade(`Von Banditen gestohlen: ${l}`); }
+      return;
+    }
+    let budget = M.speed * (m.state === 'flee' ? 1.15 : 1);
+    while (budget > 0 && m.path.length) {
+      const nx = m.path[0], dx = nx.x - m.x, dy = nx.y - m.y, d = Math.hypot(dx, dy);
+      if (Math.abs(dx) > 0.01) m.facing = dx > 0 ? 1 : -1;
+      if (d <= budget) { m.x = nx.x; m.y = nx.y; budget -= d; m.path.shift(); } else { m.x += dx / d * budget; m.y += dy / d * budget; budget = 0; }
+    }
+  }
+
   /** Morgens: Erwachte holen sich bessere Ausrüstung aus dem Lager (das Alte kommt zurück hinein). */
   handOutGear() {
     const st = this.capital;
@@ -1376,6 +1470,7 @@ class Simulation {
       this.emit('towerShot', { from: b.tile, to: best });
       if (best.hp <= 0) {
         const M = MONSTERS[best.kind];
+        if (best.bandit) { best.hp = 0; defeatBandit(best, null, this); continue; }
         tw.stock.crystals += M.tier === 3 ? 2 : 1;
         this.log(`🏹 Ein Wachturm von ${tw.name} erlegt einen ${M.name}! (+💎)`, null, true);
         this.emit('monsterKilled', best);
@@ -1417,6 +1512,24 @@ class Simulation {
     this.carts = this.carts.filter(c => !c.done);
   }
 
+  /** Der fahrende Händler kauft übrige Ausrüstung und Stein aus dem Lager und verkauft, was knapp ist. */
+  merchantTrade(cap) {
+    const deals = [];
+    const keep = new Set(); // pro Platz die zwei besten Teile behalten
+    for (const slot of SLOTS) cap.items.filter(it => it.slot === slot).sort((a, b) => b.power - a.power).slice(0, 2).forEach(it => keep.add(it));
+    const sell = cap.items.filter(it => !keep.has(it));
+    if (sell.length) {
+      const coins = sell.reduce((a, it) => a + 8 + it.rarity * 12 + (it.plus || 0) * 4, 0);
+      cap.items = cap.items.filter(it => keep.has(it)); cap.stock.coins += coins;
+      deals.push(`${sell.length} Ausrüstungsteil${sell.length > 1 ? 'e' : ''} verkauft für ${coins} 🪙`);
+    }
+    if (cap.stock.stone > 90) { const n = Math.floor((cap.stock.stone - 60) / 2), c = Math.floor(n / 3); cap.stock.stone -= n; cap.stock.coins += c; deals.push(`${n} Stein verkauft für ${c} 🪙`); }
+    if (cap.stock.food < cap.members.length * 2 && cap.stock.coins >= 15) { cap.stock.coins -= 15; cap.stock.food += 25; deals.push('25 Brot gekauft für 15 🪙'); }
+    if (cap.stoneWanted && cap.stock.stone < 15 && cap.stock.coins >= 20) { cap.stock.coins -= 20; cap.stock.stone += 15; deals.push('15 Stein gekauft für 20 🪙'); }
+    for (const d of deals) cap.addTrade(`Fahrender Händler: ${d}`);
+    if (deals.length) { this.log(`🐪 Handel mit dem fahrenden Händler: ${deals.join(' · ')}.`, null, true); this.emit('system', 'Handel abgeschlossen!'); }
+  }
+
   sendCart(kind, from, to, cargo) {
     const res = this.world.findAdjacent(from.camp.x, from.camp.y + 1, t => t === to.campTile, 9000);
     if (!res) return false;
@@ -1454,7 +1567,8 @@ class Simulation {
           cap.addTrade(`Fahrender Händler: ${n} Mana-Kristall${n > 1 ? 'e' : ''} für ${n * 25} 🪙`);
           this.log(`🐪 Der fahrende Händler verkauft ${n} Mana-Kristall${n > 1 ? 'e' : ''} für ${n * 25} Münzen.`, null, true);
           this.emit('system', `Handel: +${n} Mana-Kristall${n > 1 ? 'e' : ''}`);
-        } else this.log('🐪 Der fahrende Händler findet keine Kundschaft mit genug Münzen und zieht weiter.', null, true);
+        }
+        this.merchantTrade(cap);
         const out = this.findEntryTile(cap), back = out && this.world.findAdjacent(cart.x, cart.y, t => t.x === out.x && t.y === out.y, 9000);
         cart.path = back ? back.path : []; cart.state = 'back'; cart.wait = 120;
         if (!back) cart.done = true;
@@ -1484,10 +1598,11 @@ class Simulation {
       }
     }
     for (const m of this.monsters) this.updateMonster(m);
-    this.monsters = this.monsters.filter(m => m.hp > 0);
+    this.monsters = this.monsters.filter(m => m.hp > 0 && !m.gone);
   }
 
   updateMonster(m) {
+    if (m.bandit) return this.updateBandit(m);
     const M = MONSTERS[m.kind];
     m.prevX = m.x; m.prevY = m.y;
     let target = null, bd = 9;
@@ -1592,6 +1707,10 @@ class Simulation {
     if (this.minutes % 60 === 0) this.updateKingdom();
     if (this.minutes % 1440 === 7 * 60) this.payTribute();
     if (this.minutes % 1440 === 8 * 60) this.handOutGear();
+    const hr = this.hourFloat;
+    if (this.minutes % 60 === 0 && hr >= 10 && hr <= 15 && this.day >= CONFIG.bandits.fromDay && this.day !== this.lastRaid
+        && !this.monsters.some(m => m.bandit) && this.rng() < CONFIG.bandits.chance) this.spawnRaid();
+    if (this.minutes % 1440 === 20 * 60) for (const m of this.monsters) if (m.bandit && m.state !== 'flee') this.banditFlee(m); // bei Einbruch der Nacht
     for (const npc of this.npcs) npc.update(this);
     this.story.update();
     this.updateMonsters();

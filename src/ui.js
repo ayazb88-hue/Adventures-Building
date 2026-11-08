@@ -107,17 +107,21 @@ const MON_CARD = {
   rissling: ['E', 'Ein kichernder Kobold aus dem Riss. Allein harmlos – in Gruppen gefährlich.'],
   schattenwolf: ['C', 'Aus Nebel geformt. Er jagt lautlos und riecht Angst auf hundert Schritt.'],
   aschegolem: ['B', 'Glühende Kohle unter Steinhaut. Jeder Schritt lässt den Boden zittern.'],
+  bandit: ['D', 'Rote Schals, schnelle Messer und keine Lust auf ehrliche Arbeit. Sie wollen nur eins: das Lager.'],
+  banditenboss: ['B', 'Der Hauptmann der Rotschal-Bande. Man sagt, er habe noch nie einen Kampf fair begonnen – und noch nie einen Sack Münzen liegen lassen.'],
   kronenfresser: ['S', 'Der Herr des roten Risses. Er frisst keine Menschen. Er frisst Königreiche.'],
 };
 function monsterInfo(m) {
   const M = MONSTERS[m.kind], [rank, lore] = MON_CARD[m.kind] || ['?', ''], atk = Math.round(M.atk * sim.monsterScale);
   const top = sim.npcs.filter(n => n.awakened).sort((a, b) => b.attack - a.attack)[0];
   const danger = !top ? 'unbekannt' : m.boss ? 'tödlich' : atk * 4 > top.maxHp * 0.5 ? 'hoch' : atk * 4 > top.maxHp * 0.25 ? 'mittel' : 'gering';
-  return sysCard(m.boss ? 'BOSS' : 'MONSTER', rank,
-    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : 'Kreatur aus dem Riss'}</div></div></div>`
+  const loot = m.bandit ? lootText(m.loot) : '';
+  return sysCard(m.boss ? 'BOSS' : m.bandit ? 'FEIND · BANDIT' : 'MONSTER', rank,
+    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : m.bandit ? '🗡️' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : m.bandit ? `Rotschal-Bande · ${m.state === 'flee' ? 'flieht!' : `will ins Lager von ${esc(m.town.name)}`}` : 'Kreatur aus dem Riss'}</div></div></div>`
+    + (m.bandit ? `<div class="muted small">💰 Beute im Sack: <b>${loot || 'noch nichts'}</b></div>` : '')
     + `<div class="lbl"><span>Leben</span><span>${Math.max(0, Math.round(m.hp))} / ${m.maxHp}</span></div><div class="bar"><i style="width:${Math.max(0, m.hp / m.maxHp * 100)}%;background:#e04848"></i></div>`
     + `<div class="stats"><span><small>Angriff</small><b>${atk}</b></span><span><small>Tempo</small><b>${M.speed >= 0.3 ? 'schnell' : M.speed >= 0.2 ? 'mittel' : 'langsam'}</b></span><span><small>EP</small><b>${M.xp}</b></span><span><small>Gefahr</small><b>${danger}</b></span></div>`,
-    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
+    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : m.bandit ? 'Wer ihn besiegt, holt die Beute zurück' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
 }
 
 const ITEM_LORE = [
@@ -152,7 +156,8 @@ function townInventory(tw) {
   const cells = ['wood', 'stone', 'food', 'crystals', 'coins'].filter(k => tw.stock[k] > 0)
     .map(k => ({ icon: RES_INFO[k].icon, count: tw.stock[k], title: RES_INFO[k].name, attr: `data-res="${k}" data-town="${tw.id}"` }));
   (tw.items || []).forEach((it, i) => cells.push({ icon: it.slot === 'weapon' ? WEAPON_ICON[it.kind] || '⚔️' : SLOT_ICON[it.slot], color: RARITIES[it.rarity].color, plus: it.plus, title: itemName(it), attr: `data-store="${i}" data-town="${tw.id}"` }));
-  return `<div class="sec"><h4>📦 Lager von ${esc(tw.name)} <span class="muted">· antippen für Infos</span></h4>${invGrid(cells, 15)}</div>`;
+  return `<div class="sec"><h4>📦 Lager von ${esc(tw.name)} <span class="muted">· antippen für Infos</span></h4>${invGrid(cells, 15)}</div>`
+    + `<div class="sec"><h4>📒 Handelsbuch</h4>${tw.trades.length ? `<ul>${tw.trades.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<span class="muted">noch keine Geschäfte</span>'}</div>`;
 }
 function openRes(k, tw) {
   const r = RES_INFO[k];

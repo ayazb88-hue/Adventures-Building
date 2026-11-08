@@ -58,6 +58,8 @@ Das Spiel ist **eine Datei `index.html`** (HTML + JavaScript + Canvas, keine Abh
 - **Neue Gebäude:** Forsthaus (Holzfäller pflanzen nach), Bauernhof (Hühner, Kuh, Eier und Milch), Gildenhalle (Versammlungen, Gilden-Stufe, mehr Erfahrung).
 - **Lager und Inventar:** Im Lagerhaus wachsen sichtbar Holzstapel, Steinhaufen, Kornsäcke, eine Kristallkiste und eine Münztruhe. Antippen (Lagerhaus oder Lagerfeuer) öffnet ein Inventar mit Feldern; jedes Feld zeigt Herkunft, Verwendung und Beschreibung. Übrige oder ersetzte Ausrüstung landet im Lager und wird morgens an Erwachte verteilt. Jeder Siedler hat einen Rucksack.
 - **Hausformen:** Fachwerkhaus, Strohdach-Kate, Steinhaus mit Efeu, Walmdachhaus mit Gaube und Balkon, in der Stadtmitte Stadthäuser.
+- **Banditen:** Ab Tag 7 überfällt die Rotschal-Bande manchmal tagsüber das Lager des reichsten Ortes, ab Tag 12 mit ihrem Hauptmann. Sie stopfen Münzen, Kristalle und Brot in Säcke (sichtbar auf dem Rücken) und fliehen. Wer sie besiegt (Erwachte oder Wachtürme), holt die Beute zurück. Arbeiter verstecken sich.
+- **Handel mit dem Lager:** Der fahrende Händler kauft übrige Ausrüstung und zu viel Stein, verkauft Brot und Stein, wenn es knapp wird. Alles steht im Handelsbuch des Lagers.
 - **Tiere:** Erwachte zähmen Gefährten (Wolfswelpe, Fuchs, Eule, Kristallhase, selten Mini-Drache) mit Boni; manche Arbeiter bringen Hund oder Katze mit. Die Tiere laufen ihren Menschen hinterher.
 - **Tempo:** ⏸ / 1x / 2x / 5x. Bei 1x dauert ein Spieltag 6 Minuten.
 

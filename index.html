@@ -301,6 +301,7 @@ const CONFIG = {
     lagerhaus:   { name: 'Lagerhaus', cost: { wood: 30, stone: 8 }, work: 280, beds: 0 },
   },
   farming: { growMinutes: 1440, harvestFood: 6, foodPerMeal: 40, plantMinutes: 40, harvestMinutes: 20 },
+  bandits: { fromDay: 7, chance: 0.06, bossDay: 12 },
   monsters: { fromDay: 3, maxAlive: 6, spawnChance: 0.2, growthPerDay: 0.15 },
   // Berufe der Arbeiter: Gewichte verändern, welche Tätigkeit bevorzugt wird; hat = Kopfbedeckung
   professions: {
@@ -1356,6 +1357,8 @@ const MONSTERS = {
   rissling:     { name: 'Rissling', hp: 40, atk: 5, speed: 0.22, tier: 1, xp: 25 },
   schattenwolf: { name: 'Schattenwolf', hp: 75, atk: 8, speed: 0.32, tier: 2, xp: 50 },
   aschegolem:   { name: 'Aschegolem', hp: 180, atk: 14, speed: 0.13, tier: 3, xp: 110 },
+  bandit:       { name: 'Bandit', hp: 55, atk: 6, speed: 0.2, tier: 2, xp: 40 },
+  banditenboss: { name: 'Rotschal-Hauptmann', hp: 200, atk: 11, speed: 0.17, tier: 3, xp: 150 },
   kronenfresser:{ name: 'Kronenfresser', hp: 1400, atk: 13, speed: 0.11, tier: 4, xp: 600 }, // Boss der Geschichte
 };
 function nearestMonster(n, sim, r) {
@@ -1366,6 +1369,7 @@ function nearestMonster(n, sim, r) {
 function killMonster(m, n, sim) {
   const M = MONSTERS[m.kind];
   m.hp = 0; m.killer = n;
+  if (m.bandit) return defeatBandit(m, n, sim);
   const drop = M.tier >= 4 ? 15 : M.tier === 3 ? 2 : sim.rng() < 0.4 ? 1 : 0;
   n.town.stock.crystals += drop;
   sim.log(`⚔️ besiegt einen ${M.name}! (+${M.xp} EP${drop ? `, +${drop} 💎` : ''})`, n, true);
@@ -1376,6 +1380,25 @@ function killMonster(m, n, sim) {
   n.addXp(sim, M.xp);
   n.remember(sim, `Hat einen ${M.name} besiegt ⚔️`);
   if (n.kills >= 5) n.addTitle(sim, 'Wächter des Dorfes');
+}
+
+/* ---- Banditen: überfallen das Lager und fliehen mit der Beute ---------- */
+const LOOT_ICON = { coins: '🪙', crystals: '💎', food: '🍞', wood: '🪵' };
+const lootText = l => Object.entries(l || {}).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${LOOT_ICON[k]}`).join(', ');
+function defeatBandit(m, n, sim) {
+  const M = MONSTERS[m.kind], tw = m.town || sim.capital, coins = 3 + Math.floor(sim.rng() * 6) + (m.kind === 'banditenboss' ? 20 : 0);
+  for (const [k, v] of Object.entries(m.loot || {})) tw.stock[k] = (tw.stock[k] || 0) + v;
+  tw.stock.coins += coins;
+  const back = lootText(m.loot);
+  if (n) {
+    sim.log(`⚔️ besiegt ${m.kind === 'banditenboss' ? 'den' : 'einen'} ${M.name}! (+${M.xp} EP, +${coins} 🪙${back ? `, Beute zurück: ${back}` : ''})`, n, true);
+    n.kills = (n.kills || 0) + 1; n.gainXp('combat', 1); n.addXp(sim, M.xp);
+    n.remember(sim, `Hat ${m.kind === 'banditenboss' ? 'den Rotschal-Hauptmann' : 'einen Banditen'} besiegt ⚔️`);
+    if (m.kind === 'banditenboss') n.addTitle(sim, 'Schrecken der Rotschals');
+  } else sim.log(`🗼 Ein Wachturm streckt ${m.kind === 'banditenboss' ? 'den' : 'einen'} ${M.name} nieder!${back ? ` Beute zurück: ${back}` : ''}`, null, true);
+  sim.emit('system', `${M.name} besiegt!`);
+  sim.emit('monsterKilled', m);
+  if (back) tw.addTrade(`Beute von Banditen zurückgeholt: ${back}`);
 }
 
 defineAction({
@@ -2033,6 +2056,78 @@ class Simulation {
     return npc;
   }
 
+  /** Die Rotschal-Bande überfällt den reichsten Ort. */
+  spawnRaid() {
+    const worth = t => (t.stock.coins || 0) * 2 + (t.stock.crystals || 0) * 10 + (t.stock.food || 0) + (t.stock.wood || 0) * 0.5;
+    const town = this.towns.reduce((a, b) => worth(b) > worth(a) ? b : a), entry = this.findEntryTile(town);
+    if (!entry) return;
+    this.lastRaid = this.day;
+    const n = Math.min(6, 2 + Math.floor(this.day / 6)), boss = this.day >= CONFIG.bandits.bossDay;
+    const kinds = [...Array(n).fill('bandit'), ...(boss ? ['banditenboss'] : [])];
+    kinds.forEach((kind, i) => {
+      const M = MONSTERS[kind], hp = Math.round(M.hp * this.monsterScale);
+      const spot = this.world.bfs(entry.x, entry.y, (x, y) => this.world.walkable(x, y) && (i === 0 || Math.hypot(x - entry.x, y - entry.y) >= Math.min(i, 2)), 200);
+      const p = spot ? spot.stand : entry;
+      this.monsters.push({ id: ++this.monsterId, kind, bandit: true, town, exit: { x: entry.x, y: entry.y }, loot: {}, state: 'raid', t: 0,
+        x: p.x, y: p.y, prevX: p.x, prevY: p.y, hp, maxHp: hp, path: [], repath: 0, facing: 1, cd: 0 });
+    });
+    this.log(`🗡️ Die Rotschal-Bande taucht am Rand von ${town.name} auf – ${n} Banditen${boss ? ' und ihr Hauptmann' : ''} wollen das Lager plündern!`, null, true);
+    this.emit('system', `ÜBERFALL! Banditen greifen ${town.name} an!`);
+    this.emit('raid', { town, n, boss });
+  }
+
+  storeTile(town) { return (town.lagerhaus || {}).tile || town.campTile; }
+
+  banditFlee(m) {
+    m.state = 'flee'; m.repath = 0;
+    const res = this.world.findAdjacent(m.x, m.y, t => t.x === m.exit.x && t.y === m.exit.y, 9000) || this.world.bfs(m.x, m.y, (x, y) => x === m.exit.x && y === m.exit.y, 9000);
+    m.path = res ? res.path : [];
+    if (!m.path.length) m.gone = true;
+  }
+
+  /** Banditen: zum Lager, plündern, fliehen. Wer im Weg steht, wird angegriffen. */
+  updateBandit(m) {
+    const M = MONSTERS[m.kind], tw = m.town;
+    m.prevX = m.x; m.prevY = m.y; m.t++;
+    let target = null, bd = 1.5;
+    for (const n of this.npcs) { if (n.inside) continue; const d = Math.hypot(n.x - m.x, n.y - m.y); if (d < bd) { bd = d; target = n; } }
+    if (target && (target.awakened || m.state !== 'flee')) {
+      if (Math.abs(target.x - m.x) > 0.1) m.facing = target.x > m.x ? 1 : -1;
+      if (++m.cd >= 3) {
+        m.cd = 0; m.attackAt = performance.now();
+        const dmg = Math.max(1, Math.round(M.atk * this.monsterScale * (0.8 + this.rng() * 0.4) * (1 - target.defense / (target.defense + 60))));
+        target.hp -= dmg; this.float(target.x, target.y - 0.4, `-${dmg}`, '#ff6b6b'); this.emit('hit', target);
+        if (target.hp <= 0) this.knockOut(target, m);
+      }
+      return;
+    }
+    const st = this.storeTile(tw), atStore = Math.hypot(st.x - m.x, st.y - m.y) < 1.6;
+    if (m.state === 'raid') {
+      if (atStore) {
+        if (m.t % 8 === 0) { // plündern
+          const carried = Object.values(m.loot).reduce((a, b) => a + b, 0), cap = m.kind === 'banditenboss' ? 60 : 25;
+          const key = ['coins', 'crystals', 'food', 'wood'].find(k => (tw.stock[k] || 0) > 0);
+          if (!key || carried >= cap) this.banditFlee(m);
+          else { const take = Math.min(tw.stock[key], key === 'crystals' ? 1 : 6); tw.stock[key] -= take; m.loot[key] = (m.loot[key] || 0) + take; this.float(st.x, st.y, `-${take} ${LOOT_ICON[key]}`, '#ff9a9a'); }
+        }
+        if (m.t > 600) this.banditFlee(m);
+        return;
+      }
+      if (--m.repath <= 0 || !m.path.length) { m.repath = 15; const res = this.world.findAdjacent(m.x, m.y, t => t === st, 6000); m.path = res ? res.path : []; }
+    } else if (!m.path.length) { // entkommen
+      m.gone = true;
+      const l = lootText(m.loot);
+      if (l) { this.log(`💨 Ein ${M.name} entkommt mit der Beute: ${l}!`, null, true); tw.addTrade(`Von Banditen gestohlen: ${l}`); }
+      return;
+    }
+    let budget = M.speed * (m.state === 'flee' ? 1.15 : 1);
+    while (budget > 0 && m.path.length) {
+      const nx = m.path[0], dx = nx.x - m.x, dy = nx.y - m.y, d = Math.hypot(dx, dy);
+      if (Math.abs(dx) > 0.01) m.facing = dx > 0 ? 1 : -1;
+      if (d <= budget) { m.x = nx.x; m.y = nx.y; budget -= d; m.path.shift(); } else { m.x += dx / d * budget; m.y += dy / d * budget; budget = 0; }
+    }
+  }
+
   /** Morgens: Erwachte holen sich bessere Ausrüstung aus dem Lager (das Alte kommt zurück hinein). */
   handOutGear() {
     const st = this.capital;
@@ -2184,6 +2279,7 @@ class Simulation {
       this.emit('towerShot', { from: b.tile, to: best });
       if (best.hp <= 0) {
         const M = MONSTERS[best.kind];
+        if (best.bandit) { best.hp = 0; defeatBandit(best, null, this); continue; }
         tw.stock.crystals += M.tier === 3 ? 2 : 1;
         this.log(`🏹 Ein Wachturm von ${tw.name} erlegt einen ${M.name}! (+💎)`, null, true);
         this.emit('monsterKilled', best);
@@ -2225,6 +2321,24 @@ class Simulation {
     this.carts = this.carts.filter(c => !c.done);
   }
 
+  /** Der fahrende Händler kauft übrige Ausrüstung und Stein aus dem Lager und verkauft, was knapp ist. */
+  merchantTrade(cap) {
+    const deals = [];
+    const keep = new Set(); // pro Platz die zwei besten Teile behalten
+    for (const slot of SLOTS) cap.items.filter(it => it.slot === slot).sort((a, b) => b.power - a.power).slice(0, 2).forEach(it => keep.add(it));
+    const sell = cap.items.filter(it => !keep.has(it));
+    if (sell.length) {
+      const coins = sell.reduce((a, it) => a + 8 + it.rarity * 12 + (it.plus || 0) * 4, 0);
+      cap.items = cap.items.filter(it => keep.has(it)); cap.stock.coins += coins;
+      deals.push(`${sell.length} Ausrüstungsteil${sell.length > 1 ? 'e' : ''} verkauft für ${coins} 🪙`);
+    }
+    if (cap.stock.stone > 90) { const n = Math.floor((cap.stock.stone - 60) / 2), c = Math.floor(n / 3); cap.stock.stone -= n; cap.stock.coins += c; deals.push(`${n} Stein verkauft für ${c} 🪙`); }
+    if (cap.stock.food < cap.members.length * 2 && cap.stock.coins >= 15) { cap.stock.coins -= 15; cap.stock.food += 25; deals.push('25 Brot gekauft für 15 🪙'); }
+    if (cap.stoneWanted && cap.stock.stone < 15 && cap.stock.coins >= 20) { cap.stock.coins -= 20; cap.stock.stone += 15; deals.push('15 Stein gekauft für 20 🪙'); }
+    for (const d of deals) cap.addTrade(`Fahrender Händler: ${d}`);
+    if (deals.length) { this.log(`🐪 Handel mit dem fahrenden Händler: ${deals.join(' · ')}.`, null, true); this.emit('system', 'Handel abgeschlossen!'); }
+  }
+
   sendCart(kind, from, to, cargo) {
     const res = this.world.findAdjacent(from.camp.x, from.camp.y + 1, t => t === to.campTile, 9000);
     if (!res) return false;
@@ -2262,7 +2376,8 @@ class Simulation {
           cap.addTrade(`Fahrender Händler: ${n} Mana-Kristall${n > 1 ? 'e' : ''} für ${n * 25} 🪙`);
           this.log(`🐪 Der fahrende Händler verkauft ${n} Mana-Kristall${n > 1 ? 'e' : ''} für ${n * 25} Münzen.`, null, true);
           this.emit('system', `Handel: +${n} Mana-Kristall${n > 1 ? 'e' : ''}`);
-        } else this.log('🐪 Der fahrende Händler findet keine Kundschaft mit genug Münzen und zieht weiter.', null, true);
+        }
+        this.merchantTrade(cap);
         const out = this.findEntryTile(cap), back = out && this.world.findAdjacent(cart.x, cart.y, t => t.x === out.x && t.y === out.y, 9000);
         cart.path = back ? back.path : []; cart.state = 'back'; cart.wait = 120;
         if (!back) cart.done = true;
@@ -2292,10 +2407,11 @@ class Simulation {
       }
     }
     for (const m of this.monsters) this.updateMonster(m);
-    this.monsters = this.monsters.filter(m => m.hp > 0);
+    this.monsters = this.monsters.filter(m => m.hp > 0 && !m.gone);
   }
 
   updateMonster(m) {
+    if (m.bandit) return this.updateBandit(m);
     const M = MONSTERS[m.kind];
     m.prevX = m.x; m.prevY = m.y;
     let target = null, bd = 9;
@@ -2400,6 +2516,10 @@ class Simulation {
     if (this.minutes % 60 === 0) this.updateKingdom();
     if (this.minutes % 1440 === 7 * 60) this.payTribute();
     if (this.minutes % 1440 === 8 * 60) this.handOutGear();
+    const hr = this.hourFloat;
+    if (this.minutes % 60 === 0 && hr >= 10 && hr <= 15 && this.day >= CONFIG.bandits.fromDay && this.day !== this.lastRaid
+        && !this.monsters.some(m => m.bandit) && this.rng() < CONFIG.bandits.chance) this.spawnRaid();
+    if (this.minutes % 1440 === 20 * 60) for (const m of this.monsters) if (m.bandit && m.state !== 'flee') this.banditFlee(m); // bei Einbruch der Nacht
     for (const npc of this.npcs) npc.update(this);
     this.story.update();
     this.updateMonsters();
@@ -2601,6 +2721,12 @@ const CHAPTERS = [
     start(sim, st) { st.spawnRival(); },
     text: (sim, st) => { const r = st.rival; return r ? `Am Waldrand taucht eine Gestalt im schwarzen Mantel auf: ${r.name}, Level ${r.level}. „Du bist also ${st.H}? Alle reden nur von dir. Enttäuschend.“ Ein Rivale ist geboren – jeden Nachmittag gibt es ein Duell am Lagerfeuer.` : 'Ein Fremder beobachtet die Siedlung aus der Ferne – und verschwindet wieder.'; },
     hint: 'Jeden Nachmittag um 16 Uhr: Duell am Lagerfeuer.' },
+  { id: 'banditen', req: 'licht', title: 'Die Rotschal-Bande', when: (sim, st) => st.raidSeen,
+    text: (sim, st) => `Am helllichten Tag tauchen Gestalten mit roten Schals am Waldrand auf. Keine Monster – Menschen. Sie wollen nicht kämpfen, sie wollen das Lager. „Holt euch, was ihr tragen könnt!“, ruft eine Stimme. Ab heute muss ${sim.capital.name} nicht nur die Nächte fürchten.`,
+    hint: 'Irgendwo führt ein Hauptmann die Bande an …' },
+  { id: 'hauptmann', req: 'banditen', title: 'Der Fall des Hauptmanns', when: (sim, st) => st.captainKills > 0,
+    text: (sim, st) => `Der Rotschal-Hauptmann geht in die Knie. ${nameOf(sim, st.captainKiller, st.H)} steht über ihm, die Waffe gesenkt. „Sag deinen Leuten: Dieses Lager gehört dem Volk.“ Die Bande zerstreut sich – für eine Weile.`,
+    hint: 'Die Straßen sind sicherer – aber die Bande ist nicht ganz verschwunden.' },
   { id: 'bund', req: 'rivale', title: 'Vom Rivalen zum Gefährten', when: (sim, st) => !st.rival || st.duel.heroWins >= 2 || st.duel.count >= 5,
     start(sim, st) {
       const r = st.rival, h = st.hero;
@@ -2667,6 +2793,8 @@ class Story {
     sim.on('legendary', ({ n, item }) => { if (!this.legend) this.legend = { smith: n.name, item: item.name }; });
     sim.on('monsterKilled', m => { if (m.boss) { this.bossDead = true; this.bossKiller = m.killer ? m.killer.id : this.heroId; } });
     sim.on('levelup', n => this.onLevelUp(n));
+    sim.on('raid', () => { this.raidSeen = true; });
+    sim.on('monsterKilled', m => { if (m.kind === 'banditenboss') { this.captainKills = (this.captainKills || 0) + 1; if (m.killer) this.captainKiller = m.killer.id; } });
   }
 
   get hero() { return this.sim.npcs.find(n => n.id === this.heroId) || null; }
@@ -4870,7 +4998,7 @@ class Renderer {
           }
           if (e.cart) { drawCart(c, e.cart, s, now, (e.fx + 0.5) * s, (e.fy + 0.85) * s); continue; }
           if (e.monster) {
-            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s, bs = m.boss ? s * 2.1 : s; // Boss: doppelt so groß
+            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s, bs = m.boss ? s * 2.1 : m.kind === 'banditenboss' ? s * 1.25 : s; // Boss: doppelt so groß
             const look = m.boss ? 'aschegolem' : m.kind;
             if (m.boss) { // rotes Glühen um den Kronenfresser
               const gl = c.createRadialGradient(mx, my - bs * 0.4, 0, mx, my - bs * 0.4, bs * 0.9);
@@ -4884,7 +5012,12 @@ class Renderer {
               drawPixelCreature(c, look, mx, my, bs, m.facing, fr, m.attackAt && now - m.attackAt < 300, m.hitAt && now - m.hitAt < 140);
               if (m.boss) c.filter = 'none';
             } else { c.save(); c.translate(mx, my); drawMonsterShape(c, m.boss ? { ...m, kind: look } : m, bs, now); c.restore(); }
-            const bw = bs * 0.7, by = my - bs * (look === 'aschegolem' ? 1.15 : 0.75);
+            if (m.bandit && m.loot && Object.values(m.loot).some(v => v > 0)) { // Beutesack auf dem Rücken
+              const sx = mx - m.facing * bs * 0.2, sy = my - bs * 0.55;
+              c.fillStyle = '#c9b48a'; c.beginPath(); c.ellipse(sx, sy, bs * 0.11, bs * 0.13, 0, 0, TAU); c.fill(); c.strokeStyle = '#5a4428'; c.lineWidth = Math.max(1, s * 0.02); c.stroke();
+              c.fillStyle = '#f0c35a'; c.beginPath(); c.arc(sx, sy - bs * 0.13, bs * 0.03, 0, TAU); c.fill();
+            }
+            const bw = bs * 0.7, by = my - bs * (look === 'aschegolem' ? 1.15 : m.bandit ? 1.0 : 0.75);
             c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(mx - bw / 2, by, bw, Math.max(3, s * 0.07));
             c.fillStyle = '#e04848'; c.fillRect(mx - bw / 2, by, bw * Math.max(0, m.hp / m.maxHp), Math.max(3, s * 0.07));
             continue;
@@ -5646,6 +5779,24 @@ function pixCreature(kind, frame, attack, flash, antlers) {
     el(FX, y - 4, 4, 3, '#9c8a76'); el(FX - 1, y - 3, 3, 1, '#857462'); el(FX + 4, y - 7, 2, 2, '#9c8a76');
     pr(FX + 3, y - 12, 1, 4, '#9c8a76'); pr(FX + 5, y - 12, 1, 4, '#8a7864'); pr(FX + 5, y - 8, 1, 1, '#1d1410');
     pr(FX - 5, y - 5, 2, 2, '#ffffff');
+  } else if (kind === 'bandit' || kind === 'banditenboss') { // Rotschal-Bande: Schal, Maske, Dolch / Hauptmann mit Axt
+    const boss = kind === 'banditenboss', sw = [0, 2, 0, -2][frame & 3], atk = attack ? 3 : 0;
+    const coat = boss ? '#4a2a22' : '#5a4632', dark = '#2a2018', scarf = '#c8302a', skin = '#e0b08a', hood = boss ? '#2a1e18' : '#3a3228';
+    if (boss) pr(FX - 6, FY - 17, 3, 13, '#8a1a1a');
+    pl(FX - 2, FY - 7, FX - 2 - sw / 2, FY - 1, 2, dark); pl(FX + 2, FY - 7, FX + 2 + sw / 2, FY - 1, 2, dark);
+    pr(FX - 4 - sw / 2, FY - 1, 3, 1, '#1a1410'); pr(FX + 1 + sw / 2, FY - 1, 3, 1, '#1a1410');
+    pr(FX - 4, FY - 16, 8, 9, coat); pr(FX - 4, FY - 9, 8, 1, '#6b4a2a'); pr(FX - 1, FY - 9, 2, 1, '#c9a032');
+    pl(FX - 3, FY - 15, FX - 5, FY - 10, 2, coat); pr(FX - 6, FY - 10, 2, 2, skin);
+    pl(FX + 3, FY - 15, FX + 6 + atk, FY - 11, 2, coat); pr(FX + 6 + atk, FY - 12, 2, 2, skin);
+    if (boss) { pl(FX + 7 + atk, FY - 8, FX + 7 + atk, FY - 21, 1, '#6b4426'); pr(FX + 8 + atk, FY - 22, 3, 5, '#aab4bc'); pr(FX + 10 + atk, FY - 21, 1, 3, '#e8eef2'); }
+    else pl(FX + 7 + atk, FY - 12, FX + 11 + atk, FY - 15, 1, '#d8dde2');
+    pr(FX - 4, FY - 17, 8, 2, scarf); pr(FX - 5, FY - 16, 2, 5, scarf);
+    el(FX, FY - 21, 4, 4, skin);
+    pr(FX - 4, FY - 26, 8, 4, hood); pr(FX - 5, FY - 24, 2, 5, hood); pr(FX + 3, FY - 25, 2, 1, hood);
+    pr(FX - 1, FY - 20, 6, 2, scarf);
+    pr(FX + 3, FY - 22, 1, 1, '#1a1410');
+    if (boss) { pr(FX, FY - 23, 3, 2, '#1a1410'); pl(FX - 4, FY - 24, FX + 4, FY - 22, 1, '#1a1410'); pr(FX - 3, FY - 28, 7, 2, '#8a1a1a'); }
+    else pr(FX, FY - 22, 1, 1, '#1a1410');
   } else if (kind.startsWith('pet_') || kind === 'huhn' || kind === 'kuh') pixPet(kind.replace('pet_', ''), frame, pr, pl, el, FX, FY);
   pixOutline(c);
   if (flash) { c.globalCompositeOperation = 'source-atop'; c.fillStyle = 'rgba(255,255,255,.75)'; c.fillRect(0, 0, PIX.W, PIX.H); c.globalCompositeOperation = 'source-over'; }
@@ -6122,17 +6273,21 @@ const MON_CARD = {
   rissling: ['E', 'Ein kichernder Kobold aus dem Riss. Allein harmlos – in Gruppen gefährlich.'],
   schattenwolf: ['C', 'Aus Nebel geformt. Er jagt lautlos und riecht Angst auf hundert Schritt.'],
   aschegolem: ['B', 'Glühende Kohle unter Steinhaut. Jeder Schritt lässt den Boden zittern.'],
+  bandit: ['D', 'Rote Schals, schnelle Messer und keine Lust auf ehrliche Arbeit. Sie wollen nur eins: das Lager.'],
+  banditenboss: ['B', 'Der Hauptmann der Rotschal-Bande. Man sagt, er habe noch nie einen Kampf fair begonnen – und noch nie einen Sack Münzen liegen lassen.'],
   kronenfresser: ['S', 'Der Herr des roten Risses. Er frisst keine Menschen. Er frisst Königreiche.'],
 };
 function monsterInfo(m) {
   const M = MONSTERS[m.kind], [rank, lore] = MON_CARD[m.kind] || ['?', ''], atk = Math.round(M.atk * sim.monsterScale);
   const top = sim.npcs.filter(n => n.awakened).sort((a, b) => b.attack - a.attack)[0];
   const danger = !top ? 'unbekannt' : m.boss ? 'tödlich' : atk * 4 > top.maxHp * 0.5 ? 'hoch' : atk * 4 > top.maxHp * 0.25 ? 'mittel' : 'gering';
-  return sysCard(m.boss ? 'BOSS' : 'MONSTER', rank,
-    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : 'Kreatur aus dem Riss'}</div></div></div>`
+  const loot = m.bandit ? lootText(m.loot) : '';
+  return sysCard(m.boss ? 'BOSS' : m.bandit ? 'FEIND · BANDIT' : 'MONSTER', rank,
+    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : m.bandit ? '🗡️' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : m.bandit ? `Rotschal-Bande · ${m.state === 'flee' ? 'flieht!' : `will ins Lager von ${esc(m.town.name)}`}` : 'Kreatur aus dem Riss'}</div></div></div>`
+    + (m.bandit ? `<div class="muted small">💰 Beute im Sack: <b>${loot || 'noch nichts'}</b></div>` : '')
     + `<div class="lbl"><span>Leben</span><span>${Math.max(0, Math.round(m.hp))} / ${m.maxHp}</span></div><div class="bar"><i style="width:${Math.max(0, m.hp / m.maxHp * 100)}%;background:#e04848"></i></div>`
     + `<div class="stats"><span><small>Angriff</small><b>${atk}</b></span><span><small>Tempo</small><b>${M.speed >= 0.3 ? 'schnell' : M.speed >= 0.2 ? 'mittel' : 'langsam'}</b></span><span><small>EP</small><b>${M.xp}</b></span><span><small>Gefahr</small><b>${danger}</b></span></div>`,
-    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
+    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : m.bandit ? 'Wer ihn besiegt, holt die Beute zurück' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
 }
 
 const ITEM_LORE = [
@@ -6167,7 +6322,8 @@ function townInventory(tw) {
   const cells = ['wood', 'stone', 'food', 'crystals', 'coins'].filter(k => tw.stock[k] > 0)
     .map(k => ({ icon: RES_INFO[k].icon, count: tw.stock[k], title: RES_INFO[k].name, attr: `data-res="${k}" data-town="${tw.id}"` }));
   (tw.items || []).forEach((it, i) => cells.push({ icon: it.slot === 'weapon' ? WEAPON_ICON[it.kind] || '⚔️' : SLOT_ICON[it.slot], color: RARITIES[it.rarity].color, plus: it.plus, title: itemName(it), attr: `data-store="${i}" data-town="${tw.id}"` }));
-  return `<div class="sec"><h4>📦 Lager von ${esc(tw.name)} <span class="muted">· antippen für Infos</span></h4>${invGrid(cells, 15)}</div>`;
+  return `<div class="sec"><h4>📦 Lager von ${esc(tw.name)} <span class="muted">· antippen für Infos</span></h4>${invGrid(cells, 15)}</div>`
+    + `<div class="sec"><h4>📒 Handelsbuch</h4>${tw.trades.length ? `<ul>${tw.trades.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '<span class="muted">noch keine Geschäfte</span>'}</div>`;
 }
 function openRes(k, tw) {
   const r = RES_INFO[k];

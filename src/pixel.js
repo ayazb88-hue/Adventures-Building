@@ -528,6 +528,24 @@ function pixCreature(kind, frame, attack, flash, antlers) {
     el(FX, y - 4, 4, 3, '#9c8a76'); el(FX - 1, y - 3, 3, 1, '#857462'); el(FX + 4, y - 7, 2, 2, '#9c8a76');
     pr(FX + 3, y - 12, 1, 4, '#9c8a76'); pr(FX + 5, y - 12, 1, 4, '#8a7864'); pr(FX + 5, y - 8, 1, 1, '#1d1410');
     pr(FX - 5, y - 5, 2, 2, '#ffffff');
+  } else if (kind === 'bandit' || kind === 'banditenboss') { // Rotschal-Bande: Schal, Maske, Dolch / Hauptmann mit Axt
+    const boss = kind === 'banditenboss', sw = [0, 2, 0, -2][frame & 3], atk = attack ? 3 : 0;
+    const coat = boss ? '#4a2a22' : '#5a4632', dark = '#2a2018', scarf = '#c8302a', skin = '#e0b08a', hood = boss ? '#2a1e18' : '#3a3228';
+    if (boss) pr(FX - 6, FY - 17, 3, 13, '#8a1a1a');
+    pl(FX - 2, FY - 7, FX - 2 - sw / 2, FY - 1, 2, dark); pl(FX + 2, FY - 7, FX + 2 + sw / 2, FY - 1, 2, dark);
+    pr(FX - 4 - sw / 2, FY - 1, 3, 1, '#1a1410'); pr(FX + 1 + sw / 2, FY - 1, 3, 1, '#1a1410');
+    pr(FX - 4, FY - 16, 8, 9, coat); pr(FX - 4, FY - 9, 8, 1, '#6b4a2a'); pr(FX - 1, FY - 9, 2, 1, '#c9a032');
+    pl(FX - 3, FY - 15, FX - 5, FY - 10, 2, coat); pr(FX - 6, FY - 10, 2, 2, skin);
+    pl(FX + 3, FY - 15, FX + 6 + atk, FY - 11, 2, coat); pr(FX + 6 + atk, FY - 12, 2, 2, skin);
+    if (boss) { pl(FX + 7 + atk, FY - 8, FX + 7 + atk, FY - 21, 1, '#6b4426'); pr(FX + 8 + atk, FY - 22, 3, 5, '#aab4bc'); pr(FX + 10 + atk, FY - 21, 1, 3, '#e8eef2'); }
+    else pl(FX + 7 + atk, FY - 12, FX + 11 + atk, FY - 15, 1, '#d8dde2');
+    pr(FX - 4, FY - 17, 8, 2, scarf); pr(FX - 5, FY - 16, 2, 5, scarf);
+    el(FX, FY - 21, 4, 4, skin);
+    pr(FX - 4, FY - 26, 8, 4, hood); pr(FX - 5, FY - 24, 2, 5, hood); pr(FX + 3, FY - 25, 2, 1, hood);
+    pr(FX - 1, FY - 20, 6, 2, scarf);
+    pr(FX + 3, FY - 22, 1, 1, '#1a1410');
+    if (boss) { pr(FX, FY - 23, 3, 2, '#1a1410'); pl(FX - 4, FY - 24, FX + 4, FY - 22, 1, '#1a1410'); pr(FX - 3, FY - 28, 7, 2, '#8a1a1a'); }
+    else pr(FX, FY - 22, 1, 1, '#1a1410');
   } else if (kind.startsWith('pet_') || kind === 'huhn' || kind === 'kuh') pixPet(kind.replace('pet_', ''), frame, pr, pl, el, FX, FY);
   pixOutline(c);
   if (flash) { c.globalCompositeOperation = 'source-atop'; c.fillStyle = 'rgba(255,255,255,.75)'; c.fillRect(0, 0, PIX.W, PIX.H); c.globalCompositeOperation = 'source-over'; }
