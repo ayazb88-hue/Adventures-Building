@@ -69,6 +69,7 @@ const CARD = {
   temple: ['HEILIGTUM', 'B', '<b>Heilung</b> · <b>Laune +</b>', 'Ein Ort, an dem selbst Erwachte ihre Waffen ablegen.'],
   rock:   ['RESSOURCE', 'E', 'Ertrag: <b>Stein</b>', 'Grau, schwer, geduldig. Aus Steinen wie diesem werden Burgen.'],
   market: ['GEBÄUDE', 'B', 'Markttag um 12 Uhr: Überschuss → <b>Münzen</b>', 'Händlerrufe, Gewürzduft und das Klimpern von Münzen.'],
+  lagerhaus: ['LAGER', 'C', 'Hier liegt alles, was gesammelt und hergestellt wird · übrige Ausrüstung wird verteilt', 'Kisten, Säcke, Fässer – und irgendwo ganz hinten eine Kiste, die niemand mehr öffnen will.'],
   smithy: ['WERKSTATT', 'B', '💎 + 🪵 → <b>Ausrüstung</b> in 5 Seltenheiten', 'Hier entsteht, worüber man Lieder singt. Oder zumindest ordentliche Stiefel.'],
   grass:  ['GELÄNDE', '–', 'Bauland', 'Weites Land voller Möglichkeiten.'],
   forsthaus:   ['GEBÄUDE', 'C', 'Holzfällen <b>schneller</b> · Holzfäller pflanzen neue Bäume', 'Wer hier wohnt, kennt jeden Baum beim Namen – und pflanzt für jeden gefällten einen neuen.'],
@@ -126,15 +127,56 @@ const ITEM_LORE = [
   'Golden schimmernd. Wer es trägt, spürt, wie die Welt für einen Herzschlag innehält.',
   'Blutrot pulsierend. Es heißt, so etwas entstehe nur einmal in einem Zeitalter.',
 ];
-function openItem(n, slot) {
-  const it = n.gear[slot]; if (!it) return;
+/* ---- Lager und Rucksack: Inventar wie in einem Game ---------------------- */
+const RES_INFO = {
+  wood:     { icon: '🪵', name: 'Holz', rank: 'F', from: 'Holzfäller fällen Bäume', use: 'Häuser, Ausbau, Schmiede', lore: 'Duftet nach Harz. Das Rückgrat jeder Siedlung.' },
+  stone:    { icon: '🪨', name: 'Stein', rank: 'E', from: 'Steinmetze brechen Felsen', use: 'Wachtürme, Tempel, Ausbau', lore: 'Schwer, grau, geduldig. Aus ihm werden Mauern, die Jahrhunderte stehen.' },
+  food:     { icon: '🍞', name: 'Brot und Vorräte', rank: 'F', from: 'Felder, Eier und Milch vom Bauernhof, Händlerkarren', use: 'Essen – stillt den Hunger', lore: 'Frisch aus dem Ofen. Niemand kämpft gut mit leerem Magen.' },
+  crystals: { icon: '💎', name: 'Mana-Kristalle', rank: 'B', from: 'Risse, Ruinen, besiegte Monster, fahrender Händler', use: 'Schmieden, Verstärken, Burg, Gildenhalle', lore: 'Sie summen leise, wenn man sie ans Ohr hält. Man sagt, in jedem schläft ein Stück einer anderen Welt.' },
+  coins:    { icon: '🪙', name: 'Münzen', rank: 'D', from: 'Markttag, Abgaben der Außenposten', use: 'Taverne, Tempel, Handel', lore: 'Geprägt mit dem Wappen des Reiches. Klimpern ist das schönste Geräusch der Welt – sagen die Händler.' },
+  berries:  { icon: '🫐', name: 'Beeren', rank: 'F', from: 'Beerensträucher', use: 'Sofort essen', lore: 'Süß, saftig und ein bisschen sauer.' },
+};
+const SLOT_ICON = { weapon: '⚔️', armor: '🛡️', helmet: '🪖', boots: '👢', cape: '🧥' };
+const WEAPON_ICON = { sword: '🗡️', bow: '🏹', staff: '🪄', hammer: '🔨', spear: '🔱', blade: '⚔️' };
+/** Raster aus Feldern: Rohstoffe mit Anzahl, Ausrüstung mit Seltenheitsrahmen. */
+function invGrid(cells, total = 12) {
+  let html = '<div class="inv">';
+  for (let i = 0; i < Math.max(total, cells.length); i++) {
+    const c = cells[i];
+    if (!c) { html += '<div class="cell empty"></div>'; continue; }
+    html += `<button class="cell" ${c.attr} style="${c.color ? `border-color:${c.color};box-shadow:inset 0 0 10px ${c.color}55` : ''}" title="${esc(c.title)}"><span>${c.icon}</span>${c.count != null ? `<b>${c.count}</b>` : ''}${c.plus ? `<i>+${c.plus}</i>` : ''}</button>`;
+  }
+  return html + '</div>';
+}
+function townInventory(tw) {
+  const cells = ['wood', 'stone', 'food', 'crystals', 'coins'].filter(k => tw.stock[k] > 0)
+    .map(k => ({ icon: RES_INFO[k].icon, count: tw.stock[k], title: RES_INFO[k].name, attr: `data-res="${k}" data-town="${tw.id}"` }));
+  (tw.items || []).forEach((it, i) => cells.push({ icon: it.slot === 'weapon' ? WEAPON_ICON[it.kind] || '⚔️' : SLOT_ICON[it.slot], color: RARITIES[it.rarity].color, plus: it.plus, title: itemName(it), attr: `data-store="${i}" data-town="${tw.id}"` }));
+  return `<div class="sec"><h4>📦 Lager von ${esc(tw.name)} <span class="muted">· antippen für Infos</span></h4>${invGrid(cells, 15)}</div>`;
+}
+function openRes(k, tw) {
+  const r = RES_INFO[k];
+  $('modalTitle').textContent = ''; $('modalText').textContent = '';
+  $('modalHtml').innerHTML = sysCard('ROHSTOFF', r.rank,
+    `<div class="insp-head"><span class="big-ic">${r.icon}</span><div><b>${r.name}</b><div class="muted">im Lager von ${esc(tw.name)}: <b>${tw.stock[k] || 0}</b></div></div></div>`
+    + `<div class="muted small">Gewonnen durch: <b>${r.from}</b><br>Gebraucht für: <b>${r.use}</b></div>`, '', r.lore);
+  $('modalHtml').hidden = false; $('modalArea').hidden = true; $('modalOk').hidden = true; $('modal').hidden = false;
+}
+function bindInv(box) {
+  box.querySelectorAll('[data-res]').forEach(b => b.addEventListener('click', () => openRes(b.dataset.res, sim.towns[Number(b.dataset.town)] || sim.capital)));
+  box.querySelectorAll('[data-store]').forEach(b => b.addEventListener('click', () => { const tw = sim.towns[Number(b.dataset.town)] || sim.capital, it = tw.items[Number(b.dataset.store)]; if (it) openItem(null, it.slot, it); }));
+}
+
+function openItem(n, slot, stored = null) {
+  const it = stored || n.gear[slot]; if (!it) return;
+  slot = it.slot || slot;
   const R = RARITIES[it.rarity], rank = ['F', 'D', 'B', 'A', 'S'][it.rarity];
   $('modalTitle').textContent = ''; $('modalText').textContent = '';
   $('modalHtml').innerHTML = sysCard('GEGENSTAND', rank,
     `<div style="font:700 17px Georgia,serif;color:${R.color};text-shadow:0 0 10px ${R.color}66">${esc(itemName(it))}</div>`
     + (it.plus ? `<div class="lbl"><span>Verstärkung</span><span>+${it.plus} / +10</span></div><div class="bar"><i style="width:${it.plus * 10}%;background:#8fd3ff"></i></div>` : '<div class="muted small">Noch nicht verstärkt – in der Schmiede bis +10 möglich.</div>')
     + `<div class="muted small">${R.name} · ${SLOT_NAMES[slot]}</div>`
-    + `<div class="stats"><span><small>${slot === 'weapon' ? 'Angriff' : 'Abwehr'}</small><b>+${it.power}</b></span><span><small>Haltbarkeit</small><b>∞</b></span><span><small>Träger</small><b>${esc(n.name)}</b></span></div>`
+    + `<div class="stats"><span><small>${slot === 'weapon' ? 'Angriff' : 'Abwehr'}</small><b>+${it.power}</b></span><span><small>Haltbarkeit</small><b>∞</b></span><span><small>${stored ? 'Ort' : 'Träger'}</small><b>${stored ? '📦 Lager' : esc(n.name)}</b></span></div>`
     + `<div class="muted small">Geschmiedet von <b>${esc(it.smith || 'unbekannt')}</b> · Einschränkung: nur Erwachte</div>`,
     it.rarity >= 3 ? 'Einzigartig – es existiert nur ein einziges Exemplar' : '', ITEM_LORE[it.rarity], it.rarity >= 4 ? 'red' : it.rarity >= 3 ? 'gold' : '');
   $('modalHtml').hidden = false; $('modalArea').hidden = true; $('modalOk').hidden = true; $('modal').hidden = false;
@@ -176,7 +218,7 @@ function tileBody(t) {
       const tw = t.town || sim.capital, st = tw;
       return head(tw.capital && sim.kingdom ? '👑' : '🔥', tw.capital && sim.kingdom ? `${tw.name} – Hauptstadt des Königreichs` : tw.capital ? 'Lagerfeuer & Lager' : `Außenposten ${tw.name}`,
         `${tw.members.length} Bewohner · ${tw.houses.length} Häuser${tw.leader ? ' · geführt von ' + esc(tw.leader) : ''}`)
-        + `<div class="sec"><h4>Vorräte</h4><span class="score">🪵 Holz ${st.stock.wood}</span><span class="score">🍞 Brot ${st.stock.food}</span><span class="score">💎 Mana-Kristalle ${st.stock.crystals}</span></div>`
+        + townInventory(tw)
         + (sim.guild ? `<div class="sec"><h4>Gilde</h4>🛡️ <b>${esc(sim.guild.name)}</b> <span class="muted">· gegründet an Tag ${sim.guild.founded} · Anführung: ${esc(sim.guild.leader)}</span></div>` : '')
         + (tw.capital && sim.kingdom ? `<div class="sec"><h4>Königreich ${esc(sim.kingdom.name)}</h4>Regent: <b>${esc(sim.kingdom.regent)}</b> · gegründet an Tag ${sim.kingdom.founded}<br>${sim.towns.map(x => `${x.capital ? '👑' : '🏕️'} ${esc(x.name)} (${x.members.length})`).join(' · ')}</div>` : '')
         + `<div class="sec"><h4>Erwachte</h4>${sim.npcs.filter(n => n.awakened && n.town === tw).map(npcLink).join('') || '<span class="muted">noch niemand … aber nachts fällt manchmal ein seltsames Licht.</span>'}</div>`;
@@ -212,6 +254,7 @@ function tileBody(t) {
         + `<div class="sec"><h4>Vorräte</h4><span class="score">💎 ${st.stock.crystals} Kristalle</span><span class="score">🪵 ${st.stock.wood} Holz</span></div>`
         + `<div class="sec"><h4>Schmiede</h4>${smiths.length ? smiths.map(n => npcLink(n) + ` ${n.forged}×`).join('') : '<span class="muted">noch nichts geschmiedet</span>'}</div>`;
     }
+    case 'lagerhaus': { const tw = t.building.town || sim.capital; return head('📦', `Lagerhaus von ${esc(tw.name)}`, 'Alles, was gesammelt und hergestellt wird, landet hier') + townInventory(tw); }
     case 'forsthaus': return head('🌲', 'Forsthaus', 'Hier wohnt die Liebe zum Wald') + `<div class="sec"><h4>Holzfäller</h4>${sim.npcs.filter(n => n.profession === 'holzfaeller' && n.town === t.building.town).slice(0, 8).map(npcLink).join('') || '<span class="muted">noch niemand</span>'}</div>`;
     case 'bauernhof': return head('🐄', 'Bauernhof', 'Hühner, eine Kuh und viel Heu') + `<div class="sec"><h4>Bauern</h4>${sim.npcs.filter(n => n.profession === 'bauer' && n.town === t.building.town).slice(0, 8).map(npcLink).join('') || '<span class="muted">noch niemand</span>'}</div>`;
     case 'gildenhalle': {
@@ -249,7 +292,7 @@ function statusWindow(n) {
 function updateInspector() {
   const n = ui.selected, box = $('inspector');
   if (!n && ui.selMonster) { if (ui.selMonster.hp > 0 && sim.monsters.includes(ui.selMonster)) box.innerHTML = monsterInfo(ui.selMonster); else { ui.selMonster = null; box.innerHTML = '<p class="empty">Das Monster ist verschwunden.</p>'; } return; }
-  if (!n && ui.selTile) { box.innerHTML = tileInfo(ui.selTile); bindLinks(box); return; }
+  if (!n && ui.selTile) { box.innerHTML = tileInfo(ui.selTile); bindLinks(box); bindInv(box); return; }
   if (!n) { box.innerHTML = '<p class="empty">Tippe einen Siedler an (auf der Karte oder oben in der Liste), um seine Gedanken zu lesen.</p>'; return; }
   const a = n.action;
   const rels = Object.entries(n.relations).map(([id, v]) => ({ o: sim.npcs.find(x => x.id === Number(id)), v }))
@@ -280,11 +323,13 @@ function updateInspector() {
     <div class="sec"><h4>⭐ Fertigkeiten</h4>${skillRows ? `<div class="skills">${skillRows}</div>` : '<span class="muted">noch keine – Arbeit macht den Meister</span>'}</div>
     <div class="sec"><h4>🧠 Abwägung bei der letzten Entscheidung</h4>${n.lastScores.map((e, i) => `<span class="score${i ? '' : ' win'}">${e.label} ${e.score}</span>`).join('') || '–'}</div>
     <div class="sec"><h4>❤️ Beziehungen</h4>${rels.length ? rels.map(r => `<span class="rel"><span class="dot" style="background:${r.o.color}"></span>${esc(r.o.name)} · ${relLabel(r.v)}</span>`).join('') : '<span class="muted">noch niemanden kennengelernt</span>'}</div>
+    <div class="sec"><h4>🎒 Rucksack</h4>${invGrid([['wood', n.inventory.wood], ['stone', n.inventory.stone]].filter(([, v]) => v > 0).map(([k, v]) => ({ icon: RES_INFO[k].icon, count: v, title: RES_INFO[k].name, attr: `data-res="${k}" data-town="${n.town.id}"` })), 6)}</div>
     ${n.pet ? `<div class="sec"><h4>🐾 Gefährte</h4><b>${PETS[n.pet.kind].icon} ${esc(n.pet.name)}</b> <span class="muted">· ${PETS[n.pet.kind].name} · ${esc(PETS[n.pet.kind].bonus)} · seit Tag ${n.pet.day}</span>${bar('Bindung', n.pet.bond, '#ff9ec7')}</div>` : ''}
     ${n.diary && n.diary.length ? `<div class="sec"><h4>📔 Tagebuch</h4><ul class="diary">${n.diary.slice(0, 3).map(d => `<li><span class="muted">Tag ${d.day}:</span> ${esc(d.text)}</li>`).join('')}</ul></div>` : ''}
     <div class="sec"><h4>📜 Erinnerungen</h4>${n.memories.length ? `<ul>${n.memories.slice(0, 5).map(m => `<li><span class="muted">T${m.day} ${m.clock}</span> ${esc(m.text)}</li>`).join('')}</ul>` : '<span class="muted">noch keine</span>'}</div>`;
   drawPortrait(box.querySelector('.portrait'), n);
   const rb = box.querySelector('[data-rift]'); if (rb) rb.addEventListener('click', () => { ui.riftClosedFor = null; openRift(n); });
+  bindInv(box);
   box.querySelectorAll('[data-slot]').forEach(el => el.addEventListener('click', () => openItem(n, el.dataset.slot)));
   bindLinks(box);
 }

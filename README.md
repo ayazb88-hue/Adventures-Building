@@ -56,6 +56,8 @@ Das Spiel ist **eine Datei `index.html`** (HTML + JavaScript + Canvas, keine Abh
 - **Riss-Welten:** Ist eine ausgewählte Person in einem Riss, sieht man sie dort kämpfen – jeder Riss hat seine eigene Welt (Kristallwald, Aschefelder, Sternenmeer, Nebelsumpf, Glutkaverne) mit Etagen und Wächter.
 - **Stufen und Verstärkung:** Gebäude werden auf Stufe II und III ausgebaut (mehr Betten, mehr Reichweite, bessere Schmiede …); Ausrüstung wird in der Schmiede auf +1 bis +10 verstärkt (ab +6 kann es misslingen).
 - **Neue Gebäude:** Forsthaus (Holzfäller pflanzen nach), Bauernhof (Hühner, Kuh, Eier und Milch), Gildenhalle (Versammlungen, Gilden-Stufe, mehr Erfahrung).
+- **Lager und Inventar:** Im Lagerhaus wachsen sichtbar Holzstapel, Steinhaufen, Kornsäcke, eine Kristallkiste und eine Münztruhe. Antippen (Lagerhaus oder Lagerfeuer) öffnet ein Inventar mit Feldern; jedes Feld zeigt Herkunft, Verwendung und Beschreibung. Übrige oder ersetzte Ausrüstung landet im Lager und wird morgens an Erwachte verteilt. Jeder Siedler hat einen Rucksack.
+- **Hausformen:** Fachwerkhaus, Strohdach-Kate, Steinhaus mit Efeu, Walmdachhaus mit Gaube und Balkon, in der Stadtmitte Stadthäuser.
 - **Tiere:** Erwachte zähmen Gefährten (Wolfswelpe, Fuchs, Eule, Kristallhase, selten Mini-Drache) mit Boni; manche Arbeiter bringen Hund oder Katze mit. Die Tiere laufen ihren Menschen hinterher.
 - **Tempo:** ⏸ / 1x / 2x / 5x. Bei 1x dauert ein Spieltag 6 Minuten.
 

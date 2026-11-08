@@ -472,6 +472,7 @@ function forgeItem(n, sim) {
   n.forged = (n.forged || 0) + 1;
   n.gainXp('forging', 1 + rarity);
   if (!old || item.power > old.power) {
+    if (old) sim.capital.storeItem(old); // das alte Teil wandert ins Lager
     o.gear[target.slot] = item;
     sim.log(`⚒️ schmiedet ${item.name} (${R.name}) für ${o === n ? 'sich selbst' : o.name}!`, n, true);
     if (o !== n) {
@@ -479,7 +480,7 @@ function forgeItem(n, sim) {
       o.remember(sim, `Hat von ${n.name} ${item.name} bekommen 🎁`);
       if (n.hasSkill('seelenschmied')) o.loyalTo = n.id;
     }
-  } else sim.log(`⚒️ schmiedet ${item.name} (${R.name}) – schwächer als das Alte, es wandert ins Lager.`, n);
+  } else { sim.capital.storeItem(item); sim.log(`⚒️ schmiedet ${item.name} (${R.name}) – schwächer als das Alte, es wandert ins Lager.`, n); }
   sim.emit('system', rarity >= 3 ? `${R.name.toUpperCase()}ER GEGENSTAND! ${item.name}` : `Geschmiedet: ${item.name} (${R.name})`);
   if (rarity >= 3) { sim.emit('legendary', { n, item }); n.addTitle(sim, rarity === 4 ? 'Mythenschmied' : 'Legendenschmied'); }
   const t = sim.capital.smithy.tile;
@@ -1224,6 +1225,20 @@ class Simulation {
     return npc;
   }
 
+  /** Morgens: Erwachte holen sich bessere Ausrüstung aus dem Lager (das Alte kommt zurück hinein). */
+  handOutGear() {
+    const st = this.capital;
+    if (!st.items || !st.items.length) return;
+    for (const n of this.npcs.filter(x => x.awakened)) for (const slot of SLOTS) {
+      const cur = n.gear[slot], best = st.items.filter(it => it.slot === slot && (!cur || it.power > cur.power)).sort((a, b) => b.power - a.power)[0];
+      if (!best) continue;
+      st.items.splice(st.items.indexOf(best), 1);
+      if (cur) st.storeItem(cur);
+      n.gear[slot] = best;
+      this.log(`📦 holt ${itemName(best)} aus dem Lager.`, n);
+    }
+  }
+
   /** Neues Haus: Siedler ohne Zuhause ziehen ein, danach kommt ein Neuer dazu. */
   onHouseBuilt(house) {
     if (house.type !== 'house') return;
@@ -1576,6 +1591,7 @@ class Simulation {
     for (const t of this.towns) t.update(this);
     if (this.minutes % 60 === 0) this.updateKingdom();
     if (this.minutes % 1440 === 7 * 60) this.payTribute();
+    if (this.minutes % 1440 === 8 * 60) this.handOutGear();
     for (const npc of this.npcs) npc.update(this);
     this.story.update();
     this.updateMonsters();
@@ -1595,7 +1611,7 @@ class Simulation {
   serialize() {
     const st = this.settlement;
     return {
-      v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock,
+      v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock, items: t.items || [],
         site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work, upgrade: t.site.upgrade ? t.site.upgrade.id : null } })),
       story: this.story.serialize(), guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
@@ -1642,7 +1658,7 @@ class Simulation {
     this.towns = (d.towns || []).map((t, i) => {
       const tw = i === 0 ? st : new Settlement(this, { x: t.x, y: t.y }, { id: i });
       Object.assign(tw, { name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded });
-      tw.stock = { ...tw.stock, ...t.stock };
+      tw.stock = { ...tw.stock, ...t.stock }; tw.items = t.items || [];
       if (t.site) {
         const tile = w.tile(t.site.x, t.site.y);
         tw.site = { type: t.site.type, tile, progress: t.site.progress, work: t.site.work, town: tw, upgradeId: t.site.upgrade ?? null };

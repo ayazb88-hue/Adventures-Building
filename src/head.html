@@ -116,6 +116,12 @@
   .sc-fx b { color: #fff; }
   .lore { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #ffffff22; font: italic 12.5px/1.45 Georgia, serif; color: #d9cfb8; }
   .slot[data-slot] { cursor: pointer; }
+  .inv { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 5px; margin-top: 4px; }
+  .inv .cell { position: relative; aspect-ratio: 1; border-radius: 8px; border: 1px solid #5fb8ff55; background: linear-gradient(180deg, #13263c, #0a1626); display: flex; align-items: center; justify-content: center; padding: 0; color: #fff; }
+  .inv .cell span { font-size: 22px; line-height: 1; }
+  .inv .cell b { position: absolute; right: 3px; bottom: 1px; font-size: 10px; text-shadow: 0 1px 2px #000; }
+  .inv .cell i { position: absolute; left: 3px; top: 1px; font-size: 9px; font-style: normal; color: #8fd3ff; font-weight: 800; }
+  .inv .cell.empty { background: #0a142088; border-style: dashed; border-color: #5fb8ff22; }
   .status { margin-top: 10px; padding: 10px 12px; border: 1px solid #6fc3ff66; border-radius: 10px; background: linear-gradient(180deg, #0e2a4a55, #0a1a3333); }
   .st-head { display: flex; justify-content: space-between; font-weight: 800; letter-spacing: .12em; color: #8fd3ff; font-size: 12px; margin-bottom: 4px; }
   .small { font-size: 12px; margin-bottom: 4px; }

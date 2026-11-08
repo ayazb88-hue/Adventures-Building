@@ -53,6 +53,7 @@ const CONFIG = {
     forsthaus:   { name: 'Forsthaus', cost: { wood: 25, stone: 5 }, work: 260, beds: 0 },
     bauernhof:   { name: 'Bauernhof', cost: { wood: 30 }, work: 300, beds: 0 },
     gildenhalle: { name: 'Gildenhalle', cost: { wood: 40, stone: 20, crystals: 3 }, work: 420, beds: 0 },
+    lagerhaus:   { name: 'Lagerhaus', cost: { wood: 30, stone: 8 }, work: 280, beds: 0 },
   },
   farming: { growMinutes: 1440, harvestFood: 6, foodPerMeal: 40, plantMinutes: 40, harvestMinutes: 20 },
   monsters: { fromDay: 3, maxAlive: 6, spawnChance: 0.2, growthPerDay: 0.15 },
@@ -192,6 +193,7 @@ const TILE_DEFS = {
   forsthaus:   { name: 'Forsthaus',   walkable: false }, // ab hier neu – immer nur hinten anhängen!
   bauernhof:   { name: 'Bauernhof',   walkable: false },
   gildenhalle: { name: 'Gildenhalle', walkable: false },
+  lagerhaus:   { name: 'Lagerhaus',   walkable: false },
 };
 
 class World {
@@ -369,6 +371,7 @@ class Settlement {
     this.stock = { wood: 0, crystals: 0, food: 0, coins: 0, stone: 0 };
     this.trades = []; // letzte Handelsgeschäfte für die Anzeige
     this.buildings = [];
+    this.items = []; // eingelagerte Ausrüstung
     this.site = null;
     this.foundedBy = '';
   }
@@ -382,6 +385,13 @@ class Settlement {
   get forsthaus() { return this.buildings.find(b => b.type === 'forsthaus'); }
   get bauernhof() { return this.buildings.find(b => b.type === 'bauernhof'); }
   get gildenhalle() { return this.buildings.find(b => b.type === 'gildenhalle'); }
+  get lagerhaus() { return this.buildings.find(b => b.type === 'lagerhaus'); }
+  /** Ausrüstung ins Lager legen (höchstens 24 Teile – das Schwächste fliegt raus). */
+  storeItem(it) {
+    if (!it) return;
+    (this.items ||= []).push(it);
+    if (this.items.length > 24) { this.items.sort((a, b) => b.power - a.power); this.items.length = 24; }
+  }
   get members() { return this.sim.npcs.filter(n => n.town === this); }
   get fields() { return this.sim.world.tiles.filter(t => t.type === 'field'); }
   canAfford(cost) { return Object.entries(cost).every(([k, v]) => (this.stock[k] || 0) >= v); }
@@ -413,6 +423,7 @@ class Settlement {
     if (sim.day >= CONFIG.monsters.fromDay && H >= 3 && this.towers.length < Math.ceil((H + 1) / 7)) wants.push('tower');
     if (this.capital && !this.tavern && H >= 12) wants.push('tavern');
     if (this.capital && !this.temple && H >= 16) wants.push('temple');
+    if (!this.lagerhaus && H >= 3) wants.push('lagerhaus');
     if (!this.forsthaus && H >= 4) wants.push('forsthaus');
     if (!this.bauernhof && H >= 5) wants.push('bauernhof');
     if (this.capital && sim.guild && !this.gildenhalle && H >= 6) wants.push('gildenhalle');
@@ -428,7 +439,7 @@ class Settlement {
     return b.type === 'house' ? { wood: 14 + L * 6, stone: 4 * L } : { wood: 18 * L, stone: 10 * L, ...(b.type === 'smithy' ? { crystals: 2 * L } : {}) };
   }
   tryUpgrade(free) {
-    const order = ['smithy', 'gildenhalle', 'tower', 'bauernhof', 'forsthaus', 'market', 'temple', 'tavern', 'house'], c = this.camp;
+    const order = ['smithy', 'gildenhalle', 'lagerhaus', 'tower', 'bauernhof', 'forsthaus', 'market', 'temple', 'tavern', 'house'], c = this.camp;
     const cands = this.buildings.filter(b => order.includes(b.type) && (b.level || 1) < 3)
       .sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type) || (a.level || 1) - (b.level || 1)
         || Math.hypot(a.tile.x - c.x, a.tile.y - c.y) - Math.hypot(b.tile.x - c.x, b.tile.y - c.y));

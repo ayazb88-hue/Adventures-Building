@@ -116,6 +116,12 @@
   .sc-fx b { color: #fff; }
   .lore { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #ffffff22; font: italic 12.5px/1.45 Georgia, serif; color: #d9cfb8; }
   .slot[data-slot] { cursor: pointer; }
+  .inv { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 5px; margin-top: 4px; }
+  .inv .cell { position: relative; aspect-ratio: 1; border-radius: 8px; border: 1px solid #5fb8ff55; background: linear-gradient(180deg, #13263c, #0a1626); display: flex; align-items: center; justify-content: center; padding: 0; color: #fff; }
+  .inv .cell span { font-size: 22px; line-height: 1; }
+  .inv .cell b { position: absolute; right: 3px; bottom: 1px; font-size: 10px; text-shadow: 0 1px 2px #000; }
+  .inv .cell i { position: absolute; left: 3px; top: 1px; font-size: 9px; font-style: normal; color: #8fd3ff; font-weight: 800; }
+  .inv .cell.empty { background: #0a142088; border-style: dashed; border-color: #5fb8ff22; }
   .status { margin-top: 10px; padding: 10px 12px; border: 1px solid #6fc3ff66; border-radius: 10px; background: linear-gradient(180deg, #0e2a4a55, #0a1a3333); }
   .st-head { display: flex; justify-content: space-between; font-weight: 800; letter-spacing: .12em; color: #8fd3ff; font-size: 12px; margin-bottom: 4px; }
   .small { font-size: 12px; margin-bottom: 4px; }
@@ -292,6 +298,7 @@ const CONFIG = {
     forsthaus:   { name: 'Forsthaus', cost: { wood: 25, stone: 5 }, work: 260, beds: 0 },
     bauernhof:   { name: 'Bauernhof', cost: { wood: 30 }, work: 300, beds: 0 },
     gildenhalle: { name: 'Gildenhalle', cost: { wood: 40, stone: 20, crystals: 3 }, work: 420, beds: 0 },
+    lagerhaus:   { name: 'Lagerhaus', cost: { wood: 30, stone: 8 }, work: 280, beds: 0 },
   },
   farming: { growMinutes: 1440, harvestFood: 6, foodPerMeal: 40, plantMinutes: 40, harvestMinutes: 20 },
   monsters: { fromDay: 3, maxAlive: 6, spawnChance: 0.2, growthPerDay: 0.15 },
@@ -431,6 +438,7 @@ const TILE_DEFS = {
   forsthaus:   { name: 'Forsthaus',   walkable: false }, // ab hier neu – immer nur hinten anhängen!
   bauernhof:   { name: 'Bauernhof',   walkable: false },
   gildenhalle: { name: 'Gildenhalle', walkable: false },
+  lagerhaus:   { name: 'Lagerhaus',   walkable: false },
 };
 
 class World {
@@ -608,6 +616,7 @@ class Settlement {
     this.stock = { wood: 0, crystals: 0, food: 0, coins: 0, stone: 0 };
     this.trades = []; // letzte Handelsgeschäfte für die Anzeige
     this.buildings = [];
+    this.items = []; // eingelagerte Ausrüstung
     this.site = null;
     this.foundedBy = '';
   }
@@ -621,6 +630,13 @@ class Settlement {
   get forsthaus() { return this.buildings.find(b => b.type === 'forsthaus'); }
   get bauernhof() { return this.buildings.find(b => b.type === 'bauernhof'); }
   get gildenhalle() { return this.buildings.find(b => b.type === 'gildenhalle'); }
+  get lagerhaus() { return this.buildings.find(b => b.type === 'lagerhaus'); }
+  /** Ausrüstung ins Lager legen (höchstens 24 Teile – das Schwächste fliegt raus). */
+  storeItem(it) {
+    if (!it) return;
+    (this.items ||= []).push(it);
+    if (this.items.length > 24) { this.items.sort((a, b) => b.power - a.power); this.items.length = 24; }
+  }
   get members() { return this.sim.npcs.filter(n => n.town === this); }
   get fields() { return this.sim.world.tiles.filter(t => t.type === 'field'); }
   canAfford(cost) { return Object.entries(cost).every(([k, v]) => (this.stock[k] || 0) >= v); }
@@ -652,6 +668,7 @@ class Settlement {
     if (sim.day >= CONFIG.monsters.fromDay && H >= 3 && this.towers.length < Math.ceil((H + 1) / 7)) wants.push('tower');
     if (this.capital && !this.tavern && H >= 12) wants.push('tavern');
     if (this.capital && !this.temple && H >= 16) wants.push('temple');
+    if (!this.lagerhaus && H >= 3) wants.push('lagerhaus');
     if (!this.forsthaus && H >= 4) wants.push('forsthaus');
     if (!this.bauernhof && H >= 5) wants.push('bauernhof');
     if (this.capital && sim.guild && !this.gildenhalle && H >= 6) wants.push('gildenhalle');
@@ -667,7 +684,7 @@ class Settlement {
     return b.type === 'house' ? { wood: 14 + L * 6, stone: 4 * L } : { wood: 18 * L, stone: 10 * L, ...(b.type === 'smithy' ? { crystals: 2 * L } : {}) };
   }
   tryUpgrade(free) {
-    const order = ['smithy', 'gildenhalle', 'tower', 'bauernhof', 'forsthaus', 'market', 'temple', 'tavern', 'house'], c = this.camp;
+    const order = ['smithy', 'gildenhalle', 'lagerhaus', 'tower', 'bauernhof', 'forsthaus', 'market', 'temple', 'tavern', 'house'], c = this.camp;
     const cands = this.buildings.filter(b => order.includes(b.type) && (b.level || 1) < 3)
       .sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type) || (a.level || 1) - (b.level || 1)
         || Math.hypot(a.tile.x - c.x, a.tile.y - c.y) - Math.hypot(b.tile.x - c.x, b.tile.y - c.y));
@@ -1263,6 +1280,7 @@ function forgeItem(n, sim) {
   n.forged = (n.forged || 0) + 1;
   n.gainXp('forging', 1 + rarity);
   if (!old || item.power > old.power) {
+    if (old) sim.capital.storeItem(old); // das alte Teil wandert ins Lager
     o.gear[target.slot] = item;
     sim.log(`⚒️ schmiedet ${item.name} (${R.name}) für ${o === n ? 'sich selbst' : o.name}!`, n, true);
     if (o !== n) {
@@ -1270,7 +1288,7 @@ function forgeItem(n, sim) {
       o.remember(sim, `Hat von ${n.name} ${item.name} bekommen 🎁`);
       if (n.hasSkill('seelenschmied')) o.loyalTo = n.id;
     }
-  } else sim.log(`⚒️ schmiedet ${item.name} (${R.name}) – schwächer als das Alte, es wandert ins Lager.`, n);
+  } else { sim.capital.storeItem(item); sim.log(`⚒️ schmiedet ${item.name} (${R.name}) – schwächer als das Alte, es wandert ins Lager.`, n); }
   sim.emit('system', rarity >= 3 ? `${R.name.toUpperCase()}ER GEGENSTAND! ${item.name}` : `Geschmiedet: ${item.name} (${R.name})`);
   if (rarity >= 3) { sim.emit('legendary', { n, item }); n.addTitle(sim, rarity === 4 ? 'Mythenschmied' : 'Legendenschmied'); }
   const t = sim.capital.smithy.tile;
@@ -2015,6 +2033,20 @@ class Simulation {
     return npc;
   }
 
+  /** Morgens: Erwachte holen sich bessere Ausrüstung aus dem Lager (das Alte kommt zurück hinein). */
+  handOutGear() {
+    const st = this.capital;
+    if (!st.items || !st.items.length) return;
+    for (const n of this.npcs.filter(x => x.awakened)) for (const slot of SLOTS) {
+      const cur = n.gear[slot], best = st.items.filter(it => it.slot === slot && (!cur || it.power > cur.power)).sort((a, b) => b.power - a.power)[0];
+      if (!best) continue;
+      st.items.splice(st.items.indexOf(best), 1);
+      if (cur) st.storeItem(cur);
+      n.gear[slot] = best;
+      this.log(`📦 holt ${itemName(best)} aus dem Lager.`, n);
+    }
+  }
+
   /** Neues Haus: Siedler ohne Zuhause ziehen ein, danach kommt ein Neuer dazu. */
   onHouseBuilt(house) {
     if (house.type !== 'house') return;
@@ -2367,6 +2399,7 @@ class Simulation {
     for (const t of this.towns) t.update(this);
     if (this.minutes % 60 === 0) this.updateKingdom();
     if (this.minutes % 1440 === 7 * 60) this.payTribute();
+    if (this.minutes % 1440 === 8 * 60) this.handOutGear();
     for (const npc of this.npcs) npc.update(this);
     this.story.update();
     this.updateMonsters();
@@ -2386,7 +2419,7 @@ class Simulation {
   serialize() {
     const st = this.settlement;
     return {
-      v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock,
+      v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock, items: t.items || [],
         site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work, upgrade: t.site.upgrade ? t.site.upgrade.id : null } })),
       story: this.story.serialize(), guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
@@ -2433,7 +2466,7 @@ class Simulation {
     this.towns = (d.towns || []).map((t, i) => {
       const tw = i === 0 ? st : new Settlement(this, { x: t.x, y: t.y }, { id: i });
       Object.assign(tw, { name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded });
-      tw.stock = { ...tw.stock, ...t.stock };
+      tw.stock = { ...tw.stock, ...t.stock }; tw.items = t.items || [];
       if (t.site) {
         const tile = w.tile(t.site.x, t.site.y);
         tw.site = { type: t.site.type, tile, progress: t.site.progress, work: t.site.work, town: tw, upgradeId: t.site.upgrade ?? null };
@@ -3415,6 +3448,129 @@ function drawBauernhofSprite(c, s) {
   return { windows: [], chimney: [0, -1.2] };
 }
 
+/* ---- Weitere Hausformen: Strohdach-Kate, Steinhaus, Walmdachhaus mit Gaube ---- */
+function smallWin(c, x, y, w, h, s, v, round = false) {
+  c.fillStyle = '#2d3b4a';
+  if (round) { c.beginPath(); c.arc(x, y, w / 2, 0, TAU); c.fill(); } else c.fillRect(x - w / 2, y - h / 2, w, h);
+  c.fillStyle = 'rgba(170,210,240,.35)'; if (!round) c.fillRect(x - w / 2, y - h / 2, w * 0.45, h * 0.45);
+  c.strokeStyle = '#4b2f1c'; c.lineWidth = Math.max(1, s * 0.018);
+  if (round) { c.beginPath(); c.arc(x, y, w / 2, 0, TAU); c.stroke(); c.beginPath(); c.moveTo(x - w / 2, y); c.lineTo(x + w / 2, y); c.moveTo(x, y - w / 2); c.lineTo(x, y + w / 2); c.stroke(); }
+  else { c.strokeRect(x - w / 2, y - h / 2, w, h); c.beginPath(); c.moveTo(x, y - h / 2); c.lineTo(x, y + h / 2); c.stroke(); c.fillStyle = SHUTTERS[v]; c.fillRect(x - w / 2 - 0.035 * s, y - h / 2, 0.03 * s, h); c.fillRect(x + w / 2 + 0.005 * s, y - h / 2, 0.03 * s, h); }
+}
+function plankDoor(c, dx, s, h = 0.3) {
+  c.fillStyle = '#6b4226'; c.beginPath(); c.moveTo(dx - 0.075 * s, 0); c.lineTo(dx - 0.075 * s, -h * s + 0.075 * s); c.arc(dx, -h * s + 0.075 * s, 0.075 * s, Math.PI, 0); c.lineTo(dx + 0.075 * s, 0); c.fill();
+  c.strokeStyle = '#3a2414'; c.lineWidth = Math.max(1, s * 0.012); c.stroke();
+  c.beginPath(); c.moveTo(dx - 0.025 * s, -h * s + 0.03 * s); c.lineTo(dx - 0.025 * s, 0); c.moveTo(dx + 0.025 * s, -h * s + 0.03 * s); c.lineTo(dx + 0.025 * s, 0); c.stroke();
+  c.fillStyle = '#e0b85a'; c.beginPath(); c.arc(dx + 0.045 * s, -0.15 * s, Math.max(1, s * 0.011), 0, TAU); c.fill();
+}
+
+/** Kate: niedrige Bruchsteinmauern, dickes rundes Strohdach, Rundfenster, Blumenbeet. */
+function drawCottageSprite(c, s, v) {
+  const ol = 'rgba(40,28,20,.55)', lw = Math.max(1, s * 0.014), L = -0.42 * s, R = 0.34 * s, H = 0.46 * s, D = 0.3 * s, DY = 0.2 * s;
+  const wall = ['#b9ad98', '#c4b49a', '#a9a294', '#bfb39e', '#c9b7a6', '#b0b4b0'][v];
+  box3d(c, L, R, -H, 0, D, DY, wall, shadeHex(wall, -45), ol, lw);
+  c.fillStyle = 'rgba(60,50,40,.25)'; // Bruchsteine
+  for (let k = 0; k < 14; k++) { const x = L + ((k * 37) % 70) / 70 * (R - L), y = -H + ((k * 53) % 40) / 40 * H; c.beginPath(); c.ellipse(x, y, 0.04 * s, 0.022 * s, 0, 0, TAU); c.fill(); }
+  plankDoor(c, -0.05 * s, s, 0.3);
+  smallWin(c, -0.28 * s, -0.24 * s, 0.13 * s, 0.13 * s, s, v, true); smallWin(c, 0.2 * s, -0.24 * s, 0.13 * s, 0.13 * s, s, v, true);
+  // Strohdach: weich gerundet, ragt weit über
+  const top = -H - 0.5 * s, sg = c.createLinearGradient(0, top, 0, -H + 0.08 * s); sg.addColorStop(0, '#e8c86a'); sg.addColorStop(1, '#a8823a');
+  c.fillStyle = shadeHex('#a8823a', -20); c.beginPath(); c.moveTo(R + 0.05 * s, -H + 0.06 * s); c.quadraticCurveTo(R + D * 0.6, top - DY * 0.2, R - 0.1 * s + D, top - DY + 0.08 * s); c.lineTo(R + D + 0.06 * s, -H - DY + 0.06 * s); c.closePath(); c.fill();
+  c.fillStyle = sg; c.beginPath(); c.moveTo(L - 0.1 * s, -H + 0.08 * s); c.quadraticCurveTo(L - 0.02 * s, top, (L + R) / 2, top); c.quadraticCurveTo(R + 0.02 * s, top, R + 0.1 * s, -H + 0.08 * s); c.quadraticCurveTo((L + R) / 2, -H + 0.14 * s, L - 0.1 * s, -H + 0.08 * s); c.fill();
+  c.strokeStyle = 'rgba(120,80,30,.45)'; c.lineWidth = Math.max(1, s * 0.012);
+  for (let k = 1; k < 9; k++) { const x = L - 0.05 * s + k * (R - L + 0.1 * s) / 9; c.beginPath(); c.moveTo(x, -H + 0.08 * s); c.lineTo(x + ((L + R) / 2 - x) * 0.25, -H - 0.3 * s); c.stroke(); }
+  c.strokeStyle = ol; c.lineWidth = lw; c.beginPath(); c.moveTo(L - 0.1 * s, -H + 0.08 * s); c.quadraticCurveTo(L - 0.02 * s, top, (L + R) / 2, top); c.quadraticCurveTo(R + 0.02 * s, top, R + 0.1 * s, -H + 0.08 * s); c.stroke();
+  // Gaubenfenster im Stroh
+  smallWin(c, (L + R) / 2, -H - 0.2 * s, 0.1 * s, 0.1 * s, s, v, true);
+  // Kamin
+  const chx = R - 0.04 * s, chy = -H - 0.32 * s;
+  c.fillStyle = '#8f877a'; c.fillRect(chx - 0.05 * s, chy - 0.18 * s, 0.1 * s, 0.22 * s); c.strokeStyle = ol; c.strokeRect(chx - 0.05 * s, chy - 0.18 * s, 0.1 * s, 0.22 * s);
+  // Blumenbeet
+  for (let k = 0; k < 5; k++) { c.fillStyle = '#3f8a3a'; c.beginPath(); c.arc((-0.38 + k * 0.06) * s, 0.02 * s, 0.03 * s, 0, TAU); c.fill(); c.fillStyle = ['#e5484d', '#ffd166', '#f78fb3', '#9ad0ff', '#ffffff'][(k + v) % 5]; c.beginPath(); c.arc((-0.38 + k * 0.06) * s, 0.0, 0.015 * s, 0, TAU); c.fill(); }
+  return { windows: [[-0.28, -0.24, 0.1, 0.1], [0.2, -0.24, 0.1, 0.1]], chimney: [chx / s, (chy - 0.2 * s) / s], lamp: [0.05, -0.33] };
+}
+
+/** Steinhaus: graue Quadermauern, steiles Schieferdach, Bogenfenster, Efeu. */
+function drawStoneHouseSprite(c, s, v) {
+  const ol = 'rgba(30,28,26,.6)', lw = Math.max(1, s * 0.014), L = -0.4 * s, R = 0.34 * s, H = 0.74 * s, D = 0.28 * s, DY = 0.19 * s;
+  const fg = c.createLinearGradient(0, -H, 0, 0); fg.addColorStop(0, '#bdb8ae'); fg.addColorStop(1, '#8f8a80');
+  box3d(c, L, R, -H, 0, D, DY, fg, '#6e6a62', ol, lw);
+  c.strokeStyle = 'rgba(40,36,30,.3)'; c.lineWidth = Math.max(1, s * 0.01);
+  for (let r = 1; r < 7; r++) { const y = -H + r * H / 7; c.beginPath(); c.moveTo(L, y); c.lineTo(R, y); c.stroke(); for (let k = 0; k < 5; k++) { const x = L + (k + (r % 2) * 0.5) * (R - L) / 5; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - H / 7); c.stroke(); } }
+  // Eckquader
+  c.fillStyle = '#d4cfc4'; for (let r = 0; r < 7; r += 2) c.fillRect(L, -H + r * H / 7, 0.06 * s, H / 7);
+  plankDoor(c, 0, s, 0.34);
+  c.fillStyle = '#9b958a'; c.fillRect(-0.1 * s, -0.02 * s, 0.2 * s, 0.04 * s);
+  litWindowArch(c, -0.25 * s, -0.36 * s, 0.11 * s, 0.18 * s, s); litWindowArch(c, 0.21 * s, -0.36 * s, 0.11 * s, 0.18 * s, s);
+  const { px, py } = gableRoof(c, L - 0.02 * s, R + 0.02 * s, -H, 0.62 * s, D, DY, ['#4a5262', '#556070', '#3e4656', '#5a5060', '#405a50', '#4e4a44'][v], '#a9a398', ol, lw);
+  smallWin(c, px, -H - 0.22 * s, 0.09 * s, 0.09 * s, s, v, true);
+  // Efeu an der Ecke
+  c.fillStyle = '#3f7a3a'; for (let k = 0; k < 12; k++) { c.beginPath(); c.arc(R - 0.02 * s - (k % 3) * 0.03 * s, -0.05 * s - k * 0.05 * s, 0.03 * s, 0, TAU); c.fill(); }
+  const chx = px + D * 0.4 + 0.12 * s, chy = py - DY * 0.4 + 0.22 * s;
+  c.fillStyle = '#7d776c'; c.fillRect(chx - 0.05 * s, chy - 0.22 * s, 0.1 * s, 0.24 * s); c.strokeStyle = ol; c.strokeRect(chx - 0.05 * s, chy - 0.22 * s, 0.1 * s, 0.24 * s);
+  return { windows: [[-0.25, -0.34, 0.09, 0.14], [0.21, -0.34, 0.09, 0.14]], chimney: [chx / s, (chy - 0.24 * s) / s], lamp: [0.12, -0.36] };
+}
+function litWindowArch(c, x, y, w, h, s) {
+  c.fillStyle = '#2d3b4a'; c.beginPath(); c.moveTo(x - w / 2, y + h / 2); c.lineTo(x - w / 2, y - h / 2 + w / 2); c.arc(x, y - h / 2 + w / 2, w / 2, Math.PI, 0); c.lineTo(x + w / 2, y + h / 2); c.fill();
+  c.fillStyle = 'rgba(170,210,240,.3)'; c.fillRect(x - w / 2 + 1, y - h / 4, w * 0.4, h * 0.4);
+  c.strokeStyle = '#d4cfc4'; c.lineWidth = Math.max(1, s * 0.02); c.stroke();
+}
+
+/** Walmdachhaus: verputzte Wände mit Eckbetonung, Walmdach mit Gaube, Holzbalkon. */
+function drawHipHouseSprite(c, s, v) {
+  const ol = 'rgba(40,28,20,.55)', lw = Math.max(1, s * 0.014), L = -0.44 * s, R = 0.36 * s, H = 0.72 * s, D = 0.3 * s, DY = 0.2 * s;
+  const wall = ['#f2d7b0', '#e9e1cf', '#f0c9b8', '#dfe6d4', '#f4e6c2', '#d8dde8'][v];
+  box3d(c, L, R, -H, 0, D, DY, wall, shadeHex(wall, -50), ol, lw);
+  c.fillStyle = shadeHex(wall, -18); c.fillRect(L, -H, 0.05 * s, H); c.fillRect(R - 0.05 * s, -H, 0.05 * s, H); c.fillRect(L, -0.38 * s, R - L, 0.03 * s);
+  plankDoor(c, -0.18 * s, s, 0.3);
+  for (const x of [0.06, 0.24]) smallWin(c, x * s, -0.2 * s, 0.11 * s, 0.13 * s, s, v);
+  for (const x of [-0.28, 0.0, 0.24]) smallWin(c, x * s, -0.56 * s, 0.11 * s, 0.13 * s, s, v);
+  // kleiner Balkon
+  c.fillStyle = '#6b4526'; c.fillRect(-0.36 * s, -0.47 * s, 0.2 * s, 0.03 * s); c.strokeStyle = '#6b4526'; c.lineWidth = Math.max(1, s * 0.012);
+  c.beginPath(); c.moveTo(-0.36 * s, -0.55 * s); c.lineTo(-0.16 * s, -0.55 * s); for (let k = 0; k <= 4; k++) { c.moveTo((-0.36 + k * 0.05) * s, -0.55 * s); c.lineTo((-0.36 + k * 0.05) * s, -0.47 * s); } c.stroke();
+  // Walmdach
+  const roof = ROOFS[v], rh = 0.42 * s, inset = 0.2 * s;
+  c.fillStyle = shadeHex(roof, -30); c.beginPath(); c.moveTo(R + 0.04 * s, -H); c.lineTo(R - inset + 0.04 * s, -H - rh); c.lineTo(R - inset + D, -H - rh - DY); c.lineTo(R + 0.04 * s + D, -H - DY); c.closePath(); c.fill(); c.strokeStyle = ol; c.lineWidth = lw; c.stroke();
+  c.fillStyle = shadeHex(roof, 15); c.beginPath(); c.moveTo(L + inset - 0.04 * s, -H - rh); c.lineTo(L + inset - 0.04 * s + D, -H - rh - DY); c.lineTo(R - inset + D, -H - rh - DY); c.lineTo(R - inset + 0.04 * s, -H - rh); c.closePath(); c.fill(); c.stroke();
+  const rg = c.createLinearGradient(0, -H - rh, 0, -H); rg.addColorStop(0, shadeHex(roof, 20)); rg.addColorStop(1, shadeHex(roof, -15));
+  c.fillStyle = rg; c.beginPath(); c.moveTo(L - 0.05 * s, -H + 0.02 * s); c.lineTo(L + inset - 0.04 * s, -H - rh); c.lineTo(R - inset + 0.04 * s, -H - rh); c.lineTo(R + 0.05 * s, -H + 0.02 * s); c.closePath(); c.fill(); c.stroke();
+  c.strokeStyle = 'rgba(0,0,0,.18)'; for (let k = 1; k < 5; k++) { const f = k / 5, y = -H - rh * f; c.beginPath(); c.moveTo(L - 0.05 * s + (inset + 0.01 * s) * f, y); c.lineTo(R + 0.05 * s - (inset + 0.01 * s) * f, y); c.stroke(); }
+  // Gaube
+  const gx = (L + R) / 2, gy = -H - rh * 0.45;
+  c.fillStyle = wall; c.fillRect(gx - 0.08 * s, gy - 0.1 * s, 0.16 * s, 0.13 * s); c.strokeStyle = ol; c.strokeRect(gx - 0.08 * s, gy - 0.1 * s, 0.16 * s, 0.13 * s);
+  c.fillStyle = shadeHex(roof, -10); c.beginPath(); c.moveTo(gx - 0.11 * s, gy - 0.09 * s); c.lineTo(gx, gy - 0.2 * s); c.lineTo(gx + 0.11 * s, gy - 0.09 * s); c.closePath(); c.fill(); c.stroke();
+  smallWin(c, gx, gy - 0.03 * s, 0.08 * s, 0.07 * s, s, v);
+  const chx = R - inset + D * 0.5, chy = -H - rh - DY * 0.5 + 0.02 * s;
+  c.fillStyle = '#8a5a48'; c.fillRect(chx - 0.05 * s, chy - 0.18 * s, 0.1 * s, 0.2 * s); c.fillStyle = '#5c574f'; c.fillRect(chx - 0.065 * s, chy - 0.2 * s, 0.13 * s, 0.035 * s);
+  return { windows: [[0.06, -0.2, 0.09, 0.11], [0.24, -0.2, 0.09, 0.11], [-0.28, -0.56, 0.09, 0.11], [0, -0.56, 0.09, 0.11], [0.24, -0.56, 0.09, 0.11]], chimney: [chx / s, (chy - 0.21 * s) / s], lamp: [-0.05, -0.33] };
+}
+
+/** Lagerhaus: offener Holzschuppen mit Regalen, Kisten und Seilzug am Giebel. */
+function drawLagerhausSprite(c, s) {
+  const ol = 'rgba(40,28,20,.6)', lw = Math.max(1, s * 0.015), L = -0.55 * s, R = 0.42 * s, H = 0.78 * s, D = 0.32 * s, DY = 0.21 * s;
+  box3d(c, L, R, -H, 0, D, DY, '#8a5e36', '#6a4528', ol, lw);
+  c.strokeStyle = 'rgba(40,24,12,.4)'; c.lineWidth = Math.max(1, s * 0.01); for (let k = 1; k < 12; k++) { const x = L + k * (R - L) / 12; c.beginPath(); c.moveTo(x, -H); c.lineTo(x, 0); c.stroke(); }
+  // großes offenes Tor mit Blick hinein
+  const ox = -0.38 * s, ow = 0.62 * s, oh = 0.55 * s;
+  c.fillStyle = '#2a1a10'; c.fillRect(ox, -oh, ow, oh);
+  c.fillStyle = '#5a3a20'; for (const y of [-0.2, -0.38]) c.fillRect(ox, y * s, ow, 0.025 * s); // Regale
+  const crate = (x, y, w, col) => { c.fillStyle = col; c.fillRect(x, y - w, w, w); c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = Math.max(1, s * 0.01); c.strokeRect(x, y - w, w, w); c.beginPath(); c.moveTo(x, y - w); c.lineTo(x + w, y); c.stroke(); };
+  crate(ox + 0.04 * s, -0.025 * s, 0.11 * s, '#b0834e'); crate(ox + 0.17 * s, -0.025 * s, 0.09 * s, '#a07444'); crate(ox + 0.42 * s, -0.025 * s, 0.12 * s, '#b0834e');
+  crate(ox + 0.06 * s, -0.225 * s, 0.08 * s, '#9a6e40'); crate(ox + 0.3 * s, -0.225 * s, 0.08 * s, '#b0834e');
+  for (const x of [0.2, 0.45]) { c.fillStyle = '#d8c49a'; c.beginPath(); c.ellipse(ox + x * s, -0.44 * s, 0.045 * s, 0.05 * s, 0, 0, TAU); c.fill(); } // Säcke
+  c.strokeStyle = '#4a2e18'; c.lineWidth = Math.max(1.5, s * 0.03); c.strokeRect(ox, -oh, ow, oh);
+  // Satteldach aus Brettern
+  const { px, py } = gableRoof(c, L - 0.02 * s, R + 0.02 * s, -H, 0.42 * s, D, DY, '#6e4a2c', '#8a5e36', ol, lw);
+  // Seilzug am Giebel
+  c.strokeStyle = '#4a2e18'; c.lineWidth = Math.max(1.5, s * 0.03); c.beginPath(); c.moveTo(px, py + 0.08 * s); c.lineTo(px - 0.3 * s, py + 0.08 * s); c.stroke();
+  c.strokeStyle = '#d8c49a'; c.lineWidth = Math.max(1, s * 0.01); c.beginPath(); c.moveTo(px - 0.28 * s, py + 0.08 * s); c.lineTo(px - 0.28 * s, py + 0.4 * s); c.stroke();
+  crate(px - 0.33 * s, py + 0.5 * s, 0.1 * s, '#c0935e');
+  // Schild mit Kiste
+  c.fillStyle = '#e8d6a8'; c.fillRect(0.28 * s, -0.68 * s, 0.12 * s, 0.1 * s); c.strokeStyle = ol; c.strokeRect(0.28 * s, -0.68 * s, 0.12 * s, 0.1 * s);
+  c.fillStyle = '#8a5e36'; c.fillRect(0.31 * s, -0.66 * s, 0.06 * s, 0.06 * s);
+  return { windows: [] };
+}
+
 /** Tempel: weißer Stein, Treppe, Säulen und goldene Kuppel mit Sonnenzeichen. */
 function drawTempleSprite(c, s) {
   const ol = 'rgba(40,36,30,.45)', lw = Math.max(1, s * 0.014);
@@ -3624,11 +3780,15 @@ class Renderer {
     for (let v = 0; v < ROOFS.length; v++) {
       S['house' + v] = this.makeSprite(1.5, 1.75, 0.58, 1.6, (c, s) => drawHouseSprite(c, s, v, false));
       S['town' + v] = this.makeSprite(1.5, 2.15, 0.58, 2.0, (c, s) => drawHouseSprite(c, s, v, true));
+      S['cottage' + v] = this.makeSprite(1.5, 1.4, 0.58, 1.25, (c, s) => drawCottageSprite(c, s, v));
+      S['stoneh' + v] = this.makeSprite(1.5, 1.85, 0.58, 1.7, (c, s) => drawStoneHouseSprite(c, s, v));
+      S['hip' + v] = this.makeSprite(1.5, 1.7, 0.58, 1.55, (c, s) => drawHipHouseSprite(c, s, v));
     }
     S.castle = this.makeSprite(3.5, 3.85, 1.7, 3.6, drawCastleSprite);
     S.forsthaus = this.makeSprite(1.8, 1.75, 0.95, 1.55, drawForsthausSprite);
     S.gildenhalle = this.makeSprite(2.0, 2.6, 0.95, 2.4, drawGildenhalleSprite);
     S.bauernhof = this.makeSprite(1.9, 1.5, 0.75, 1.35, drawBauernhofSprite);
+    S.lagerhaus = this.makeSprite(1.9, 1.75, 0.85, 1.5, drawLagerhausSprite);
     this.sprites = S; this.spriteTs = this.ts;
   }
 
@@ -3675,7 +3835,7 @@ class Renderer {
 
   pathLevel(t) {
     if (!t) return 0;
-    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market' || t.type === 'tower' || t.type === 'tavern' || t.type === 'temple' || t.type === 'forsthaus' || t.type === 'bauernhof' || t.type === 'gildenhalle') return 1;
+    if (t.type === 'camp' || t.type === 'house' || t.type === 'site' || t.type === 'smithy' || t.type === 'castle' || t.type === 'market' || t.type === 'tower' || t.type === 'tavern' || t.type === 'temple' || t.type === 'forsthaus' || t.type === 'bauernhof' || t.type === 'gildenhalle' || t.type === 'lagerhaus') return 1;
     return t.type === 'grass' ? Math.min(1, t.traffic / 50) : 0;
   }
 
@@ -4196,6 +4356,45 @@ class Renderer {
     if (Math.random() < 0.12) this.emit('spark', t.x + 0.5 + rand(-0.25, 0.25), t.y + 0.3, { vx: rand(-0.1, 0.1), vy: -rand(0.2, 0.6), life: rand(0.8, 1.6), size: 0.025, rgb: col });
   }
 
+  /** Sichtbare Vorräte vor dem Lagerhaus – wachsen mit dem Bestand. */
+  drawStockpiles(c, t, bx, by, s, now) {
+    const st = (t.building && t.building.town) || this.sim.capital, k = st.stock, ol = 'rgba(30,20,12,.5)', lw = Math.max(1, s * 0.012);
+    const logs = Math.min(10, Math.ceil((k.wood || 0) / 10));
+    for (let i = 0, r = 0; r < 4 && i < logs; r++) for (let q = 0; q < 4 - r && i < logs; q++, i++) { // Holzstapel rechts
+      const lx = bx + (0.62 + q * 0.085 + r * 0.04) * s, ly = by + (0.08 - r * 0.07) * s;
+      c.fillStyle = '#7a4e2a'; c.fillRect(lx - 0.04 * s, ly - 0.03 * s, 0.08 * s, 0.035 * s);
+      c.fillStyle = '#d8b07a'; c.beginPath(); c.arc(lx - 0.04 * s, ly - 0.013 * s, 0.022 * s, 0, TAU); c.fill(); c.strokeStyle = ol; c.lineWidth = lw; c.stroke();
+    }
+    const stones = Math.min(9, Math.ceil((k.stone || 0) / 6));
+    for (let i = 0, r = 0; r < 3 && i < stones; r++) for (let q = 0; q < 4 - r && i < stones; q++, i++) { // Steinhaufen links
+      c.fillStyle = (q + r) % 2 ? '#9a968c' : '#7f7b72'; c.beginPath(); c.ellipse(bx + (-0.78 + q * 0.07 + r * 0.035) * s, by + (0.1 - r * 0.05) * s, 0.04 * s, 0.03 * s, 0, 0, TAU); c.fill(); c.strokeStyle = ol; c.stroke();
+    }
+    const sacks = Math.min(6, Math.ceil((k.food || 0) / 15));
+    for (let i = 0; i < sacks; i++) { // Kornsäcke
+      const sx = bx + (-0.5 + (i % 3) * 0.08) * s, sy = by + (0.2 - Math.floor(i / 3) * 0.06) * s;
+      c.fillStyle = '#d8c49a'; c.beginPath(); c.ellipse(sx, sy - 0.035 * s, 0.035 * s, 0.045 * s, 0, 0, TAU); c.fill(); c.strokeStyle = ol; c.stroke();
+      c.fillStyle = '#a88a5a'; c.fillRect(sx - 0.012 * s, sy - 0.085 * s, 0.024 * s, 0.015 * s);
+    }
+    if (k.crystals > 0) { // Kiste mit leuchtenden Kristallen
+      const cx = bx + 0.3 * s, cy = by + 0.22 * s, n = Math.min(5, Math.ceil(k.crystals / 4));
+      const gl = c.createRadialGradient(cx, cy - 0.08 * s, 0, cx, cy - 0.08 * s, 0.18 * s); gl.addColorStop(0, `rgba(140,220,255,${0.35 + Math.sin(now / 400) * 0.1})`); gl.addColorStop(1, 'rgba(140,220,255,0)');
+      c.fillStyle = gl; c.fillRect(cx - 0.2 * s, cy - 0.28 * s, 0.4 * s, 0.32 * s);
+      for (let i = 0; i < n; i++) { const kx = cx + (-0.05 + i * 0.025) * s; c.fillStyle = i % 2 ? '#7fe0ff' : '#b8a0ff'; c.beginPath(); c.moveTo(kx, cy - 0.06 * s); c.lineTo(kx + 0.015 * s, cy - (0.12 + (i % 3) * 0.02) * s); c.lineTo(kx + 0.03 * s, cy - 0.06 * s); c.fill(); }
+      c.fillStyle = '#6a4a2a'; c.fillRect(cx - 0.07 * s, cy - 0.07 * s, 0.14 * s, 0.07 * s); c.strokeStyle = ol; c.strokeRect(cx - 0.07 * s, cy - 0.07 * s, 0.14 * s, 0.07 * s);
+    }
+    if (k.coins > 0) { // offene Münztruhe
+      const cx = bx + 0.02 * s, cy = by + 0.25 * s;
+      c.fillStyle = '#7a3a22'; c.fillRect(cx - 0.065 * s, cy - 0.12 * s, 0.13 * s, 0.035 * s);
+      c.fillStyle = '#f0c35a'; c.beginPath(); c.ellipse(cx, cy - 0.06 * s, 0.06 * s, 0.025 * s + Math.min(0.02, k.coins / 2000) * s, 0, 0, TAU); c.fill();
+      c.fillStyle = '#8a4a2c'; c.fillRect(cx - 0.065 * s, cy - 0.06 * s, 0.13 * s, 0.06 * s); c.strokeStyle = '#c9a032'; c.lineWidth = lw; c.strokeRect(cx - 0.065 * s, cy - 0.06 * s, 0.13 * s, 0.06 * s);
+    }
+    if (st.items && st.items.length) { // Waffenständer mit eingelagerter Ausrüstung
+      const wx = bx - 0.25 * s, wy = by + 0.24 * s, n = Math.min(4, st.items.length);
+      c.fillStyle = '#5a3a20'; c.fillRect(wx - 0.08 * s, wy - 0.02 * s, 0.16 * s, 0.025 * s);
+      for (let i = 0; i < n; i++) { const it = st.items[i]; c.strokeStyle = RARITIES[it.rarity].color; c.lineWidth = Math.max(1.5, s * 0.02); c.beginPath(); c.moveTo(wx + (-0.06 + i * 0.04) * s, wy - 0.02 * s); c.lineTo(wx + (-0.06 + i * 0.04) * s, wy - 0.16 * s); c.stroke(); }
+    }
+  }
+
   /** Stufen-Abzeichen über ausgebauten Gebäuden, Gerüst während des Ausbaus. */
   drawLevel(c, t, s, now) {
     const b = t.building, bx = (t.x + 0.5) * s, top = (t.y + 0.92) * s - s * (t.type === 'castle' ? 2.6 : t.type === 'tower' ? 1.9 : 1.45);
@@ -4218,7 +4417,7 @@ class Renderer {
     const r = this.canvas.getBoundingClientRect(), w = this.sim.world;
     const tx = Math.floor((clientX - r.left + this.camX) / this.ts), ty = Math.floor((clientY - r.top + this.camY) / this.ts);
     const here = w.tile(tx, ty), below = w.tile(tx, ty + 1);
-    const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy', 'market', 'tower', 'tavern', 'temple', 'forsthaus', 'bauernhof', 'gildenhalle'].includes(t.type);
+    const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy', 'market', 'tower', 'tavern', 'temple', 'forsthaus', 'bauernhof', 'gildenhalle', 'lagerhaus'].includes(t.type);
     const pick = t => t && t.part ? t.part : t;
     for (let dy = 1; dy <= 3; dy++) { const t = w.tile(tx, ty + dy); if (t && t.type === 'castle' && (!here || here.type === 'grass')) return pick(t); }
     if (!tall(here) && tall(below)) return pick(below);
@@ -4234,7 +4433,7 @@ class Renderer {
       cv.width = w.w; cv.height = w.h;
       const ctx = cv.getContext('2d'), img = ctx.createImageData(w.w, w.h);
       const COL = { grass: [77, 122, 58], tree: [36, 80, 44], stump: [90, 110, 60], water: [47, 111, 159], ford: [90, 159, 192], bush: [60, 125, 63],
-        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], tower: [200, 195, 185], tavern: [190, 120, 60], temple: [250, 240, 200], forsthaus: [90, 150, 70], bauernhof: [200, 70, 55], gildenhalle: [70, 110, 200], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
+        rock: [138, 134, 125], ruin: [184, 178, 165], field: [196, 160, 80], smithy: [230, 80, 40], market: [240, 200, 80], tower: [200, 195, 185], tavern: [190, 120, 60], temple: [250, 240, 200], forsthaus: [90, 150, 70], bauernhof: [200, 70, 55], gildenhalle: [70, 110, 200], lagerhaus: [150, 100, 60], castle: [235, 230, 215], camp: [255, 138, 42], house: [201, 106, 60], site: [180, 138, 88], gate: [169, 139, 255] };
       w.tiles.forEach((t, i) => {
         let col = COL[t.type] || COL.grass;
         if (t.type === 'grass' && t.traffic > 25) col = [138, 115, 80];
@@ -4325,7 +4524,9 @@ class Renderer {
   houseSprite(t) {
     const b = t.building, tw = (b && b.town) || this.sim.capital, id = b ? b.id : 0;
     const big = (b && b.level >= 2) || tw.houses.length >= 10 && Math.hypot(t.x - tw.camp.x, t.y - tw.camp.y) <= 4 + tw.houses.length / 6;
-    return this.sprites[(big ? 'town' : 'house') + id % ROOFS.length];
+    let shape = ['house', 'cottage', 'stoneh', 'hip'][(id * 7 + 3) % 4]; // vier Hausformen
+    if (big && (shape === 'house' || shape === 'cottage')) shape = 'town'; // in der Stadtmitte wird aus Fachwerk und Kate ein Stadthaus
+    return this.sprites[shape + id % ROOFS.length];
   }
 
   treeSprite(t) {
@@ -4512,7 +4713,7 @@ class Renderer {
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
         const t = sim.world.tile(x, y);
         if (t.type === 'tree') { const [bx, by] = this.treeBase(t, s); shadow(this.treeSprite(t), bx, by); }
-        else if (['tower', 'tavern', 'temple', 'forsthaus', 'bauernhof', 'gildenhalle'].includes(t.type)) shadow(this.sprites[t.type], (x + 0.5) * s, (y + 0.92) * s);
+        else if (['tower', 'tavern', 'temple', 'forsthaus', 'bauernhof', 'gildenhalle', 'lagerhaus'].includes(t.type)) shadow(this.sprites[t.type], (x + 0.5) * s, (y + 0.92) * s);
         else if (t.type === 'smithy') shadow(this.sprites.smithy, (x + 0.5) * s, (y + 0.95) * s);
         else if (t.type === 'house') shadow(this.houseSprite(t), (x + 0.45) * s, (y + 0.92) * s);
         else if (t.type === 'castle' && t.part && t.y === t.part.y + 1 && t.x === t.part.x) shadow(this.sprites.castle, (x + 0.5) * s, (y + 0.95) * s);
@@ -4612,6 +4813,12 @@ class Renderer {
           case 'ruin': { const sp = this.sprites['ruin' + Math.min(2, Math.floor(t.shade * 3))]; c.drawImage(sp.cv, (x + 0.5) * s - sp.ax * sk, (y + 0.9) * s - sp.ay * sk, sp.w * sk, sp.h * sk); break; }
           case 'gate': this.drawGate(c, t, s, now); break;
           case 'field': this.drawCrops(c, t, s, now); break;
+          case 'lagerhaus': {
+            const sp = this.sprites.lagerhaus, bx = (x + 0.5) * s, by = (y + 0.92) * s;
+            c.drawImage(sp.cv, bx - sp.ax * sk, by - sp.ay * sk, sp.w * sk, sp.h * sk);
+            if (s >= 10) this.drawStockpiles(c, t, bx, by, s, now);
+            break;
+          }
           case 'forsthaus': case 'gildenhalle': case 'bauernhof': {
             const sp = this.sprites[t.type], bx = (x + 0.5) * s, by = (y + 0.92) * s;
             c.drawImage(sp.cv, bx - sp.ax * sk, by - sp.ay * sk, sp.w * sk, sp.h * sk);
@@ -5877,6 +6084,7 @@ const CARD = {
   temple: ['HEILIGTUM', 'B', '<b>Heilung</b> · <b>Laune +</b>', 'Ein Ort, an dem selbst Erwachte ihre Waffen ablegen.'],
   rock:   ['RESSOURCE', 'E', 'Ertrag: <b>Stein</b>', 'Grau, schwer, geduldig. Aus Steinen wie diesem werden Burgen.'],
   market: ['GEBÄUDE', 'B', 'Markttag um 12 Uhr: Überschuss → <b>Münzen</b>', 'Händlerrufe, Gewürzduft und das Klimpern von Münzen.'],
+  lagerhaus: ['LAGER', 'C', 'Hier liegt alles, was gesammelt und hergestellt wird · übrige Ausrüstung wird verteilt', 'Kisten, Säcke, Fässer – und irgendwo ganz hinten eine Kiste, die niemand mehr öffnen will.'],
   smithy: ['WERKSTATT', 'B', '💎 + 🪵 → <b>Ausrüstung</b> in 5 Seltenheiten', 'Hier entsteht, worüber man Lieder singt. Oder zumindest ordentliche Stiefel.'],
   grass:  ['GELÄNDE', '–', 'Bauland', 'Weites Land voller Möglichkeiten.'],
   forsthaus:   ['GEBÄUDE', 'C', 'Holzfällen <b>schneller</b> · Holzfäller pflanzen neue Bäume', 'Wer hier wohnt, kennt jeden Baum beim Namen – und pflanzt für jeden gefällten einen neuen.'],
@@ -5934,15 +6142,56 @@ const ITEM_LORE = [
   'Golden schimmernd. Wer es trägt, spürt, wie die Welt für einen Herzschlag innehält.',
   'Blutrot pulsierend. Es heißt, so etwas entstehe nur einmal in einem Zeitalter.',
 ];
-function openItem(n, slot) {
-  const it = n.gear[slot]; if (!it) return;
+/* ---- Lager und Rucksack: Inventar wie in einem Game ---------------------- */
+const RES_INFO = {
+  wood:     { icon: '🪵', name: 'Holz', rank: 'F', from: 'Holzfäller fällen Bäume', use: 'Häuser, Ausbau, Schmiede', lore: 'Duftet nach Harz. Das Rückgrat jeder Siedlung.' },
+  stone:    { icon: '🪨', name: 'Stein', rank: 'E', from: 'Steinmetze brechen Felsen', use: 'Wachtürme, Tempel, Ausbau', lore: 'Schwer, grau, geduldig. Aus ihm werden Mauern, die Jahrhunderte stehen.' },
+  food:     { icon: '🍞', name: 'Brot und Vorräte', rank: 'F', from: 'Felder, Eier und Milch vom Bauernhof, Händlerkarren', use: 'Essen – stillt den Hunger', lore: 'Frisch aus dem Ofen. Niemand kämpft gut mit leerem Magen.' },
+  crystals: { icon: '💎', name: 'Mana-Kristalle', rank: 'B', from: 'Risse, Ruinen, besiegte Monster, fahrender Händler', use: 'Schmieden, Verstärken, Burg, Gildenhalle', lore: 'Sie summen leise, wenn man sie ans Ohr hält. Man sagt, in jedem schläft ein Stück einer anderen Welt.' },
+  coins:    { icon: '🪙', name: 'Münzen', rank: 'D', from: 'Markttag, Abgaben der Außenposten', use: 'Taverne, Tempel, Handel', lore: 'Geprägt mit dem Wappen des Reiches. Klimpern ist das schönste Geräusch der Welt – sagen die Händler.' },
+  berries:  { icon: '🫐', name: 'Beeren', rank: 'F', from: 'Beerensträucher', use: 'Sofort essen', lore: 'Süß, saftig und ein bisschen sauer.' },
+};
+const SLOT_ICON = { weapon: '⚔️', armor: '🛡️', helmet: '🪖', boots: '👢', cape: '🧥' };
+const WEAPON_ICON = { sword: '🗡️', bow: '🏹', staff: '🪄', hammer: '🔨', spear: '🔱', blade: '⚔️' };
+/** Raster aus Feldern: Rohstoffe mit Anzahl, Ausrüstung mit Seltenheitsrahmen. */
+function invGrid(cells, total = 12) {
+  let html = '<div class="inv">';
+  for (let i = 0; i < Math.max(total, cells.length); i++) {
+    const c = cells[i];
+    if (!c) { html += '<div class="cell empty"></div>'; continue; }
+    html += `<button class="cell" ${c.attr} style="${c.color ? `border-color:${c.color};box-shadow:inset 0 0 10px ${c.color}55` : ''}" title="${esc(c.title)}"><span>${c.icon}</span>${c.count != null ? `<b>${c.count}</b>` : ''}${c.plus ? `<i>+${c.plus}</i>` : ''}</button>`;
+  }
+  return html + '</div>';
+}
+function townInventory(tw) {
+  const cells = ['wood', 'stone', 'food', 'crystals', 'coins'].filter(k => tw.stock[k] > 0)
+    .map(k => ({ icon: RES_INFO[k].icon, count: tw.stock[k], title: RES_INFO[k].name, attr: `data-res="${k}" data-town="${tw.id}"` }));
+  (tw.items || []).forEach((it, i) => cells.push({ icon: it.slot === 'weapon' ? WEAPON_ICON[it.kind] || '⚔️' : SLOT_ICON[it.slot], color: RARITIES[it.rarity].color, plus: it.plus, title: itemName(it), attr: `data-store="${i}" data-town="${tw.id}"` }));
+  return `<div class="sec"><h4>📦 Lager von ${esc(tw.name)} <span class="muted">· antippen für Infos</span></h4>${invGrid(cells, 15)}</div>`;
+}
+function openRes(k, tw) {
+  const r = RES_INFO[k];
+  $('modalTitle').textContent = ''; $('modalText').textContent = '';
+  $('modalHtml').innerHTML = sysCard('ROHSTOFF', r.rank,
+    `<div class="insp-head"><span class="big-ic">${r.icon}</span><div><b>${r.name}</b><div class="muted">im Lager von ${esc(tw.name)}: <b>${tw.stock[k] || 0}</b></div></div></div>`
+    + `<div class="muted small">Gewonnen durch: <b>${r.from}</b><br>Gebraucht für: <b>${r.use}</b></div>`, '', r.lore);
+  $('modalHtml').hidden = false; $('modalArea').hidden = true; $('modalOk').hidden = true; $('modal').hidden = false;
+}
+function bindInv(box) {
+  box.querySelectorAll('[data-res]').forEach(b => b.addEventListener('click', () => openRes(b.dataset.res, sim.towns[Number(b.dataset.town)] || sim.capital)));
+  box.querySelectorAll('[data-store]').forEach(b => b.addEventListener('click', () => { const tw = sim.towns[Number(b.dataset.town)] || sim.capital, it = tw.items[Number(b.dataset.store)]; if (it) openItem(null, it.slot, it); }));
+}
+
+function openItem(n, slot, stored = null) {
+  const it = stored || n.gear[slot]; if (!it) return;
+  slot = it.slot || slot;
   const R = RARITIES[it.rarity], rank = ['F', 'D', 'B', 'A', 'S'][it.rarity];
   $('modalTitle').textContent = ''; $('modalText').textContent = '';
   $('modalHtml').innerHTML = sysCard('GEGENSTAND', rank,
     `<div style="font:700 17px Georgia,serif;color:${R.color};text-shadow:0 0 10px ${R.color}66">${esc(itemName(it))}</div>`
     + (it.plus ? `<div class="lbl"><span>Verstärkung</span><span>+${it.plus} / +10</span></div><div class="bar"><i style="width:${it.plus * 10}%;background:#8fd3ff"></i></div>` : '<div class="muted small">Noch nicht verstärkt – in der Schmiede bis +10 möglich.</div>')
     + `<div class="muted small">${R.name} · ${SLOT_NAMES[slot]}</div>`
-    + `<div class="stats"><span><small>${slot === 'weapon' ? 'Angriff' : 'Abwehr'}</small><b>+${it.power}</b></span><span><small>Haltbarkeit</small><b>∞</b></span><span><small>Träger</small><b>${esc(n.name)}</b></span></div>`
+    + `<div class="stats"><span><small>${slot === 'weapon' ? 'Angriff' : 'Abwehr'}</small><b>+${it.power}</b></span><span><small>Haltbarkeit</small><b>∞</b></span><span><small>${stored ? 'Ort' : 'Träger'}</small><b>${stored ? '📦 Lager' : esc(n.name)}</b></span></div>`
     + `<div class="muted small">Geschmiedet von <b>${esc(it.smith || 'unbekannt')}</b> · Einschränkung: nur Erwachte</div>`,
     it.rarity >= 3 ? 'Einzigartig – es existiert nur ein einziges Exemplar' : '', ITEM_LORE[it.rarity], it.rarity >= 4 ? 'red' : it.rarity >= 3 ? 'gold' : '');
   $('modalHtml').hidden = false; $('modalArea').hidden = true; $('modalOk').hidden = true; $('modal').hidden = false;
@@ -5984,7 +6233,7 @@ function tileBody(t) {
       const tw = t.town || sim.capital, st = tw;
       return head(tw.capital && sim.kingdom ? '👑' : '🔥', tw.capital && sim.kingdom ? `${tw.name} – Hauptstadt des Königreichs` : tw.capital ? 'Lagerfeuer & Lager' : `Außenposten ${tw.name}`,
         `${tw.members.length} Bewohner · ${tw.houses.length} Häuser${tw.leader ? ' · geführt von ' + esc(tw.leader) : ''}`)
-        + `<div class="sec"><h4>Vorräte</h4><span class="score">🪵 Holz ${st.stock.wood}</span><span class="score">🍞 Brot ${st.stock.food}</span><span class="score">💎 Mana-Kristalle ${st.stock.crystals}</span></div>`
+        + townInventory(tw)
         + (sim.guild ? `<div class="sec"><h4>Gilde</h4>🛡️ <b>${esc(sim.guild.name)}</b> <span class="muted">· gegründet an Tag ${sim.guild.founded} · Anführung: ${esc(sim.guild.leader)}</span></div>` : '')
         + (tw.capital && sim.kingdom ? `<div class="sec"><h4>Königreich ${esc(sim.kingdom.name)}</h4>Regent: <b>${esc(sim.kingdom.regent)}</b> · gegründet an Tag ${sim.kingdom.founded}<br>${sim.towns.map(x => `${x.capital ? '👑' : '🏕️'} ${esc(x.name)} (${x.members.length})`).join(' · ')}</div>` : '')
         + `<div class="sec"><h4>Erwachte</h4>${sim.npcs.filter(n => n.awakened && n.town === tw).map(npcLink).join('') || '<span class="muted">noch niemand … aber nachts fällt manchmal ein seltsames Licht.</span>'}</div>`;
@@ -6020,6 +6269,7 @@ function tileBody(t) {
         + `<div class="sec"><h4>Vorräte</h4><span class="score">💎 ${st.stock.crystals} Kristalle</span><span class="score">🪵 ${st.stock.wood} Holz</span></div>`
         + `<div class="sec"><h4>Schmiede</h4>${smiths.length ? smiths.map(n => npcLink(n) + ` ${n.forged}×`).join('') : '<span class="muted">noch nichts geschmiedet</span>'}</div>`;
     }
+    case 'lagerhaus': { const tw = t.building.town || sim.capital; return head('📦', `Lagerhaus von ${esc(tw.name)}`, 'Alles, was gesammelt und hergestellt wird, landet hier') + townInventory(tw); }
     case 'forsthaus': return head('🌲', 'Forsthaus', 'Hier wohnt die Liebe zum Wald') + `<div class="sec"><h4>Holzfäller</h4>${sim.npcs.filter(n => n.profession === 'holzfaeller' && n.town === t.building.town).slice(0, 8).map(npcLink).join('') || '<span class="muted">noch niemand</span>'}</div>`;
     case 'bauernhof': return head('🐄', 'Bauernhof', 'Hühner, eine Kuh und viel Heu') + `<div class="sec"><h4>Bauern</h4>${sim.npcs.filter(n => n.profession === 'bauer' && n.town === t.building.town).slice(0, 8).map(npcLink).join('') || '<span class="muted">noch niemand</span>'}</div>`;
     case 'gildenhalle': {
@@ -6057,7 +6307,7 @@ function statusWindow(n) {
 function updateInspector() {
   const n = ui.selected, box = $('inspector');
   if (!n && ui.selMonster) { if (ui.selMonster.hp > 0 && sim.monsters.includes(ui.selMonster)) box.innerHTML = monsterInfo(ui.selMonster); else { ui.selMonster = null; box.innerHTML = '<p class="empty">Das Monster ist verschwunden.</p>'; } return; }
-  if (!n && ui.selTile) { box.innerHTML = tileInfo(ui.selTile); bindLinks(box); return; }
+  if (!n && ui.selTile) { box.innerHTML = tileInfo(ui.selTile); bindLinks(box); bindInv(box); return; }
   if (!n) { box.innerHTML = '<p class="empty">Tippe einen Siedler an (auf der Karte oder oben in der Liste), um seine Gedanken zu lesen.</p>'; return; }
   const a = n.action;
   const rels = Object.entries(n.relations).map(([id, v]) => ({ o: sim.npcs.find(x => x.id === Number(id)), v }))
@@ -6088,11 +6338,13 @@ function updateInspector() {
     <div class="sec"><h4>⭐ Fertigkeiten</h4>${skillRows ? `<div class="skills">${skillRows}</div>` : '<span class="muted">noch keine – Arbeit macht den Meister</span>'}</div>
     <div class="sec"><h4>🧠 Abwägung bei der letzten Entscheidung</h4>${n.lastScores.map((e, i) => `<span class="score${i ? '' : ' win'}">${e.label} ${e.score}</span>`).join('') || '–'}</div>
     <div class="sec"><h4>❤️ Beziehungen</h4>${rels.length ? rels.map(r => `<span class="rel"><span class="dot" style="background:${r.o.color}"></span>${esc(r.o.name)} · ${relLabel(r.v)}</span>`).join('') : '<span class="muted">noch niemanden kennengelernt</span>'}</div>
+    <div class="sec"><h4>🎒 Rucksack</h4>${invGrid([['wood', n.inventory.wood], ['stone', n.inventory.stone]].filter(([, v]) => v > 0).map(([k, v]) => ({ icon: RES_INFO[k].icon, count: v, title: RES_INFO[k].name, attr: `data-res="${k}" data-town="${n.town.id}"` })), 6)}</div>
     ${n.pet ? `<div class="sec"><h4>🐾 Gefährte</h4><b>${PETS[n.pet.kind].icon} ${esc(n.pet.name)}</b> <span class="muted">· ${PETS[n.pet.kind].name} · ${esc(PETS[n.pet.kind].bonus)} · seit Tag ${n.pet.day}</span>${bar('Bindung', n.pet.bond, '#ff9ec7')}</div>` : ''}
     ${n.diary && n.diary.length ? `<div class="sec"><h4>📔 Tagebuch</h4><ul class="diary">${n.diary.slice(0, 3).map(d => `<li><span class="muted">Tag ${d.day}:</span> ${esc(d.text)}</li>`).join('')}</ul></div>` : ''}
     <div class="sec"><h4>📜 Erinnerungen</h4>${n.memories.length ? `<ul>${n.memories.slice(0, 5).map(m => `<li><span class="muted">T${m.day} ${m.clock}</span> ${esc(m.text)}</li>`).join('')}</ul>` : '<span class="muted">noch keine</span>'}</div>`;
   drawPortrait(box.querySelector('.portrait'), n);
   const rb = box.querySelector('[data-rift]'); if (rb) rb.addEventListener('click', () => { ui.riftClosedFor = null; openRift(n); });
+  bindInv(box);
   box.querySelectorAll('[data-slot]').forEach(el => el.addEventListener('click', () => openItem(n, el.dataset.slot)));
   bindLinks(box);
 }
