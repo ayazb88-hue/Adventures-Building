@@ -77,7 +77,7 @@ class Sound {
     const a = this.ctx, t = a.currentTime, h = sim.hourFloat;
     const night = renderer.nightAlpha() / 0.72, raining = sim.weather === 'regen';
     const cp = sim.settlement.camp;
-    const camTx = (renderer.camX + renderer.viewW / 2) / renderer.ts, camTy = (renderer.camY + renderer.viewH / 2) / renderer.ts;
+    const [camTx, camTy] = renderer.screenToTile(renderer.viewW / 2, renderer.viewH / 2);
     const fireNear = clamp(1 - Math.hypot(cp.x - camTx, cp.y - camTy) / 9, 0, 1);
     const ramp = (g, v) => g.gain.setTargetAtTime(v, t, 0.8);
     ramp(this.wind, 0.05 + (sim.weather === 'bewölkt' ? 0.04 : 0) + (raining ? 0.05 : 0));

@@ -37,6 +37,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
 - Gespeichert wird **immer automatisch** (Browser alle 5 s, Konto alle 20 s). „📤 Kopie / 📥 Kopie laden“ (unter ⚙️ Mehr) ist nur für andere Geräte; das Format muss abwärtskompatibel bleiben.
 - Im Claude-Artifact wird zusätzlich im Konto gespeichert (Capability `db` + `user`, private Einträge unter `data/users/<id>/welt` und `welt-0…n`, je ≤ 200 000 Zeichen). Beim Veröffentlichen `capabilities: {db: {}, user: {}}` angeben. Beim Laden wird die verpasste Zeit nachgerechnet (`catchUp`, höchstens 2 Spieltage).
 - Leistung: Ziel 60–70 Siedler bei ≥ 40 Bildern/s auf dem Handy. Keine Suche über die ganze Karte in jeder Minute; fehlgeschlagene Pläne werden pausiert (`n.cool`).
+- **Isometrische Ansicht** (Rauten wie in Aufbauspielen): Die Simulation rechnet weiter auf dem normalen Raster. Im Renderer gilt `isoX/isoY` (Weltpixel → Bildschirm), `unIso`, `screenToTile`, `tileToScreen`. Boden-Dinge (Gelände, Schatten, Lichtkarte, Gebiete, Wege) mit `world()` (Rauten-Abbildung) zeichnen; aufrechte Dinge (Gebäude, Bäume, Figuren, Schrift) vorher mit `at(wx, wy)` bzw. `atB(tile)` an ihren Platz setzen. Gezeichnet wird diagonal (x + y) von hinten nach vorn.
 - Wege müssen frei bleiben: Häuser und Felder liegen auf dem Raster mit Abstand 2 um das Lager.
 
 ## Arbeitsweise (Tokens sparen)

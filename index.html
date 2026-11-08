@@ -3003,6 +3003,12 @@ class Story {
 const SKIN = ['#ffe3cf', '#f9d6bd', '#f1c7a0', '#e0ac7e', '#b97f55'];
 const HAIR = ['#2a2a3c', '#f2cf6f', '#e8638a', '#4f8fe0', '#c8ccd8', '#c0522f', '#8a63d6', '#4a2f22', '#3fbf9a'];
 const EYES = ['#3a7bd5', '#2e9e6a', '#9b4fd1', '#d0453a', '#d4a017', '#6b4a30', '#1fa3b5'];
+/* Isometrische Projektion (Rauten wie in klassischen Aufbauspielen): Weltpixel (x, y) → Bildschirm.
+ * Boden wird mit dieser affinen Abbildung gezeichnet, aufrechte Dinge nur an ihren Platz verschoben. */
+const ISO_X = 0.7, ISO_Y = 0.35;
+const BSCALE = 0.86, SCALED = new Set(['house', 'smithy', 'market', 'tower', 'tavern', 'temple', 'forsthaus', 'bauernhof', 'gildenhalle', 'lagerhaus', 'site']);
+const isoX = (wx, wy) => (wx - wy) * ISO_X, isoY = (wx, wy) => (wx + wy) * ISO_Y;
+const unIso = (ix, iy) => [(ix / ISO_X + iy / ISO_Y) / 2, (iy / ISO_Y - ix / ISO_X) / 2];
 const ROOFS = ['#a8432f', '#7d4a2b', '#56606e', '#8e3d55', '#3f6e5a', '#b0683a'];
 const HAIR_STYLES = ['short', 'long', 'ponytail', 'bun', 'spiky', 'braid'];
 const SHUTTERS = ['#4f6b5a', '#6b5a4f', '#4f5f6b', '#6b4f5a', '#7a4a3a', '#3f5a7a'];
@@ -3841,7 +3847,7 @@ class Renderer {
 
   setZoom(z, fx = this.viewW / 2, fy = this.viewH / 2) {
     const { w, h } = this.sim.world;
-    const minZ = Math.min(this.viewW / w, this.viewH / h);
+    const minZ = Math.min(this.viewW / ((w + h) * ISO_X), this.viewH / ((w + h) * ISO_Y));
     const old = this.ts || z;
     const wx = (this.camX + fx) / old, wy = (this.camY + fy) / old; // Punkt unter dem Finger bleibt stehen
     this.ts = clamp(z, minZ, 80);
@@ -3850,13 +3856,17 @@ class Renderer {
     this.zoomAt = performance.now();
   }
 
-  centerOn(tx, ty) { this.camX = tx * this.ts - this.viewW / 2; this.camY = ty * this.ts - this.viewH / 2; this.clampCam(); }
+  centerOn(tx, ty) { const s = this.ts; this.camX = isoX(tx * s, ty * s) - this.viewW / 2; this.camY = isoY(tx * s, ty * s) - this.viewH / 2; this.clampCam(); }
 
-  clampCam() {
-    const mw = this.sim.world.w * this.ts, mh = this.sim.world.h * this.ts;
-    this.camX = mw <= this.viewW ? (mw - this.viewW) / 2 : clamp(this.camX, 0, mw - this.viewW);
-    this.camY = mh <= this.viewH ? (mh - this.viewH) / 2 : clamp(this.camY, 0, mh - this.viewH);
+  clampCam() { // Grenzen der Rautenkarte
+    const { w, h } = this.sim.world, s = this.ts, x0 = -h * s * ISO_X, x1 = w * s * ISO_X, y1 = (w + h) * s * ISO_Y;
+    this.camX = x1 - x0 <= this.viewW ? (x0 + x1 - this.viewW) / 2 : clamp(this.camX, x0, x1 - this.viewW);
+    this.camY = y1 <= this.viewH ? (y1 - this.viewH) / 2 : clamp(this.camY, -this.viewH * 0.15, y1 - this.viewH * 0.85);
   }
+  /** Bildschirmpunkt (relativ zur Karte) → Kachelkoordinaten (Kommazahl). */
+  screenToTile(sx, sy) { const [wx, wy] = unIso(sx + this.camX, sy + this.camY); return [wx / this.ts, wy / this.ts]; }
+  /** Kachelpunkt → Bildschirmpunkt (relativ zur Karte). */
+  tileToScreen(tx, ty) { const s = this.ts; return [isoX(tx * s, ty * s) - this.camX, isoY(tx * s, ty * s) - this.camY]; }
 
   attachInput() {
     const cv = this.canvas, pts = new Map();
@@ -3901,21 +3911,18 @@ class Renderer {
   }
 
   monsterAt(clientX, clientY) {
-    const r = this.canvas.getBoundingClientRect();
-    const tx = (clientX - r.left + this.camX) / this.ts - 0.5, ty = (clientY - r.top + this.camY) / this.ts - 0.3;
-    let best = null, bd = 1.3;
-    for (const m of this.sim.monsters) { const d = Math.hypot(m.x - tx, m.y - ty) / (m.boss ? 2 : 1); if (d < bd) { bd = d; best = m; } }
+    const r = this.canvas.getBoundingClientRect(), mx = clientX - r.left, my = clientY - r.top, s = this.ts;
+    let best = null, bd = s * 0.75;
+    for (const m of this.sim.monsters) { const [px, py] = this.tileToScreen(m.x + 0.5, m.y + 0.5), d = Math.hypot(px - mx, py - s * (m.boss ? 0.8 : 0.35) - my) / (m.boss ? 2 : 1); if (d < bd) { bd = d; best = m; } }
     return best;
   }
 
   npcAt(clientX, clientY) {
-    const r = this.canvas.getBoundingClientRect();
-    const tx = (clientX - r.left + this.camX) / this.ts - 0.5;
-    const ty = (clientY - r.top + this.camY) / this.ts - 0.15;
-    let best = null, bd = 1.2;
+    const r = this.canvas.getBoundingClientRect(), mx = clientX - r.left, my = clientY - r.top, s = this.ts;
+    let best = null, bd = s * 0.6;
     for (const n of this.sim.npcs) {
       if (n.inside) continue;
-      const d = Math.hypot(n.x - tx, n.y - ty);
+      const [px, py] = this.tileToScreen(n.x + 0.5, n.y + 0.5), d = Math.hypot(px - mx, py - s * 0.15 - my);
       if (d < bd) { bd = d; best = n; }
     }
     return best;
@@ -4586,12 +4593,13 @@ class Renderer {
   /** Was liegt unter dem Finger? Hohe Objekte (Häuser, Bäume) auch über ihrer Kachel antippbar. */
   tileAt(clientX, clientY) {
     const r = this.canvas.getBoundingClientRect(), w = this.sim.world;
-    const tx = Math.floor((clientX - r.left + this.camX) / this.ts), ty = Math.floor((clientY - r.top + this.camY) / this.ts);
-    const here = w.tile(tx, ty), below = w.tile(tx, ty + 1);
+    const [fx, fy] = this.screenToTile(clientX - r.left, clientY - r.top), tx = Math.floor(fx), ty = Math.floor(fy);
+    const here = w.tile(tx, ty);
     const tall = t => t && ['house', 'tree', 'site', 'ruin', 'gate', 'smithy', 'market', 'tower', 'tavern', 'temple', 'forsthaus', 'bauernhof', 'gildenhalle', 'lagerhaus'].includes(t.type);
     const pick = t => t && t.part ? t.part : t;
-    for (let dy = 1; dy <= 3; dy++) { const t = w.tile(tx, ty + dy); if (t && t.type === 'castle' && (!here || here.type === 'grass')) return pick(t); }
-    if (!tall(here) && tall(below)) return pick(below);
+    // hohe Gebäude ragen nach oben: ein Tipp darüber trifft die Kachel davor (diagonal unten)
+    for (let dd = 1; dd <= 3; dd++) { const t = w.tile(tx + dd, ty + dd); if (t && t.type === 'castle' && (!here || here.type === 'grass')) return pick(t); }
+    if (!tall(here)) for (let dd = 1; dd <= 2; dd++) { const t = w.tile(tx + dd, ty + dd); if (tall(t)) return pick(t); }
     return pick(here);
   }
 
@@ -4626,7 +4634,7 @@ class Renderer {
       mc.fillRect(n.x * k + k / 2 - r / 2, n.y * k + k / 2 - r / 2, r, r);
     }
     mc.strokeStyle = '#fff'; mc.lineWidth = 1;
-    mc.strokeRect(this.camX / this.ts * k, this.camY / this.ts * k, this.viewW / this.ts * k, this.viewH / this.ts * k);
+    mc.beginPath(); for (const [sx, sy] of [[0, 0], [this.viewW, 0], [this.viewW, this.viewH], [0, this.viewH]]) { const [tx, ty] = this.screenToTile(sx, sy); mc.lineTo(tx * k, ty * k); } mc.closePath(); mc.stroke();
   }
 
   // ---------------------------------------------------- dynamische Objekte
@@ -4709,7 +4717,7 @@ class Renderer {
   emit(type, x, y, o = {}) {
     if (this.particles.length > 320) return;
     const life = o.life || 1;
-    this.particles.push({ type, x, y, vx: 0, vy: 0, g: 0, size: 0.05, seed: Math.random() * 10, ...o, life, max: life });
+    this.particles.push({ type, x, y, x0: x, y0: y, vx: 0, vy: 0, g: 0, size: 0.05, seed: Math.random() * 10, ...o, life, max: life });
   }
 
   updateParticles(dt) {
@@ -4725,7 +4733,7 @@ class Renderer {
     for (const p of this.particles) {
       const isGlow = p.type === 'spark' || p.type === 'firefly';
       if (isGlow !== glow) continue;
-      const k = p.life / p.max, x = p.x * s, y = p.y * s;
+      const k = p.life / p.max, x = isoX(p.x0 * s, p.y0 * s) + (p.x - p.x0) * s, y = isoY(p.x0 * s, p.y0 * s) + (p.y - p.y0) * s;
       switch (p.type) {
         case 'chip':
           c.fillStyle = `rgba(214, 167, 109, ${k})`; c.fillRect(x, y, p.size * s, p.size * s * 0.6); break;
@@ -4793,17 +4801,23 @@ class Renderer {
     const { w, h } = sim.world, dpr = this.dpr, W = this.canvas.width, H = this.canvas.height;
 
     if (this.follow && !this.follow.inside) {
-      const tx = (this.follow.x + 0.5) * s - this.viewW / 2, ty = (this.follow.y + 0.5) * s - this.viewH / 2;
+      const fw = (this.follow.x + 0.5) * s, fh = (this.follow.y + 0.5) * s, tx = isoX(fw, fh) - this.viewW / 2, ty = isoY(fw, fh) - this.viewH / 2;
       this.camX += (tx - this.camX) * 0.08; this.camY += (ty - this.camY) * 0.08; this.clampCam();
     }
-    const world = () => c.setTransform(dpr, 0, 0, dpr, -this.camX * dpr, -this.camY * dpr);
+    // Boden: Rauten-Abbildung · camT: isometrische Pixel · at(): aufrecht an den Platz eines Weltpunkts
+    const world = () => c.setTransform(ISO_X * dpr, ISO_Y * dpr, -ISO_X * dpr, ISO_Y * dpr, -this.camX * dpr, -this.camY * dpr);
+    const camT = () => c.setTransform(dpr, 0, 0, dpr, -this.camX * dpr, -this.camY * dpr);
+    const at = (wx, wy, k = 1) => c.setTransform(dpr * k, 0, 0, dpr * k, (isoX(wx, wy) - wx * k - this.camX) * dpr, (isoY(wx, wy) - wy * k - this.camY) * dpr);
+    const atB = t => at((t.x + 0.5) * s, (t.y + 0.9) * s, BSCALE); // Gebäude: etwas kleiner, Fußpunkt bleibt
     const screen = () => c.setTransform(1, 0, 0, 1, 0, 0);
     c.lineJoin = 'round'; c.lineCap = 'butt';
     screen(); c.fillStyle = '#16231a'; c.fillRect(0, 0, W, H);
     world();
 
-    const x0 = Math.max(0, Math.floor(this.camX / s) - 1), x1 = Math.min(w - 1, Math.ceil((this.camX + this.viewW) / s));
-    const y0 = Math.max(0, Math.floor(this.camY / s) - 1), y1 = Math.min(h - 1, Math.ceil((this.camY + this.viewH) / s) + 2);
+    const corners = [[0, 0], [this.viewW, 0], [0, this.viewH], [this.viewW, this.viewH]].map(([a, b]) => this.screenToTile(a, b));
+    const x0 = Math.max(0, Math.floor(Math.min(...corners.map(q => q[0]))) - 1), x1 = Math.min(w - 1, Math.ceil(Math.max(...corners.map(q => q[0]))) + 3);
+    const y0 = Math.max(0, Math.floor(Math.min(...corners.map(q => q[1]))) - 1), y1 = Math.min(h - 1, Math.ceil(Math.max(...corners.map(q => q[1]))) + 3);
+    const D0 = x0 + y0, D1 = x1 + y1, depth = (fx, fy) => clamp(Math.round(fx + fy), D0, D1);
 
     // 1) Boden aus Blöcken
     const CH = 16, detail = s >= 14; // weit herausgezoomt: weniger Details
@@ -4839,15 +4853,15 @@ class Renderer {
       const dd = Math.hypot(fx - an.x, fy - an.y);
       if (dd < 1) an.dist += dd;
       an.x = fx; an.y = fy;
-      const e = { n, px: (fx + 0.5 + off) * s, py: (fy + 0.5) * s, fy, pose, phase: an.dist / 0.75 * TAU };
-      const r = clamp(Math.round(fy), y0, y1);
+      const e = { n, px: (fx + 0.5 + off) * s, py: (fy + 0.5) * s, fy, d: fx + fy, pose, phase: an.dist / 0.75 * TAU };
+      const r = depth(fx, fy);
       (rows.get(r) || rows.set(r, []).get(r)).push(e);
       drawn.push(e);
     }
     for (const cart of sim.carts) {
       if (cart.x < x0 - 2 || cart.x > x1 + 2 || cart.y < y0 - 1 || cart.y > y1) continue;
-      const fy = cart.prevY + (cart.y - cart.prevY) * alpha, r = clamp(Math.round(fy), y0, y1);
-      (rows.get(r) || rows.set(r, []).get(r)).push({ cart, fy, fx: cart.prevX + (cart.x - cart.prevX) * alpha });
+      const fy = cart.prevY + (cart.y - cart.prevY) * alpha, fx = cart.prevX + (cart.x - cart.prevX) * alpha, r = depth(fx, fy);
+      (rows.get(r) || rows.set(r, []).get(r)).push({ cart, fy, fx, d: fx + fy });
     }
     for (const n of sim.npcs) { // Haustiere laufen hinterher
       if (!n.pet || n.inside) continue;
@@ -4857,18 +4871,18 @@ class Renderer {
       const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
       if (d > 0.2) { p.x += dx * 0.07; p.y += dy * 0.07; if (Math.abs(dx) > 0.01) p.f = dx > 0 ? 1 : -1; p.mv = 1; } else p.mv = 0;
       if (p.x < x0 - 1 || p.x > x1 + 1 || p.y < y0 - 1 || p.y > y1) continue;
-      const r = clamp(Math.round(p.y), y0, y1);
-      (rows.get(r) || rows.set(r, []).get(r)).push({ pet: p, kind: n.pet.kind, fy: p.y, fx: p.x });
+      const r = depth(p.x, p.y);
+      (rows.get(r) || rows.set(r, []).get(r)).push({ pet: p, kind: n.pet.kind, fy: p.y, fx: p.x, d: p.x + p.y });
     }
     for (const m of sim.monsters) {
       if (m.x < x0 - 1 || m.x > x1 + 1 || m.y < y0 - 1 || m.y > y1) continue;
-      const fy = m.prevY + (m.y - m.prevY) * alpha, r = clamp(Math.round(fy), y0, y1);
-      (rows.get(r) || rows.set(r, []).get(r)).push({ monster: m, fy, fx: m.prevX + (m.x - m.prevX) * alpha });
+      const fy = m.prevY + (m.y - m.prevY) * alpha, fx = m.prevX + (m.x - m.prevX) * alpha, r = depth(fx, fy);
+      (rows.get(r) || rows.set(r, []).get(r)).push({ monster: m, fy, fx, d: fx + fy });
     }
     if (s >= 10) for (const a of this.animals) {
       if (a.x < x0 - 1 || a.x > x1 + 1 || a.y < y0 - 1 || a.y > y1) continue;
-      const r = clamp(Math.round(a.y), y0, y1);
-      (rows.get(r) || rows.set(r, []).get(r)).push({ animal: a, fy: a.y });
+      const r = depth(a.x, a.y);
+      (rows.get(r) || rows.set(r, []).get(r)).push({ animal: a, fy: a.y, fx: a.x, d: a.x + a.y });
     }
 
     // 3) Sonnenschatten (in eigener Ebene, damit sich Schatten nicht doppelt abdunkeln)
@@ -4876,7 +4890,7 @@ class Renderer {
     if (sun.alpha > 0.01 && this.spriteTs && detail) {
       const sc = this.shadowCv.getContext('2d');
       sc.setTransform(1, 0, 0, 1, 0, 0); sc.clearRect(0, 0, W, H);
-      sc.setTransform(dpr, 0, 0, dpr, -this.camX * dpr, -this.camY * dpr);
+      sc.setTransform(ISO_X * dpr, ISO_Y * dpr, -ISO_X * dpr, ISO_Y * dpr, -this.camX * dpr, -this.camY * dpr);
       const shadow = (sp, bx, by) => {
         sc.save(); sc.translate(bx, by); sc.transform(sk, 0, -sun.dx * sun.len * sk, 0.3 * sk, 0, 0);
         sc.drawImage(sp.sh, -sp.ax, -sp.ay, sp.w, sp.h); sc.restore();
@@ -4925,10 +4939,11 @@ class Renderer {
       c.stroke(); c.setLineDash([]);
     }
 
-    // 4) Objekte und Siedler Reihe für Reihe
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        const t = sim.world.tile(x, y);
+    // 4) Objekte und Siedler Diagonale für Diagonale (hinten → vorn)
+    for (let dg = D0; dg <= D1; dg++) {
+      for (let x = Math.max(x0, dg - y1); x <= Math.min(x1, dg - y0); x++) {
+        const y = dg - x, t = sim.world.tile(x, y);
+        if (SCALED.has(t.type)) atB(t); else at((x + 0.5) * s, (y + 0.5) * s);
         switch (t.type) {
           case 'tree': {
             const [bx, by] = this.treeBase(t, s), sp = this.treeSprite(t);
@@ -5028,10 +5043,11 @@ class Renderer {
         }
         if (t.building && (t.building.level > 1 || t.siteRef) && t.type !== 'site') this.drawLevel(c, t, s, now);
       }
-      const list = rows.get(y);
+      const list = rows.get(dg);
       if (list) {
-        list.sort((a, b) => a.fy - b.fy);
+        list.sort((a, b) => a.d - b.d);
         for (const e of list) {
+          if (e.n) at(e.px, e.py); else at((e.fx + 0.5) * s, (e.fy + 0.5) * s);
           if (e.animal) { this.drawAnimal(c, e.animal, s); continue; }
           if (e.pet) {
             const fly = e.kind === 'eule' || e.kind === 'drache', px = (e.fx + 0.5) * s, py = (e.fy + 0.85) * s;
@@ -5073,22 +5089,23 @@ class Renderer {
 
     // Pfeile der Wachtürme
     this.shots = (this.shots || []).filter(sh => now - sh.born < 350);
-    c.strokeStyle = '#f3e9d2'; c.lineWidth = Math.max(1.2, s * 0.025);
+    camT(); c.strokeStyle = '#f3e9d2'; c.lineWidth = Math.max(1.2, s * 0.025);
     for (const sh of this.shots) {
-      const k = (now - sh.born) / 350, x0 = (sh.from.x + 0.5) * s, y0 = (sh.from.y - 0.55) * s, x1 = (sh.to.x + 0.5) * s, y1 = (sh.to.y + 0.5) * s;
+      const fw = (sh.from.x + 0.5) * s, fh = (sh.from.y + 0.5) * s, tw = (sh.to.x + 0.5) * s, th = (sh.to.y + 0.5) * s;
+      const k = (now - sh.born) / 350, x0 = isoX(fw, fh), y0 = isoY(fw, fh) - s * 1.05, x1 = isoX(tw, th), y1 = isoY(tw, th);
       const ax = x0 + (x1 - x0) * k, ay = y0 + (y1 - y0) * k - Math.sin(k * Math.PI) * s * 0.6, a = Math.atan2(y1 - y0, x1 - x0);
       c.beginPath(); c.moveTo(ax - Math.cos(a) * s * 0.2, ay - Math.sin(a) * s * 0.2); c.lineTo(ax, ay); c.stroke();
     }
     // 5) Partikel, Rauch
     this.emitAmbient(dt, x0, x1, y0, y1, this.nightAlpha(), drawn);
     this.updateParticles(dt);
-    this.drawParticles(c, s, now, false);
+    camT(); this.drawParticles(c, s, now, false);
     // Lichtsäulen bei Level-Aufstieg / Erwachen
     this.effects = this.effects.filter(f => now - f.born < 2200);
     if (this.effects.length) {
       c.save(); c.globalCompositeOperation = 'lighter';
       for (const f of this.effects) {
-        const k = (now - f.born) / 2200, n = f.n, bx = (n.x + 0.5) * s, by = (n.y + 0.88) * s;
+        const k = (now - f.born) / 2200, n = f.n, bx = (n.x + 0.5) * s, by = (n.y + 0.88) * s; at(bx, by);
         const col = f.kind === 'awaken' ? '120,200,255' : f.kind === 'legendary' ? '255,170,40' : '255,215,120', a = (1 - k) * (k < 0.1 ? k * 10 : 1);
         const g = c.createLinearGradient(0, by - 5 * s, 0, by);
         g.addColorStop(0, `rgba(${col},0)`); g.addColorStop(1, `rgba(${col},${0.7 * a})`);
@@ -5101,6 +5118,7 @@ class Renderer {
     for (const b of sim.allHouses) {
       if (!b.residents.length) continue;
       const ch = this.houseSprite(b.tile).meta.chimney, sx = (b.tile.x + 0.45 + ch[0]) * s, sy = (b.tile.y + 0.92 + ch[1]) * s;
+      atB(b.tile);
       for (let k = 0; k < 4; k++) {
         const q = (now / 3000 + k / 4 + b.id * 0.37) % 1;
         c.fillStyle = `rgba(225,225,225,${0.35 * (1 - q)})`;
@@ -5108,6 +5126,7 @@ class Renderer {
       }
     }
 
+    world();
     // 6) Wolkenschatten
     const na = this.nightAlpha(), day = 1 - na / 0.72;
     const cloudA = ({ klar: 0.07, 'bewölkt': 0.15, regen: 0.18 }[sim.weather] ?? 0.07) * day;
@@ -5145,7 +5164,7 @@ class Renderer {
       const lc = this.lightCv.getContext('2d');
       lc.setTransform(1, 0, 0, 1, 0, 0); lc.globalCompositeOperation = 'source-over'; lc.clearRect(0, 0, W, H);
       lc.fillStyle = `rgba(6, 10, 34, ${na})`; lc.fillRect(0, 0, W, H);
-      lc.setTransform(dpr, 0, 0, dpr, -this.camX * dpr, -this.camY * dpr); lc.globalCompositeOperation = 'destination-out';
+      lc.setTransform(ISO_X * dpr, ISO_Y * dpr, -ISO_X * dpr, ISO_Y * dpr, -this.camX * dpr, -this.camY * dpr); lc.globalCompositeOperation = 'destination-out';
       const hole = (x, y, r, a) => {
         const g = lc.createRadialGradient(x, y, 0, x, y, r);
         g.addColorStop(0, `rgba(0,0,0,${a})`); g.addColorStop(0.5, `rgba(0,0,0,${a * 0.6})`); g.addColorStop(1, 'rgba(0,0,0,0)');
@@ -5183,15 +5202,18 @@ class Renderer {
       c.fillStyle = `rgba(255, 210, 110, ${Math.min(1, na * 1.5)})`;
       for (const b of sim.allHouses) {
         if (!b.residents.length) continue;
+        atB(b.tile);
         for (const [wx, wy, ww, wh] of this.houseSprite(b.tile).meta.windows) c.fillRect((b.tile.x + 0.45 + wx - ww / 2) * s, (b.tile.y + 0.92 + wy - wh / 2) * s, ww * s, wh * s);
       }
       const tav = sim.capital.tavern;
+      if (tav) atB(tav.tile);
       if (tav) for (const [wx, wy, ww, wh] of this.sprites.tavern.meta.windows) c.fillRect((tav.tile.x + 0.5 + wx - ww / 2) * s, (tav.tile.y + 0.92 + wy - wh / 2) * s, ww * s, wh * s);
+      if (castle) at((castle.tile.x + 0.5) * s, (castle.tile.y + 0.5) * s);
       if (castle) for (const [wx, wy, ww, wh] of this.sprites.castle.meta.windows) c.fillRect((castle.tile.x + 0.5 + wx - ww / 2) * s, (castle.tile.y + 1.95 + wy - wh / 2) * s, ww * s, wh * s);
     }
     world();
     // leuchtende Partikel (Funken, Glühwürmchen)
-    c.save(); c.globalCompositeOperation = 'lighter'; this.drawParticles(c, s, now, true); c.restore();
+    c.save(); camT(); c.globalCompositeOperation = 'lighter'; this.drawParticles(c, s, now, true); c.restore(); world();
 
     // 9) Beschriftung
     c.textAlign = 'center';
@@ -5199,16 +5221,18 @@ class Renderer {
     for (const b of sim.allHouses) {
       if (!b.sleepers.size) continue;
       const q = (now / 1800 + b.id * 0.3) % 1;
+      at((b.tile.x + 0.5) * s, (b.tile.y + 0.5) * s);
       c.globalAlpha = 1 - q; c.fillStyle = '#fff';
       c.fillText('z', (b.tile.x + 0.25 + q * 0.2) * s, (b.tile.y - 0.4 - q * 0.4) * s);
       c.globalAlpha = 1;
     }
     const showNames = s >= 30, labelBoxes = [];
     const freeSpot = (x, y, w) => { if (labelBoxes.some(b => Math.abs(b.x - x) < (b.w + w) / 2 && Math.abs(b.y - y) < s * 0.28)) return false; labelBoxes.push({ x, y, w }); return true; }; // Namen nicht übereinander
-    if (!detail) { for (const e of drawn) if (e.n.awakened) this.drawBadge(c, e.n, e.px, e.py - s * 0.6, Math.max(14, s)); }
+    if (!detail) { for (const e of drawn) if (e.n.awakened) { at(e.px, e.py); this.drawBadge(c, e.n, e.px, e.py - s * 0.6, Math.max(14, s)); } }
     else
     for (const e of drawn) {
       const { n, px, pose } = e, top = e.py - s * 0.38;
+      at(e.px, e.py);
       if (n.sleeping) {
         c.fillStyle = '#fff'; c.font = `700 ${Math.max(10, Math.round(s * 0.3))}px system-ui`;
         c.fillText('z', px + s * 0.1, e.py - s * 0.05 - ((now / 700) % 1) * s * 0.3); continue;
@@ -5235,6 +5259,7 @@ class Renderer {
       const fs = Math.max(11, Math.min(15, s * 0.5));
       c.font = `700 ${fs}px system-ui`;
       const tw2 = c.measureText(label).width + 14, lx = (tw.camp.x + 0.5) * s, ly = (tw.camp.y - 1.6) * s;
+      at(lx, (tw.camp.y + 0.5) * s);
       c.fillStyle = 'rgba(15,20,18,.78)'; c.beginPath(); c.roundRect ? c.roundRect(lx - tw2 / 2, ly - fs, tw2, fs * 1.6, 6) : c.rect(lx - tw2 / 2, ly - fs, tw2, fs * 1.6); c.fill();
       c.strokeStyle = sim.kingdom ? sim.kingdom.color : tw.color; c.lineWidth = 2; c.stroke();
       c.fillStyle = '#fff'; c.textBaseline = 'middle'; c.fillText(label, lx, ly - fs * 0.2); c.textBaseline = 'alphabetic';
@@ -5244,6 +5269,7 @@ class Renderer {
     sim.floats = sim.floats.filter(f => now - f.born < 1400);
     for (const f of sim.floats) {
       const k = (now - f.born) / 1400, fx = (f.x + 0.5) * s, fy = (f.y - k) * s;
+      at(fx, (f.y + 0.5) * s);
       c.globalAlpha = 1 - k * k;
       c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.7)'; c.strokeText(f.text, fx, fy);
       c.fillStyle = f.color; c.fillText(f.text, fx, fy);
@@ -5983,7 +6009,7 @@ class Sound {
     const a = this.ctx, t = a.currentTime, h = sim.hourFloat;
     const night = renderer.nightAlpha() / 0.72, raining = sim.weather === 'regen';
     const cp = sim.settlement.camp;
-    const camTx = (renderer.camX + renderer.viewW / 2) / renderer.ts, camTy = (renderer.camY + renderer.viewH / 2) / renderer.ts;
+    const [camTx, camTy] = renderer.screenToTile(renderer.viewW / 2, renderer.viewH / 2);
     const fireNear = clamp(1 - Math.hypot(cp.x - camTx, cp.y - camTy) / 9, 0, 1);
     const ramp = (g, v) => g.gain.setTargetAtTime(v, t, 0.8);
     ramp(this.wind, 0.05 + (sim.weather === 'bewölkt' ? 0.04 : 0) + (raining ? 0.05 : 0));
@@ -7365,7 +7391,7 @@ function startSim(s) {
   for (const ev of ['levelup', 'awaken']) sim.on(ev, cineMoment);
   sim.on('legendary', ({ n }) => cineMoment(n));
   sim.on('chop', t => {
-    const cx = (renderer.camX + renderer.viewW / 2) / renderer.ts, cy = (renderer.camY + renderer.viewH / 2) / renderer.ts;
+    const [cx, cy] = renderer.screenToTile(renderer.viewW / 2, renderer.viewH / 2);
     if (ui.speed <= 2) sound.chop(Math.hypot(t.x - cx, t.y - cy));
   });
   if (ui.rift) closeRift(false);

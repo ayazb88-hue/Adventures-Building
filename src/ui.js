@@ -594,7 +594,7 @@ function startSim(s) {
   for (const ev of ['levelup', 'awaken']) sim.on(ev, cineMoment);
   sim.on('legendary', ({ n }) => cineMoment(n));
   sim.on('chop', t => {
-    const cx = (renderer.camX + renderer.viewW / 2) / renderer.ts, cy = (renderer.camY + renderer.viewH / 2) / renderer.ts;
+    const [cx, cy] = renderer.screenToTile(renderer.viewW / 2, renderer.viewH / 2);
     if (ui.speed <= 2) sound.chop(Math.hypot(t.x - cx, t.y - cy));
   });
   if (ui.rift) closeRift(false);

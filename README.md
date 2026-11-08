@@ -22,6 +22,10 @@ Das Spiel ist **eine Datei `index.html`** (HTML + JavaScript + Canvas, keine Abh
 
 Die Welt wird wie eine Serie erzählt: Jeden Spieltag beginnt eine **Folge** mit Titel und „Was bisher geschah“. Wichtige Momente (Erwachen, Schmiedebuch, legendäre Waffe, Duelle, Überfälle, Boss) werden als **Szene** gezeigt – Bühne mit großen Figuren, Dialoge mit Porträts und Gefühlen (💢 ✨ 💧 🔥), Speed-Lines, Bildschirm-Wackeln, große Schriftzüge und System-Fenster. Ein **Regisseur** sorgt für mindestens drei Szenen pro Tag (Morgen, Training am Mittag, Lagerfeuer am Abend mit Cliffhanger). Hauptfigur, Rivale, Gefährten und Bandenhauptmann haben eigene Sprechweisen. Während einer Szene steht die Welt still; antippen = weiter, ⏭ = überspringen. Unter „⚙️ Mehr“ lassen sich die Szenen abschalten.
 
+## Ansicht
+
+Die Karte wird **isometrisch** gezeigt – als Rautenraster wie in klassischen Aufbauspielen: diagonale Wege, Felder als Rauten, Gebäude und Figuren stehen aufrecht darauf. Weit herausgezoomt sieht man die ganze Stadt wachsen.
+
 ## So funktioniert es
 
 - **Karte:** Wiese, Wald, Wasser, Beerensträucher, in der Mitte das Lager (Lagerfeuer).
