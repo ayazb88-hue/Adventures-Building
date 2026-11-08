@@ -260,7 +260,7 @@ defineAction({
     return [move(res.path), act((n, sim, s) => {
       if (f.type !== 'field') return 'done';
       if (s.t < CONFIG.farming.harvestMinutes) return;
-      const food = CONFIG.farming.harvestFood;
+      const food = CONFIG.farming.harvestFood + Math.floor((skillLevel('farming', n.skills.farming) - 1) / 2); // gute Bauern ernten mehr
       n.town.stock.food += food; f.timer = 0; n.town.ripe = Math.max(0, n.town.ripe - 1);
       sim.float(f.x, f.y, `+${food} 🍞`, '#ffe08a');
       n.gainXp('farming', 2);
@@ -400,6 +400,7 @@ function killMonster(m, n, sim) {
   sim.emit('system', `${M.name} besiegt!`);
   sim.emit('monsterKilled', m);
   n.kills = (n.kills || 0) + 1;
+  n.gainXp('combat', 1);
   n.addXp(sim, M.xp);
   n.remember(sim, `Hat einen ${M.name} besiegt ⚔️`);
   if (n.kills >= 5) n.addTitle(sim, 'Wächter des Dorfes');
@@ -519,7 +520,7 @@ defineAction({
     return [move(res.path), act((n, sim, s) => {
       if (rock.type !== 'rock' || rock.wood <= 0) return 'done';
       rock.hitAt = performance.now();
-      if (s.t % CONFIG.resources.mineMinutes !== 0) return;
+      if (s.t % Math.max(1, Math.round(CONFIG.resources.mineMinutes / n.workRate('mine'))) !== 0) return;
       rock.wood--; n.inventory.stone = (n.inventory.stone || 0) + 1;
       sim.float(rock.x, rock.y, '+1 🪨', '#d8d4cc');
       n.gainXp('mining', 1);
@@ -753,7 +754,16 @@ class NPC {
     return v;
   }
   gainXp(skill, amount) {
-    this.skills[skill] = (this.skills[skill] || 0) + amount;
+    const before = this.skills[skill] || 0;
+    this.skills[skill] = before + amount;
+    const lv = skillLevel(skill, this.skills[skill]);
+    if (this.sim && SKILL_INFO[skill] && lv > skillLevel(skill, before)) { // Fertigkeit steigt
+      const info = SKILL_INFO[skill];
+      this.sim.log(`${info.icon} erreicht ${info.name} Stufe ${lv}!`, this, lv >= 5);
+      this.sim.float(this.x, this.y - 0.6, `${info.icon} ${info.name} ${lv}!`, '#ffd76a');
+      this.sim.emit('skillup', { n: this, skill, level: lv });
+      if (lv === 5 || lv === 10) this.remember(this.sim, `Wurde Meister im ${info.name} (Stufe ${lv}) ${info.icon}`);
+    }
     if (!this.awakened || !this.sim) return;
     const q = this.quest;
     if (q && !q.done && q.type === skill) { q.prog = Math.min(q.goal, q.prog + amount); if (q.prog >= q.goal) this.completeQuest(this.sim); }
@@ -838,6 +848,8 @@ class NPC {
   /** Arbeitsgeschwindigkeit; später abhängig von Level, Beruf, Werkzeug. */
   workRate(kind) {
     let r = this.awakened ? 1 + this.stats.kraft * 0.02 : 1;
+    const sk = { build: 'building', chop: 'woodcutting', mine: 'mining' }[kind];
+    if (sk) r *= 1 + (skillLevel(sk, this.skills[sk]) - 1) * 0.06; // jede Stufe +6 %
     if (kind === 'build' && this.hasSkill('meisterhand')) r *= 2;
     if (kind === 'build' && this.sim && this.sim.npcs.some(o => o.hasSkill('inspiration') && o.task && o.task.actionId === 'build')) r *= 1.3;
     return r;

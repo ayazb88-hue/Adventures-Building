@@ -95,6 +95,10 @@
   .modal-row button { height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); font-weight: 600; }
   #modalOk { background: var(--accent); color: #2a1d05; border-color: var(--accent); }
   .portrait { width: 72px; height: 72px; border-radius: 12px; border: 2px solid #ffffff22; image-rendering: pixelated; flex: none; }
+  .skills { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+  .skill { display: grid; grid-template-columns: 1fr auto; font-size: 12.5px; }
+  .skill b { color: #ffd76a; font-weight: 700; }
+  .skill .bar { grid-column: 1 / -1; margin-top: 2px; }
   .quest { font-size: 13px; padding: 6px 8px; border-radius: 8px; background: #f0b54a1a; border: 1px solid #f0b54a55; }
   .quest.done { opacity: .7; text-decoration: line-through; }
   .hint { text-align: center; color: var(--muted); font-size: 12px; margin: 8px 0 0; }

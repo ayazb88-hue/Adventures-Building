@@ -44,6 +44,7 @@ Das Spiel ist **eine Datei `index.html`** (HTML + JavaScript + Canvas, keine Abh
 - **Figuren:** Pixel-Art (Standard): jede Pose auf einem 40×40-Raster mit dunklem Umriss, Anime-Augen, sechs Frisuren, Berufskleidung und sichtbarer Ausrüstung; Animation in festen Bildern. Über „🎨 Figuren“ lässt sich auf die gezeichneten Figuren umschalten.
 - **Handel:** Marktplatz in der Hauptstadt (Siedler bummeln dort), Markttag jeden Mittag (Überschuss → Münzen), Händlerkarren mit Esel bringen Brot und Holz von reichen zu armen Orten, ein fahrender Händler verkauft Mana-Kristalle.
 - **Stein und Gebäude:** Steinmetze brechen Stein aus Felsen (Spitzhacke, Grubenhelm). Wachtürme am Ortsrand schießen nachts auf Monster, die Taverne ist abends Treffpunkt mit Lautenmusik (kostet Münzen), im Tempel heilen Wunden und die Laune steigt.
+- **Fertigkeiten:** Jeder Siedler steigt in seinen Tätigkeiten auf (Bauen, Holzfällen, Ackerbau, Bergbau, Sammeln, Schmieden, Gespräche, Kampf). Höhere Stufen arbeiten schneller bzw. ernten mehr; nach jedem fertigen Haus gibt es ein Richtfest mit Bau-Erfahrung.
 - **Risse:** Leuchtende Tore in eine andere Welt. Erwachte ab Level 4 gehen auf Expedition und kehren mit Mana-Kristallen zurück – oder verwundet.
 - **Große Welt:** 80×80 Kacheln mit Fluss und Furten, Seen, Wäldern, Felsen, Ruinen und Wildtieren. Minikarte zum Springen; weit herausgezoomt sieht man das ganze Dorf wachsen.
 - **Alles antippbar:** Häuser (Bewohner, Baudatum, Erbauer), Lager, Baustelle, Bäume, Sträucher, Risse, Ruinen.

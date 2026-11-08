@@ -133,6 +133,19 @@ const KINGDOM_NAMES = ['Eldmar', 'Varenholm', 'Sonnenmark', 'Aldria', 'Rabenfels
 const OUTPOST_NAMES = ['Birkenau', 'Steinfurt', 'Morgenwacht', 'Kieselbach', 'Falkenruh', 'Tannenheim', 'Wolfsgrund'];
 const BANNERS = ['#c0392b', '#2e6fbf', '#7b3fb0', '#d4a017', '#2f8f5b'];
 const roman = n => ['', 'I', 'II', 'III', 'IV'][n] || String(n);
+// Fertigkeiten aller Siedler: Punkte aus der Arbeit → Stufe (1 + Wurzel aus Punkte/per)
+const SKILL_INFO = {
+  woodcutting: { name: 'Holzfällen', icon: '🪓', per: 8, bonus: 'schneller hacken' },
+  building:    { name: 'Bauen', icon: '🔨', per: 45, bonus: 'schneller bauen' },
+  farming:     { name: 'Ackerbau', icon: '🌾', per: 6, bonus: 'mehr Ernte' },
+  mining:      { name: 'Bergbau', icon: '⛏️', per: 8, bonus: 'schneller Stein brechen' },
+  gathering:   { name: 'Sammeln', icon: '🫐', per: 10, bonus: 'Erfahrung' },
+  forging:     { name: 'Schmieden', icon: '⚒️', per: 6, bonus: 'bessere Ausrüstung' },
+  social:      { name: 'Gespräche', icon: '💬', per: 6, bonus: 'Freundschaften' },
+  combat:      { name: 'Kampf', icon: '⚔️', per: 3, bonus: 'stärkere Treffer' },
+};
+const skillLevel = (skill, pts) => Math.min(20, 1 + Math.floor(Math.sqrt((pts || 0) / (SKILL_INFO[skill] ? SKILL_INFO[skill].per : 10))));
+const skillPtsFor = (skill, lvl) => (lvl - 1) ** 2 * (SKILL_INFO[skill] ? SKILL_INFO[skill].per : 10); // Punkte für eine Stufe
 const xpForLevel = l => Math.round(CONFIG.levels.xpBase * Math.pow(CONFIG.levels.xpGrowth, l - 1));
 
 /* =====================================================================
@@ -424,7 +437,11 @@ class Settlement {
     if (site.type === 'castle') sim.emit('system', 'Die Burg ist vollendet!');
     if (site.type === 'smithy') sim.emit('system', 'Neues Gebäude: Schmiede');
     sim.float(site.tile.x, site.tile.y, '🎉 Fertig!', '#f0b54a');
-    for (const n of builders) { n.remember(sim, `Hat Haus Nr. ${b.id} mitgebaut 🔨`); n.housesBuilt = (n.housesBuilt || 0) + 1; }
+    for (const n of builders) { // Richtfest: alle Helfer bekommen einen Bonus
+      n.remember(sim, `Hat Haus Nr. ${b.id} mitgebaut 🔨`); n.housesBuilt = (n.housesBuilt || 0) + 1;
+      n.gainXp('building', 30); if (n.awakened) n.addXp(sim, 30);
+    }
+    if (builders.length) sim.log(`🎊 Richtfest! ${builders.map(n => n.name).join(', ')} ${builders.length > 1 ? 'bekommen' : 'bekommt'} Bau-Erfahrung.`, null, false);
     if (site.type === 'castle' && sim.kingdom) { const r = sim.npcs.find(n => n.id === sim.kingdom.regentId); if (r) { if (r.home) r.home.residents = r.home.residents.filter(x => x !== r); sim.moveIn(r, b); } }
     sim.emit('buildingCompleted', b);
   }

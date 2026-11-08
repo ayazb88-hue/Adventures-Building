@@ -42,6 +42,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
 
 ## Fahrplan
 1. ✅ Siedler, Häuser, Tag/Nacht, Speichern, Erwachte, Risse, Ausrüstung, Schmiede, Felder, Monster, Gilde, Königreich mit Burg und Außenposten
+   - Fertigkeiten für alle Siedler (`SKILL_INFO`, `skillLevel`): Stufen aus Arbeitspunkten, Boni auf Tempo/Ernte, Richtfest-Bonus beim Hausbau
 2. ✅ Handel und Markt: Marktplatz, Markttag (Münzen), Händlerkarren zwischen den Orten, fahrender Händler mit Kristallen
 3. ✅ Stein und neue Gebäude: Steinmetze und Steinbruch, Wachtürme (schießen auf Monster), Taverne (Abendtreff, Musik, kostet Münzen), Tempel (Heilung, Laune). Offen: Stadtmauer
 4. Rivalisierende Königreiche / Banditen, Diplomatie, Belagerung

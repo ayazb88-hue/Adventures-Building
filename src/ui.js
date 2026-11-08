@@ -149,7 +149,10 @@ function updateInspector() {
   const a = n.action;
   const rels = Object.entries(n.relations).map(([id, v]) => ({ o: sim.npcs.find(x => x.id === Number(id)), v }))
     .filter(r => r.o).sort((p, q) => q.v - p.v).slice(0, 4);
-  const skills = Object.entries(n.skills).map(([k, v]) => `${SKILL_NAMES[k] || k} ${v}`).join(' · ') || 'noch keine';
+  const skillRows = Object.keys(SKILL_INFO).filter(k => n.skills[k] > 0).sort((a, b) => n.skills[b] / SKILL_INFO[b].per - n.skills[a] / SKILL_INFO[a].per).map(k => {
+    const info = SKILL_INFO[k], pts = n.skills[k], lv = skillLevel(k, pts), lo = skillPtsFor(k, lv), hi = skillPtsFor(k, lv + 1);
+    return `<div class="skill"><span>${info.icon} ${info.name}</span><b>Stufe ${lv}</b><div class="bar"><i style="width:${Math.min(100, (pts - lo) / (hi - lo) * 100)}%;background:#ffd76a"></i></div></div>`;
+  }).join('');
   box.innerHTML = `
     <div class="insp-head">
       <canvas class="portrait" width="72" height="72" aria-label="Porträt"></canvas>
@@ -163,10 +166,10 @@ function updateInspector() {
       ${bar('Gemeinschaft', n.social, 'var(--social)')}${bar('Laune', n.mood, 'var(--mood)')}
     </div>
     ${statusWindow(n)}
+    <div class="sec"><h4>⭐ Fertigkeiten</h4>${skillRows ? `<div class="skills">${skillRows}</div>` : '<span class="muted">noch keine – Arbeit macht den Meister</span>'}</div>
     <div class="sec"><h4>🧠 Abwägung bei der letzten Entscheidung</h4>${n.lastScores.map((e, i) => `<span class="score${i ? '' : ' win'}">${e.label} ${e.score}</span>`).join('') || '–'}</div>
     <div class="sec"><h4>❤️ Beziehungen</h4>${rels.length ? rels.map(r => `<span class="rel"><span class="dot" style="background:${r.o.color}"></span>${esc(r.o.name)} · ${relLabel(r.v)}</span>`).join('') : '<span class="muted">noch niemanden kennengelernt</span>'}</div>
-    <div class="sec"><h4>📜 Erinnerungen</h4>${n.memories.length ? `<ul>${n.memories.slice(0, 5).map(m => `<li><span class="muted">T${m.day} ${m.clock}</span> ${esc(m.text)}</li>`).join('')}</ul>` : '<span class="muted">noch keine</span>'}</div>
-    <div class="sec"><h4>⭐ Erfahrung</h4>${skills}</div>`;
+    <div class="sec"><h4>📜 Erinnerungen</h4>${n.memories.length ? `<ul>${n.memories.slice(0, 5).map(m => `<li><span class="muted">T${m.day} ${m.clock}</span> ${esc(m.text)}</li>`).join('')}</ul>` : '<span class="muted">noch keine</span>'}</div>`;
   drawPortrait(box.querySelector('.portrait'), n);
   bindLinks(box);
 }

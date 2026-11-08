@@ -95,6 +95,10 @@
   .modal-row button { height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); font-weight: 600; }
   #modalOk { background: var(--accent); color: #2a1d05; border-color: var(--accent); }
   .portrait { width: 72px; height: 72px; border-radius: 12px; border: 2px solid #ffffff22; image-rendering: pixelated; flex: none; }
+  .skills { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+  .skill { display: grid; grid-template-columns: 1fr auto; font-size: 12.5px; }
+  .skill b { color: #ffd76a; font-weight: 700; }
+  .skill .bar { grid-column: 1 / -1; margin-top: 2px; }
   .quest { font-size: 13px; padding: 6px 8px; border-radius: 8px; background: #f0b54a1a; border: 1px solid #f0b54a55; }
   .quest.done { opacity: .7; text-decoration: line-through; }
   .hint { text-align: center; color: var(--muted); font-size: 12px; margin: 8px 0 0; }
@@ -318,6 +322,19 @@ const KINGDOM_NAMES = ['Eldmar', 'Varenholm', 'Sonnenmark', 'Aldria', 'Rabenfels
 const OUTPOST_NAMES = ['Birkenau', 'Steinfurt', 'Morgenwacht', 'Kieselbach', 'Falkenruh', 'Tannenheim', 'Wolfsgrund'];
 const BANNERS = ['#c0392b', '#2e6fbf', '#7b3fb0', '#d4a017', '#2f8f5b'];
 const roman = n => ['', 'I', 'II', 'III', 'IV'][n] || String(n);
+// Fertigkeiten aller Siedler: Punkte aus der Arbeit → Stufe (1 + Wurzel aus Punkte/per)
+const SKILL_INFO = {
+  woodcutting: { name: 'Holzfällen', icon: '🪓', per: 8, bonus: 'schneller hacken' },
+  building:    { name: 'Bauen', icon: '🔨', per: 45, bonus: 'schneller bauen' },
+  farming:     { name: 'Ackerbau', icon: '🌾', per: 6, bonus: 'mehr Ernte' },
+  mining:      { name: 'Bergbau', icon: '⛏️', per: 8, bonus: 'schneller Stein brechen' },
+  gathering:   { name: 'Sammeln', icon: '🫐', per: 10, bonus: 'Erfahrung' },
+  forging:     { name: 'Schmieden', icon: '⚒️', per: 6, bonus: 'bessere Ausrüstung' },
+  social:      { name: 'Gespräche', icon: '💬', per: 6, bonus: 'Freundschaften' },
+  combat:      { name: 'Kampf', icon: '⚔️', per: 3, bonus: 'stärkere Treffer' },
+};
+const skillLevel = (skill, pts) => Math.min(20, 1 + Math.floor(Math.sqrt((pts || 0) / (SKILL_INFO[skill] ? SKILL_INFO[skill].per : 10))));
+const skillPtsFor = (skill, lvl) => (lvl - 1) ** 2 * (SKILL_INFO[skill] ? SKILL_INFO[skill].per : 10); // Punkte für eine Stufe
 const xpForLevel = l => Math.round(CONFIG.levels.xpBase * Math.pow(CONFIG.levels.xpGrowth, l - 1));
 
 /* =====================================================================
@@ -609,7 +626,11 @@ class Settlement {
     if (site.type === 'castle') sim.emit('system', 'Die Burg ist vollendet!');
     if (site.type === 'smithy') sim.emit('system', 'Neues Gebäude: Schmiede');
     sim.float(site.tile.x, site.tile.y, '🎉 Fertig!', '#f0b54a');
-    for (const n of builders) { n.remember(sim, `Hat Haus Nr. ${b.id} mitgebaut 🔨`); n.housesBuilt = (n.housesBuilt || 0) + 1; }
+    for (const n of builders) { // Richtfest: alle Helfer bekommen einen Bonus
+      n.remember(sim, `Hat Haus Nr. ${b.id} mitgebaut 🔨`); n.housesBuilt = (n.housesBuilt || 0) + 1;
+      n.gainXp('building', 30); if (n.awakened) n.addXp(sim, 30);
+    }
+    if (builders.length) sim.log(`🎊 Richtfest! ${builders.map(n => n.name).join(', ')} ${builders.length > 1 ? 'bekommen' : 'bekommt'} Bau-Erfahrung.`, null, false);
     if (site.type === 'castle' && sim.kingdom) { const r = sim.npcs.find(n => n.id === sim.kingdom.regentId); if (r) { if (r.home) r.home.residents = r.home.residents.filter(x => x !== r); sim.moveIn(r, b); } }
     sim.emit('buildingCompleted', b);
   }
@@ -932,7 +953,7 @@ defineAction({
     return [move(res.path), act((n, sim, s) => {
       if (f.type !== 'field') return 'done';
       if (s.t < CONFIG.farming.harvestMinutes) return;
-      const food = CONFIG.farming.harvestFood;
+      const food = CONFIG.farming.harvestFood + Math.floor((skillLevel('farming', n.skills.farming) - 1) / 2); // gute Bauern ernten mehr
       n.town.stock.food += food; f.timer = 0; n.town.ripe = Math.max(0, n.town.ripe - 1);
       sim.float(f.x, f.y, `+${food} 🍞`, '#ffe08a');
       n.gainXp('farming', 2);
@@ -1072,6 +1093,7 @@ function killMonster(m, n, sim) {
   sim.emit('system', `${M.name} besiegt!`);
   sim.emit('monsterKilled', m);
   n.kills = (n.kills || 0) + 1;
+  n.gainXp('combat', 1);
   n.addXp(sim, M.xp);
   n.remember(sim, `Hat einen ${M.name} besiegt ⚔️`);
   if (n.kills >= 5) n.addTitle(sim, 'Wächter des Dorfes');
@@ -1191,7 +1213,7 @@ defineAction({
     return [move(res.path), act((n, sim, s) => {
       if (rock.type !== 'rock' || rock.wood <= 0) return 'done';
       rock.hitAt = performance.now();
-      if (s.t % CONFIG.resources.mineMinutes !== 0) return;
+      if (s.t % Math.max(1, Math.round(CONFIG.resources.mineMinutes / n.workRate('mine'))) !== 0) return;
       rock.wood--; n.inventory.stone = (n.inventory.stone || 0) + 1;
       sim.float(rock.x, rock.y, '+1 🪨', '#d8d4cc');
       n.gainXp('mining', 1);
@@ -1425,7 +1447,16 @@ class NPC {
     return v;
   }
   gainXp(skill, amount) {
-    this.skills[skill] = (this.skills[skill] || 0) + amount;
+    const before = this.skills[skill] || 0;
+    this.skills[skill] = before + amount;
+    const lv = skillLevel(skill, this.skills[skill]);
+    if (this.sim && SKILL_INFO[skill] && lv > skillLevel(skill, before)) { // Fertigkeit steigt
+      const info = SKILL_INFO[skill];
+      this.sim.log(`${info.icon} erreicht ${info.name} Stufe ${lv}!`, this, lv >= 5);
+      this.sim.float(this.x, this.y - 0.6, `${info.icon} ${info.name} ${lv}!`, '#ffd76a');
+      this.sim.emit('skillup', { n: this, skill, level: lv });
+      if (lv === 5 || lv === 10) this.remember(this.sim, `Wurde Meister im ${info.name} (Stufe ${lv}) ${info.icon}`);
+    }
     if (!this.awakened || !this.sim) return;
     const q = this.quest;
     if (q && !q.done && q.type === skill) { q.prog = Math.min(q.goal, q.prog + amount); if (q.prog >= q.goal) this.completeQuest(this.sim); }
@@ -1510,6 +1541,8 @@ class NPC {
   /** Arbeitsgeschwindigkeit; später abhängig von Level, Beruf, Werkzeug. */
   workRate(kind) {
     let r = this.awakened ? 1 + this.stats.kraft * 0.02 : 1;
+    const sk = { build: 'building', chop: 'woodcutting', mine: 'mining' }[kind];
+    if (sk) r *= 1 + (skillLevel(sk, this.skills[sk]) - 1) * 0.06; // jede Stufe +6 %
     if (kind === 'build' && this.hasSkill('meisterhand')) r *= 2;
     if (kind === 'build' && this.sim && this.sim.npcs.some(o => o.hasSkill('inspiration') && o.task && o.task.actionId === 'build')) r *= 1.3;
     return r;
@@ -4899,7 +4932,10 @@ function updateInspector() {
   const a = n.action;
   const rels = Object.entries(n.relations).map(([id, v]) => ({ o: sim.npcs.find(x => x.id === Number(id)), v }))
     .filter(r => r.o).sort((p, q) => q.v - p.v).slice(0, 4);
-  const skills = Object.entries(n.skills).map(([k, v]) => `${SKILL_NAMES[k] || k} ${v}`).join(' · ') || 'noch keine';
+  const skillRows = Object.keys(SKILL_INFO).filter(k => n.skills[k] > 0).sort((a, b) => n.skills[b] / SKILL_INFO[b].per - n.skills[a] / SKILL_INFO[a].per).map(k => {
+    const info = SKILL_INFO[k], pts = n.skills[k], lv = skillLevel(k, pts), lo = skillPtsFor(k, lv), hi = skillPtsFor(k, lv + 1);
+    return `<div class="skill"><span>${info.icon} ${info.name}</span><b>Stufe ${lv}</b><div class="bar"><i style="width:${Math.min(100, (pts - lo) / (hi - lo) * 100)}%;background:#ffd76a"></i></div></div>`;
+  }).join('');
   box.innerHTML = `
     <div class="insp-head">
       <canvas class="portrait" width="72" height="72" aria-label="Porträt"></canvas>
@@ -4913,10 +4949,10 @@ function updateInspector() {
       ${bar('Gemeinschaft', n.social, 'var(--social)')}${bar('Laune', n.mood, 'var(--mood)')}
     </div>
     ${statusWindow(n)}
+    <div class="sec"><h4>⭐ Fertigkeiten</h4>${skillRows ? `<div class="skills">${skillRows}</div>` : '<span class="muted">noch keine – Arbeit macht den Meister</span>'}</div>
     <div class="sec"><h4>🧠 Abwägung bei der letzten Entscheidung</h4>${n.lastScores.map((e, i) => `<span class="score${i ? '' : ' win'}">${e.label} ${e.score}</span>`).join('') || '–'}</div>
     <div class="sec"><h4>❤️ Beziehungen</h4>${rels.length ? rels.map(r => `<span class="rel"><span class="dot" style="background:${r.o.color}"></span>${esc(r.o.name)} · ${relLabel(r.v)}</span>`).join('') : '<span class="muted">noch niemanden kennengelernt</span>'}</div>
-    <div class="sec"><h4>📜 Erinnerungen</h4>${n.memories.length ? `<ul>${n.memories.slice(0, 5).map(m => `<li><span class="muted">T${m.day} ${m.clock}</span> ${esc(m.text)}</li>`).join('')}</ul>` : '<span class="muted">noch keine</span>'}</div>
-    <div class="sec"><h4>⭐ Erfahrung</h4>${skills}</div>`;
+    <div class="sec"><h4>📜 Erinnerungen</h4>${n.memories.length ? `<ul>${n.memories.slice(0, 5).map(m => `<li><span class="muted">T${m.day} ${m.clock}</span> ${esc(m.text)}</li>`).join('')}</ul>` : '<span class="muted">noch keine</span>'}</div>`;
   drawPortrait(box.querySelector('.portrait'), n);
   bindLinks(box);
 }
