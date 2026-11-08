@@ -535,7 +535,8 @@ defineAction({
       if (s.t < 90) return;
       ruin.searched = true;
       sim.ruinsSearched = (sim.ruinsSearched || 0) + 1;
-      if (!sim.tomeFound && sim.rng() < 0.2 + sim.ruinsSearched * 0.12) { sim.tomeFound = true; n.becomeStarSmith(sim); }
+      const destined = !sim.story || !sim.story.hero || sim.story.hero === n || sim.day >= 10; // das Buch wartet auf die Hauptfigur
+      if (!sim.tomeFound && destined && sim.rng() < 0.2 + sim.ruinsSearched * 0.12) { sim.tomeFound = true; n.becomeStarSmith(sim); }
       else if (sim.rng() < 0.45) { const c = 1 + Math.floor(sim.rng() * 2); n.town.stock.crystals += c; sim.log(`🏛️ findet in den Ruinen ${c} alte Mana-Kristalle.`, n); }
       else sim.log('🏛️ findet in den Ruinen nur Staub und alte Scherben.', n);
       return 'done';
@@ -1191,7 +1192,7 @@ class NPC {
  * 7) SIMULATION: Zeit, Wetter, Wachstum, Ereignisse, Log, Speichern
  * ===================================================================== */
 const TILE_TYPES = Object.keys(TILE_DEFS);
-const SAVE_VERSION = 6; // 6: Geschichte (story), Lebensziele, Tagebuch
+const SAVE_VERSION = 7; // 6: Geschichte (story), Lebensziele, Tagebuch · 7: Folgen und Höhepunkte (story.episode/highlights)
 // Reihenfolge der Geländearten in älteren Spielständen (dort wurden Kacheln als Nummer gespeichert)
 const BASE_TYPES = ['grass', 'tree', 'stump', 'water', 'bush', 'camp', 'site', 'house', 'rock'];
 const OLD_TYPE_LISTS = {
@@ -1695,7 +1696,8 @@ class Simulation {
     if (this.minutes % 1440 === 360) for (const n of this.npcs) if (n.awakened) { n.newQuest(this); n.thought = `Neue tägliche Aufgabe: ${n.quest.text}.`; }
     const aw = CONFIG.awakening;
     if (!this.firstAwakening && this.day >= aw.firstDay && this.minutes % 1440 === aw.firstHour * 60) {
-      const cand = this.npcs.filter(n => !n.awakened).sort((a, b) => b.mood - a.mood)[0];
+      const h = this.story && this.story.hero; // das Licht trifft die Hauptfigur
+      const cand = h && !h.awakened ? h : this.npcs.filter(n => !n.awakened).sort((a, b) => b.mood - a.mood)[0];
       if (cand) {
         this.firstAwakening = true;
         this.log('🌠 Ein blauer Lichtstrahl fällt vom Himmel …', null, true);

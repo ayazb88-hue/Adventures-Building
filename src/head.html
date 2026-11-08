@@ -59,6 +59,29 @@
   #chapter .ch-text { max-width: 440px; font: italic 15px/1.55 Georgia, serif; color: #e8dcc0; }
   #chapter .ch-tap { margin-top: 16px; font-size: 11px; color: #ffffff66; }
   @keyframes chIn { from { opacity: 0; } to { opacity: 1; } }
+  #scene { position: absolute; inset: 0; z-index: 8; background: #000; cursor: pointer; user-select: none; -webkit-user-select: none; }
+  #scene[hidden] { display: none; }
+  #sceneCv { display: block; }
+  #sceneTitle { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px;
+    background: radial-gradient(ellipse at center, #0b0f1aee 0%, #000000f8 75%); color: #f3ead6; }
+  #sceneTitle[hidden] { display: none; }
+  #sceneTitle.in { animation: chIn 1s ease-out; }
+  #sceneTitle .st-top { letter-spacing: .4em; font-size: 12px; color: #f0b54a; font-weight: 800; }
+  #sceneTitle .st-main { font: 700 clamp(22px, 7vw, 34px)/1.2 Georgia, serif; margin: 8px 0; color: #fff4d6; text-shadow: 0 0 20px #f0b54a88; }
+  #sceneTitle .st-sub { font: italic 14px/1.4 Georgia, serif; color: #d9cfb8; max-width: 380px; }
+  #sceneSys { position: absolute; left: 50%; top: 34%; transform: translate(-50%, -50%); min-width: 60%; padding: 10px 14px; text-align: center; border: 1px solid #6fc3ffcc; border-radius: 10px;
+    background: #0a1a2ce6; color: #e8f4ff; font-weight: 700; box-shadow: 0 0 24px #3aa0ff88; }
+  #sceneSys[hidden] { display: none; }
+  #sceneSys .sys-title { font-size: 10px; letter-spacing: .25em; color: #8fd3ff; }
+  #sceneBox { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 12px;
+    background: linear-gradient(180deg, #101a2aee, #070d18f4); border: 1px solid #f0b54a88; box-shadow: 0 6px 24px #000a; min-height: 84px; }
+  #sceneBox[hidden] { display: none; }
+  #sceneBox.narr { border-color: #ffffff33; }
+  #sceneBox.narr #sceneText { font-style: italic; font-family: Georgia, serif; }
+  #sceneFace { width: 64px; height: 64px; border-radius: 10px; border: 2px solid #f0b54a99; flex: none; image-rendering: pixelated; }
+  #sceneName { font-weight: 800; font-size: 13px; margin-bottom: 3px; text-shadow: 0 1px 2px #000; }
+  #sceneText { font-size: 15px; line-height: 1.4; color: #fff; min-height: 42px; }
+  #sceneSkip { position: absolute; right: 8px; top: 8px; width: 38px; height: 38px; border-radius: 10px; border: 1px solid #ffffff33; background: #000a; color: #fff; font-size: 16px; z-index: 2; }
   #rift { position: absolute; inset: 0; z-index: 5; background: #000; }
   #rift[hidden] { display: none; }
   #riftCv { display: block; }
@@ -205,6 +228,13 @@
     <button id="chronikBtn" class="mapBtn" style="top:56px" aria-label="Chronik der Geschichte">📖</button>
     <button id="cineBtn" class="mapBtn" style="top:104px" aria-label="Erzähler-Modus">🎬</button>
     <div id="narr" hidden></div>
+    <div id="scene" hidden>
+      <canvas id="sceneCv"></canvas>
+      <div id="sceneTitle" hidden><div class="st-top"></div><div class="st-main"></div><div class="st-sub"></div></div>
+      <div id="sceneSys" hidden></div>
+      <div id="sceneBox" hidden><canvas id="sceneFace" width="64" height="64"></canvas><div><div id="sceneName"></div><div id="sceneText"></div></div></div>
+      <button id="sceneSkip" aria-label="Szene überspringen">⏭</button>
+    </div>
     <div id="rift" hidden><canvas id="riftCv"></canvas><div id="riftHud"></div><button id="riftClose" class="mapBtn" style="top:8px" aria-label="Zurück zur Karte">✕</button></div>
     <div id="chapter" hidden><div class="ch-num"></div><div class="ch-title"></div><div class="ch-text"></div><div class="ch-tap">antippen zum Weiterspielen</div></div>
     <div id="zoomBtns">
@@ -223,6 +253,7 @@
     <span id="saveInfo"></span>
     <button id="moreBtn">⚙️ Mehr</button>
     <span id="more" hidden>
+      <button id="sceneBtn">🎭 Szenen: an</button>
       <button id="styleBtn">🎨 Figuren: Pixel</button>
       <button id="exportBtn" title="Nur nötig, um auf einem anderen Gerät weiterzuspielen">📤 Kopie</button>
       <button id="importBtn">📥 Kopie laden</button>

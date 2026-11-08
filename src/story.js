@@ -48,13 +48,14 @@ const nameOf = (sim, id, fb = 'jemand') => { const n = sim.npcs.find(x => x.id =
  */
 const CHAPTERS = [
   { id: 'prolog', label: 'Prolog', title: 'Zwei Funken im Eldwald', when: () => true,
+    start(sim, st) { if (!st.heroId && !st.legacy) st.heroId = [...sim.npcs].sort((x, y) => x.id - y.id)[0].id; }, // die Hauptfigur steht von Anfang an fest
     text: sim => { const a = [...sim.npcs].sort((x, y) => x.id - y.id).slice(0, 2).map(n => n.name); return `Am Rand des Eldwalds entzünden ${a.join(' und ')} ein Lagerfeuer. Zwei Äxte, ein Beutel Beeren und eine Hoffnung: Hier soll ein Zuhause entstehen.`; },
     hint: 'Sammelt Holz für das erste Haus.' },
   { id: 'dach', req: 'prolog', title: 'Das erste Dach', when: sim => sim.allHouses.some(b => b.type === 'house'),
     text: () => 'Das erste Haus steht. Es ist schief, es zieht durch die Ritzen – und doch ist es der schönste Ort der Welt. Der Rauch aus dem Schornstein lockt die ersten Fremden an.',
     hint: 'Eines Nachts wird etwas vom Himmel fallen …' },
-  { id: 'licht', req: 'dach', title: 'Das Licht vom Himmel', when: sim => sim.npcs.some(n => n.awakened),
-    start(sim, st) { if (!st.hero) { const h = sim.npcs.filter(n => n.awakened).sort((a, b) => b.level - a.level || a.id - b.id)[0]; st.heroId = h.id; } },
+  { id: 'licht', req: 'dach', title: 'Das Licht vom Himmel', when: (sim, st) => st.hero ? st.hero.awakened : sim.npcs.some(n => n.awakened),
+    start(sim, st) { if (!st.hero || !st.hero.awakened) { const h = sim.npcs.filter(n => n.awakened).sort((a, b) => b.level - a.level || a.id - b.id)[0]; st.heroId = h.id; } },
     text: (sim, st) => `Ein blauer Lichtstrahl. ${st.H} spürt, wie die Welt den Atem anhält. Vor den Augen schwebt ein Fenster, das niemand sonst sehen kann: [ Du bist erwacht. ] Von nun an ist ${st.H} die Hauptfigur dieser Chronik.`,
     hint: 'Hinter den Rissen lauert etwas. In der dritten Nacht …' },
   { id: 'rissnacht', req: 'licht', title: 'Die erste Rissnacht', when: (sim, st) => sim.monsters.length > 0 || (st.legacy && sim.day > CONFIG.monsters.fromDay),
@@ -151,7 +152,7 @@ class Story {
   constructor(sim, data, legacy) {
     this.sim = sim;
     Object.assign(this, { done: {}, chronicle: [], heroId: null, rivalId: null, smithId: null, legend: null, ruinCall: false,
-      duel: { count: 0, heroWins: 0, last: 0 }, redGate: null, bossNight: null, bossHp: null, bossSpawned: false, bossDead: false, bossKiller: null }, data || {});
+      duel: { count: 0, heroWins: 0, last: 0 }, highlights: [], episode: 0, redGate: null, bossNight: null, bossHp: null, bossSpawned: false, bossDead: false, bossKiller: null }, data || {});
     this.legacy = !data && legacy; // alter Spielstand: bisher Erreichtes still nachtragen
     if (this.redGate != null && !this.bossDead && sim.world.gates[this.redGate]) sim.world.gates[this.redGate].gate.red = true;
     sim.on('legendary', ({ n, item }) => { if (!this.legend) this.legend = { smith: n.name, item: item.name }; });
@@ -274,7 +275,7 @@ class Story {
     const d = this.duel;
     // wer verliert, lernt dazu: jede Niederlage macht die Hauptfigur zäher
     const pow = (x, bonus) => x.level * 3 + x.attack * 0.6 + x.defense * 0.4 + x.stats.geschick + bonus + sim.rng() * 14;
-    const heroWins = pow(h, (d.count - d.heroWins) * 10) >= pow(r, 0);
+    const heroWins = pow(h, (d.count - d.heroWins) * 16) >= pow(r, 0); // Underdog: wer verliert, kommt stärker zurück
     d.count++; d.last = sim.day; if (heroWins) d.heroWins++;
     const [win, lose] = heroWins ? [h, r] : [r, h];
     const lines = heroWins

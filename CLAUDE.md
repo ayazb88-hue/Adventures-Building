@@ -29,6 +29,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
   | `src/story.js` | Handlung: Kapitel der Chronik, Hauptfigur, Rivale + Duelle, Boss „Kronenfresser“, Lebensziele, Spieler-Gedanken, Tagebuch |
   | `src/sound.js` | Live erzeugter Klang |
   | `src/rift.js` | Riss-Welten: eigene Szene je Riss, wenn eine ausgewählte Person im Riss ist |
+  | `src/scene.js` | Anime-Modus: Szenen (Bühne, Porträt-Dialoge, Effekte), Persönlichkeiten (`LINES`), Drehbücher (`SCENES`), Folgen und Regisseur (`directorTick`, `directorEvents`) |
   | `src/ui.js` | HUD, Log, Steckbriefe, Hauptschleife, Start |
 - Bauen: `python3 build.py --check` (baut `index.html` und prüft die Syntax).
 - Testen: `node tools/simtest.js 14 7,42` (simuliert Welten, meldet Fehler, abgeschnittene Siedler und Kennzahlen). Vor jedem Commit ausführen.
@@ -50,5 +51,6 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
 3. ✅ Stein und neue Gebäude: Steinmetze und Steinbruch, Wachtürme (schießen auf Monster), Taverne (Abendtreff, Musik, kostet Münzen), Tempel (Heilung, Laune). Offen: Stadtmauer
 3b. ✅ Handlung (Kapitel, Hauptfigur, Rivale, roter Riss, Boss), Info-Fenster im Anime-Stil, Riss-Welten, Gebäude-Stufen I–III, Verstärkung +1…+10, Forsthaus, Bauernhof, Gildenhalle (Gilden-Stufe), Haustiere und Zähmen, Erzähler-Kamera
 4. 🔶 Banditen ✅ (Rotschal-Bande überfällt das Lager, Hauptmann ab Tag 12), Handel mit Lagerwaren ✅. Offen: rivalisierende Königreiche, Diplomatie, Belagerung
+4b. ✅ Anime-Modus: Folgen mit Titel/Rückblick/Cliffhanger, Szenen mit Porträt-Dialogen und Effekten, Regisseur, Persönlichkeiten, Musik-Motive, Hauptfigur von Anfang an. Ideen: mehr Szenen (Treue-Schwur, Gilden-Versammlung, Tagebuch-Monolog), Gesichtsausdrücke direkt im Pixel-Gesicht, Vorspann-Lied
 5. Bosse aus Rissen höheren Rangs, Gruppen-Expeditionen der Gilde
 6. Optional: wenige Erwachte denken mit einem echten Sprachmodell (nur mit API-Schlüssel, sparsam)

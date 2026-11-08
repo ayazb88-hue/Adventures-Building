@@ -586,7 +586,9 @@ function startSim(s) {
   sim.on('legendary', ({ n }) => { renderer.burst(n, 'legendary'); sound.levelUp(); setTimeout(() => sound.levelUp(), 250); });
   sim.on('awaken', n => { n.cheerUntil = performance.now() + 2200; renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
   sim.on('npcAdded', buildRoster);
-  sim.on('chapter', ch => { if (ui.catchingUp && !ch.recap) { ui.chapters = [...(ui.chapters || []), ch]; return; } if (!$('chapter').hidden) (ui.chapters ||= []).push(ch); else showChapter(ch); cineMoment(sim.story.hero); });
+  directorEvents(sim);
+  // im Anime-Modus übernimmt die Szene das Kapitel
+  sim.on('chapter', ch => { if (scn.on && !ch.recap) return; if (ui.catchingUp && !ch.recap) { ui.chapters = [...(ui.chapters || []), ch]; return; } if (!$('chapter').hidden) (ui.chapters ||= []).push(ch); else showChapter(ch); cineMoment(sim.story.hero); });
   sim.on('duel', ({ a }) => cineMoment(a));
   sim.on('boss', () => { sound.levelUp(); ui.cineEvent = null; });
   for (const ev of ['levelup', 'awaken']) sim.on(ev, cineMoment);
@@ -596,6 +598,7 @@ function startSim(s) {
     if (ui.speed <= 2) sound.chop(Math.hypot(t.x - cx, t.y - cy));
   });
   if (ui.rift) closeRift(false);
+  scn.q = []; scn.cur = null; if ($('scene')) $('scene').hidden = true;
   ui.selected = null; ui.selTile = null; ui.accum = 0; ui.sysQueue = []; ui.chapters = []; ui.cineTarget = null; $('chapter').hidden = true;
   if (renderer) renderer.setSim(sim);
   else { renderer = new Renderer($('map'), sim); renderer.onTap = (n, t, m) => { if (m) selectMonster(m); else if (n) select(n); else if (t) selectTile(t); }; }
@@ -634,12 +637,15 @@ function frame(now) {
   last = now;
   ui.accum += dt * ui.speed * CONFIG.time.minutesPerSecond;
   if (ui.catchingUp) ui.accum = 0;
-  while (ui.accum >= 1) { sim.step(); ui.accum -= 1; }
+  while (ui.accum >= 1) { sim.step(); directorTick(); ui.accum -= 1; if (scn.cur) { ui.accum = 0; break; } }
+  if (scn.cur) ui.accum = 0; // während einer Szene steht die Welt still
   renderer.render(ui.speed ? ui.accum : 1, ui.selected, ui.selTile);
   showSystem(now);
   const sn = ui.selected; // ausgewählte Person betritt gerade einen Riss → Riss-Welt zeigen
   if (sn && !ui.rift && sn.inside && sn.inside.gate && ui.riftClosedFor !== sn) openRift(sn);
   drawRift(now);
+  if (ui.welcomeEpisode && !ui.catchingUp && sim.story.hero) { ui.welcomeEpisode = false; sim.story.episode = sim.day; playScene(SCENES.episode(sim.day), 2); } // Begrüßung mit „Was bisher geschah“
+  drawScene(now);
   if (now - lastMini > 400) { renderer.drawMinimap($('minimap').getContext('2d'), MINI); lastMini = now; }
   sound.update(sim, renderer);
   updateHud();
@@ -657,6 +663,11 @@ $('importBtn').addEventListener('click', importGame);
 $('modalClose').addEventListener('click', () => { $('modal').hidden = true; });
 $('chronikBtn').addEventListener('click', openChronik);
 $('riftClose').addEventListener('click', () => closeRift(true));
+$('scene').addEventListener('click', e => { if (e.target.id !== 'sceneSkip') sceneTap(); });
+$('sceneSkip').addEventListener('click', () => { scn.q = []; scn.cur = null; $('scene').hidden = true; });
+const applyScenes = () => { scn.on = store('siedlung-szenen') !== '0'; $('sceneBtn').textContent = `🎭 Szenen: ${scn.on ? 'an' : 'aus'}`; };
+$('sceneBtn').addEventListener('click', () => { store('siedlung-szenen', scn.on ? '0' : '1'); applyScenes(); });
+applyScenes();
 $('cineBtn').addEventListener('click', () => setCine(!ui.cine));
 $('chapter').addEventListener('click', hideChapter);
 $('moreBtn').addEventListener('click', () => { $('more').hidden = !$('more').hidden; });
@@ -682,11 +693,11 @@ const urlSeed = Number(new URLSearchParams(location.search).get('seed'));
 const saved = loadGame();
 if (Number.isFinite(urlSeed) && urlSeed > 0) newWorld(urlSeed);
 else if (saved) {
-  try { startSim(new Simulation(saved.seed, saved)); sim.log('💾 Spielstand geladen – willkommen zurück!', null, true); ui.loadedAt = saved.savedAt || 1; catchUp(saved.savedAt); }
+  try { startSim(new Simulation(saved.seed, saved)); ui.welcomeEpisode = true; sim.log('💾 Spielstand geladen – willkommen zurück!', null, true); ui.loadedAt = saved.savedAt || 1; catchUp(saved.savedAt); }
   catch (e) { newWorld(Math.floor(Math.random() * 1e6)); }
 } else newWorld(Math.floor(Math.random() * 1e6));
 applyStyle();
-setCine(store('siedlung-cine') === '1');
+setCine(store('siedlung-cine') !== '0'); // Zuschauer-Modus ist Standard
 requestAnimationFrame(frame);
 
 // Als App installierbar und offline nutzbar (nur auf der echten Webseite, z. B. GitHub Pages)
