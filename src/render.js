@@ -1103,11 +1103,11 @@ class Renderer {
   }
 
   drawGate(c, t, s, now) {
-    const cx = (t.x + 0.5) * s, cy = (t.y + 0.5) * s, g = t.gate;
-    const col = g.red ? '255,40,30' : ['', '120,200,255', '190,130,255', '255,95,130'][g.tier];
+    const cx = (t.x + 0.5) * s, cy = (t.y + 0.5) * s, g = t.gate, S = isSRift(this.sim, t) && !this.sim.srift.broken;
+    const col = g.red ? '255,40,30' : S ? '255,200,60' : ['', '120,200,255', '190,130,255', '255,95,130'][g.tier];
     c.fillStyle = '#6f6a62';
     for (let k = 0; k < 9; k++) { const a = k / 9 * TAU; c.beginPath(); c.ellipse(cx + Math.cos(a) * s * 0.55, cy + 0.3 * s + Math.sin(a) * s * 0.2, s * 0.08, s * 0.055, 0, 0, TAU); c.fill(); }
-    const big = g.red ? 1.5 : 1, rx = s * 0.32 * big, ry = s * 0.55 * big, pulse = 1 + Math.sin(now / (g.red ? 180 : 400) + t.x) * (g.red ? 0.12 : 0.05), py = cy - s * 0.2 * big;
+    const big = g.red ? 1.5 : S ? 1.4 : 1, rx = s * 0.32 * big, ry = s * 0.55 * big, pulse = 1 + Math.sin(now / (g.red ? 180 : 400) + t.x) * (g.red ? 0.12 : 0.05), py = cy - s * 0.2 * big;
     const grad = c.createRadialGradient(cx, py, 0, cx, py, ry * 1.3 * pulse);
     grad.addColorStop(0, 'rgba(255,255,255,.95)'); grad.addColorStop(0.3, `rgba(${col},.85)`); grad.addColorStop(1, `rgba(${col},0)`);
     c.fillStyle = grad; c.beginPath(); c.ellipse(cx, py, rx * 1.35 * pulse, ry * 1.2 * pulse, 0, 0, TAU); c.fill();
@@ -1117,8 +1117,14 @@ class Renderer {
       c.strokeStyle = `rgba(${col},${0.85 - k * 0.2})`;
       c.beginPath(); c.ellipse(0, 0, rx * (1 - k * 0.25), ry * (1 - k * 0.25), 0, r0, r0 + 4.3); c.stroke();
     }
+    if (S) { // S-Rang: schwarzer Kern, goldene Blitze
+      c.fillStyle = 'rgba(12,6,20,.9)'; c.beginPath(); c.ellipse(0, 0, rx * 0.42 * pulse, ry * 0.55 * pulse, 0, 0, TAU); c.fill();
+      c.strokeStyle = 'rgba(255,225,120,.95)'; c.lineWidth = Math.max(1, s * 0.025);
+      for (let k = 0; k < 3; k++) { const a = now / 700 + k * 2.1, r1 = ry * 0.5, r2 = ry * 1.25; c.beginPath(); c.moveTo(Math.cos(a) * r1 * 0.6, Math.sin(a) * r1); c.lineTo(Math.cos(a + 0.3) * r2 * 0.55, Math.sin(a + 0.3) * r2 * 0.8); c.lineTo(Math.cos(a + 0.15) * r2 * 0.75, Math.sin(a + 0.15) * r2); c.stroke(); }
+      c.fillStyle = '#ffe08a'; c.font = `bold ${Math.round(s * 0.42)}px sans-serif`; c.textAlign = 'center'; c.fillText('S', 0, -ry * 1.35);
+    }
     c.restore();
-    if (Math.random() < 0.12) this.emit('spark', t.x + 0.5 + rand(-0.25, 0.25), t.y + 0.3, { vx: rand(-0.1, 0.1), vy: -rand(0.2, 0.6), life: rand(0.8, 1.6), size: 0.025, rgb: col });
+    if (Math.random() < (S ? 0.4 : 0.12)) this.emit('spark', t.x + 0.5 + rand(-0.25, 0.25), t.y + 0.3, { vx: rand(-0.1, 0.1), vy: -rand(0.2, 0.6), life: rand(0.8, 1.6), size: 0.025, rgb: col });
   }
 
   /** Sichtbare Vorräte vor dem Lagerhaus – wachsen mit dem Bestand. */
@@ -1734,11 +1740,11 @@ class Renderer {
           }
           if (e.cart) { drawCart(c, e.cart, s, now, (e.fx + 0.5) * s, (e.fy + 0.85) * s); continue; }
           if (e.monster) {
-            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s, bs = m.boss ? s * 2.1 : m.kind === 'banditenboss' || m.kind === 'feldherr' ? s * 1.25 : s; // Boss: doppelt so groß
+            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s, bs = m.boss || m.riftBoss ? s * 2.1 : m.kind === 'banditenboss' || m.kind === 'feldherr' ? s * 1.25 : s; // Boss: doppelt so groß
             const look = m.boss ? 'aschegolem' : m.kind;
-            if (m.boss) { // rotes Glühen um den Kronenfresser
-              const gl = c.createRadialGradient(mx, my - bs * 0.4, 0, mx, my - bs * 0.4, bs * 0.9);
-              gl.addColorStop(0, 'rgba(255,40,20,.35)'); gl.addColorStop(1, 'rgba(255,40,20,0)');
+            if (m.boss || m.riftBoss) { // Glühen um den Boss: rot (Kronenfresser) bzw. gold (Riss-Boss)
+              const gl = c.createRadialGradient(mx, my - bs * 0.4, 0, mx, my - bs * 0.4, bs * 0.9), gc = m.riftBoss ? '255,200,60' : '255,40,20';
+              gl.addColorStop(0, `rgba(${gc},.35)`); gl.addColorStop(1, `rgba(${gc},0)`);
               c.fillStyle = gl; c.fillRect(mx - bs, my - bs * 1.4, bs * 2, bs * 1.6);
             }
             c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(mx, my, bs * 0.3, bs * 0.08, 0, 0, TAU); c.fill();
@@ -1747,13 +1753,13 @@ class Renderer {
               if (m.boss) c.filter = 'hue-rotate(-25deg) saturate(1.6) brightness(.85)';
               drawPixelCreature(c, look, mx, my, bs, m.facing, fr, m.attackAt && now - m.attackAt < 300, m.hitAt && now - m.hitAt < 140);
               if (m.boss) c.filter = 'none';
-            } else { c.save(); c.translate(mx, my); drawMonsterShape(c, m.boss ? { ...m, kind: look } : m, bs, now); c.restore(); }
+            } else { c.save(); c.translate(mx, my); drawMonsterShape(c, m.boss || m.riftBoss ? { ...m, kind: 'aschegolem' } : m, bs, now); c.restore(); }
             if (m.bandit && m.loot && Object.values(m.loot).some(v => v > 0)) { // Beutesack auf dem Rücken
               const sx = mx - m.facing * bs * 0.2, sy = my - bs * 0.55;
               c.fillStyle = '#c9b48a'; c.beginPath(); c.ellipse(sx, sy, bs * 0.11, bs * 0.13, 0, 0, TAU); c.fill(); c.strokeStyle = '#5a4428'; c.lineWidth = Math.max(1, s * 0.02); c.stroke();
               c.fillStyle = '#f0c35a'; c.beginPath(); c.arc(sx, sy - bs * 0.13, bs * 0.03, 0, TAU); c.fill();
             }
-            const bw = bs * 0.7, by = my - bs * (look === 'aschegolem' ? 1.15 : m.bandit || m.army ? 1.0 : 0.75);
+            const bw = bs * 0.7, by = my - bs * (look === 'aschegolem' || m.riftBoss ? 1.15 : m.bandit || m.army ? 1.0 : 0.75);
             c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(mx - bw / 2, by, bw, Math.max(3, s * 0.07));
             c.fillStyle = '#e04848'; c.fillRect(mx - bw / 2, by, bw * Math.max(0, m.hp / m.maxHp), Math.max(3, s * 0.07));
             continue;
@@ -1871,7 +1877,7 @@ class Renderer {
       for (const tw of sim.towns) glow((tw.camp.x + 0.58) * s, (tw.camp.y + 0.55) * s, s * 3 * fl, na * 0.5);
       for (const b of sim.allHouses) if (b.residents.length) glow((b.tile.x + 0.5) * s, (b.tile.y + 0.5) * s, s, na * 0.3);
       for (const g of sim.world.gates) {
-        const col = ['', '120,200,255', '190,130,255', '255,95,130'][g.gate.tier], gx = (g.x + 0.5) * s, gy = (g.y + 0.3) * s, r = s * 2.2;
+        const col = isSRift(sim, g) ? '255,200,60' : ['', '120,200,255', '190,130,255', '255,95,130'][g.gate.tier], gx = (g.x + 0.5) * s, gy = (g.y + 0.3) * s, r = s * 2.2;
         const gr = c.createRadialGradient(gx, gy, 0, gx, gy, r); gr.addColorStop(0, `rgba(${col},${na * 0.6})`); gr.addColorStop(1, `rgba(${col},0)`);
         c.fillStyle = gr; c.fillRect(gx - r, gy - r, r * 2, r * 2);
       }

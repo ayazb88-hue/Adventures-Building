@@ -45,8 +45,9 @@ function drawRift(now) {
   // --- Kampf und Bewegung (nur Anzeige) ---
   const sp = ui.speed || 1;
   if (!R.mob && now > R.nextMob) {
-    const boss = p > 0.8 && !R.bossDone, kind = RIFT_MOBS[Math.min(3, g.tier + (boss ? 1 : 0))] || 'aschegolem';
-    R.mob = { x: W + s * 0.6, kind, boss, hp: boss ? 9 : 2 + g.tier, maxHp: boss ? 9 : 2 + g.tier, hitAt: 0, atkAt: 0, nextAtk: now + 900, dead: false };
+    const boss = p > 0.8 && !R.bossDone, ex = n.inside.group && sim.expedition, named = boss && ex ? bossKindOf(ex.boss) : null;
+    const kind = named || RIFT_MOBS[Math.min(3, g.tier + (boss ? 1 : 0))] || 'aschegolem';
+    R.mob = { x: W + s * 0.6, kind, boss, named: boss && ex ? ex.boss : null, hp: boss ? 9 : 2 + g.tier, maxHp: boss ? 9 : 2 + g.tier, hitAt: 0, atkAt: 0, nextAtk: now + 900, dead: false };
   }
   const m = R.mob;
   let walking = !m || m.x > hx + s * 1.5, fighting = false;
@@ -148,13 +149,13 @@ function drawRift(now) {
     const ms = m.boss ? s * 1.9 : s * (m.kind === 'aschegolem' ? 1.1 : 1);
     c.globalAlpha = m.dead ? Math.max(0, 1 - (now - m.deadAt) / 700) : 1;
     c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(m.x, gy + s * 0.02, ms * 0.3, ms * 0.07, 0, 0, TAU); c.fill();
-    if (m.boss) c.filter = 'hue-rotate(-30deg) saturate(1.5)';
+    if (m.boss && !RIFT_BOSSES[m.kind]) c.filter = 'hue-rotate(-30deg) saturate(1.5)';
     drawPixelCreature(c, m.kind, m.x, gy, ms, -1, m.dead ? 0 : Math.floor(now / 150) & 3, now - m.atkAt < 300, now - m.hitAt < 120);
     c.filter = 'none'; c.globalAlpha = 1;
     if (!m.dead) {
-      const bw = ms * 0.6, by = gy - ms * (m.kind === 'aschegolem' ? 1.25 : 0.8);
+      const bw = ms * 0.6, by = gy - ms * (m.kind === 'aschegolem' || RIFT_BOSSES[m.kind] ? 1.25 : 0.8);
       c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(m.x - bw / 2, by, bw, 5); c.fillStyle = '#e04848'; c.fillRect(m.x - bw / 2, by, bw * m.hp / m.maxHp, 5);
-      if (m.boss) { c.font = 'bold 12px sans-serif'; c.textAlign = 'center'; c.fillStyle = '#ff9a9a'; c.fillText('Wächter des Risses', m.x, by - 6); }
+      if (m.boss) { c.font = 'bold 12px sans-serif'; c.textAlign = 'center'; c.fillStyle = '#ff9a9a'; c.fillText(m.named ? `Riss-Boss „${m.named}“` : 'Wächter des Risses', m.x, by - 6); }
     }
   }
   // Partikel und Zahlen

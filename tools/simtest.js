@@ -11,14 +11,14 @@ const days = Number(process.argv[2] || 14), seeds = (process.argv[3] || '7,42').
   for (const seed of seeds) {
     await p.goto(`${url}?seed=${seed}`);
     const r = await p.evaluate(d => {
-      const s = SIM, t0 = performance.now();
+      const s = SIM, t0 = performance.now(), sev = []; s.on('srift', e => sev.push(`${e.phase}@${s.day}`));
       for (let i = 0; i < 1440 * d; i++) s.step();
       const w = s.world, cut = s.towns.map(tw => { const reach = new Set(); w.bfs(tw.camp.x, tw.camp.y + 1, (x, y) => { reach.add(y * w.w + x); return null; });
         return tw.members.filter(n => !n.inside && !reach.has(Math.round(n.y) * w.w + Math.round(n.x))).length; });
       return { ms: Math.round(performance.now() - t0), pop: s.npcs.length, towns: s.towns.map(t => `${t.name}:${t.members.length}/${t.houses.length}h`).join(' '),
         kingdom: s.kingdom && s.kingdom.name, castle: !!s.capital.castle, awakened: s.npcs.filter(n => n.awakened).map(n => `${n.name} L${n.level} ${n.cls || '-'}`).join(', '),
         avgHunger: Math.round(s.npcs.reduce((a, n) => a + n.hunger, 0) / s.npcs.length), cutOff: cut.join('/'),
-        story: s.story.chronicle.map(c => `${c.id}@${c.day}`).join(' '), duels: `${s.story.duel.heroWins}/${s.story.duel.count}`, realm: s.realm.rival ? `${s.realm.rival.name} ${s.realm.rival.state} rel${s.realm.rival.relation} bel${s.realm.sieges}/${s.realm.siegeWins} mauer${s.realm.wall ? Math.round(s.realm.wall.progress * 100) : '-'}%` : '-', boss: s.story.bossDead ? 'besiegt' : s.story.bossHp != null ? `lebt ${s.story.bossHp}` : '-' };
+        story: s.story.chronicle.map(c => `${c.id}@${c.day}`).join(' '), duels: `${s.story.duel.heroWins}/${s.story.duel.count}`, realm: s.realm.rival ? `${s.realm.rival.name} ${s.realm.rival.state} rel${s.realm.rival.relation} bel${s.realm.sieges}/${s.realm.siegeWins} mauer${s.realm.wall ? Math.round(s.realm.wall.progress * 100) : '-'}%` : '-', boss: s.story.bossDead ? 'besiegt' : s.story.bossHp != null ? `lebt ${s.story.bossHp}` : '-', srang: `${s.sriftWins || 0} bezwungen, offen: ${s.srift ? s.srift.kind + (s.srift.broken ? ' AUSGEBROCHEN hp' + s.srift.hp : '') : '-'}, raids ${s.raidWins || 0}, ${sev.join(' ')}` };
     }, days);
     console.log(`Welt ${seed}:`, JSON.stringify(r));
   }

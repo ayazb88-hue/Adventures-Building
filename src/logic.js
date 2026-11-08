@@ -573,6 +573,7 @@ function killMonster(m, n, sim) {
   sim.log(`⚔️ besiegt einen ${M.name}! (+${M.xp} EP${drop ? `, +${drop} 💎` : ''})`, n, true);
   sim.emit('system', `${M.name} besiegt!`);
   sim.emit('monsterKilled', m);
+  if (m.riftBoss) sriftCleared(sim, n, 'break');
   n.kills = (n.kills || 0) + 1;
   n.gainXp('combat', 1);
   n.addXp(sim, M.xp);
@@ -655,7 +656,7 @@ defineAction({
   describe: n => n.gateTarget ? `bricht zum ${n.gateTarget.gate.name} auf (Rang ${roman(n.gateTarget.gate.tier)})` : 'bricht zu einem Riss auf',
   plan(n, sim) {
     const maxTier = 1 + Math.floor((n.level - CONFIG.gates.minLevel) / 3);
-    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'gate' && t.gate.tier <= maxTier);
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'gate' && t.gate.tier <= maxTier && !isSRift(sim, t));
     if (!res) return null;
     const gate = res.target;
     n.gateTarget = gate;
@@ -1200,7 +1201,7 @@ class NPC {
  * 7) SIMULATION: Zeit, Wetter, Wachstum, Ereignisse, Log, Speichern
  * ===================================================================== */
 const TILE_TYPES = Object.keys(TILE_DEFS);
-const SAVE_VERSION = 9; // 6: Geschichte · 7: Folgen und Höhepunkte · 8: Nachbarreich, Diplomatie, Stadtmauer (realm) · 9: Erfolge, Gruppen-Expeditionen
+const SAVE_VERSION = 10; // 10: S-Rang-Risse · 6: Geschichte · 7: Folgen und Höhepunkte · 8: Nachbarreich, Diplomatie, Stadtmauer (realm) · 9: Erfolge, Gruppen-Expeditionen
 // Reihenfolge der Geländearten in älteren Spielständen (dort wurden Kacheln als Nummer gespeichert)
 const BASE_TYPES = ['grass', 'tree', 'stump', 'water', 'bush', 'camp', 'site', 'house', 'rock'];
 const OLD_TYPE_LISTS = {
@@ -1592,8 +1593,8 @@ class Simulation {
     if (this.minutes % 1440 === 6 * 60 && this.monsters.length) {
       const boss = this.monsters.find(m => m.boss);
       if (boss) this.story.bossRetreat(boss);
-      if (this.monsters.some(m => !m.boss)) this.log('☀️ Die Rissmonster zerfallen im Morgenlicht zu Asche.', null, true);
-      this.monsters = [];
+      if (this.monsters.some(m => !m.boss && !m.riftBoss)) this.log('☀️ Die Rissmonster zerfallen im Morgenlicht zu Asche.', null, true);
+      this.monsters = this.monsters.filter(m => m.riftBoss); // Riss-Bosse trotzen dem Licht
     }
     if (this.day >= cfg.fromDay && (h >= 22 || h < 4) && this.minutes % 60 === 0) {
       for (const g of this.world.gates) {
@@ -1733,7 +1734,8 @@ class Simulation {
     this.story.update();
     this.realm.update();
     if (this.minutes % 60 === 15) checkAchievements(this);
-    if (this.minutes % 1440 === 8 * 60 && this.day % 3 === 0 && this.day !== this.lastRaidDay) startGroupRaid(this);
+    sriftTick(this);
+    if (this.minutes % 1440 === 8 * 60 && (this.day % 3 === 0 || (this.srift && !this.srift.broken)) && this.day !== this.lastRaidDay) startGroupRaid(this);
     if (this.expedition && this.minutes - this.expedition.start > 600) { if (!this.expedition.done) finishGroupRaid(this); this.expedition = null; } // Sicherheitsnetz
     this.updateMonsters();
     this.updateTowers();
@@ -1754,7 +1756,7 @@ class Simulation {
     return {
       v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock, items: t.items || [],
         site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work, upgrade: t.site.upgrade ? t.site.upgrade.id : null } })),
-      story: this.story.serialize(), realm: this.realm.serialize(), achievements: this.achievements || [], raidWins: this.raidWins || 0, lastRaidDay: this.lastRaidDay || 0, guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
+      story: this.story.serialize(), realm: this.realm.serialize(), achievements: this.achievements || [], raidWins: this.raidWins || 0, lastRaidDay: this.lastRaidDay || 0, srift: this.srift || null, sriftWins: this.sriftWins || 0, nextSRift: this.nextSRift || 0, guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
       seed: this.seed, minutes: this.minutes, weather: this.weather, firstAwakening: this.firstAwakening,
       gates: this.world.gates.map(g => [g.gate.cleared, g.gate.failed]),
@@ -1839,7 +1841,7 @@ class Simulation {
       if (!tw.site.upgrade) { tw.site.tile.siteRef = null; tw.site = null; }
     }
     this.logEntries = (d.log || []).map(e => ({ ...e, npc: this.npcs.find(n => n.id === e.npc) || null }));
-    this.achievements = d.achievements || []; this.raidWins = d.raidWins || 0; this.lastRaidDay = d.lastRaidDay || 0;
+    this.achievements = d.achievements || []; this.raidWins = d.raidWins || 0; this.lastRaidDay = d.lastRaidDay || 0; this.srift = d.srift || null; this.sriftWins = d.sriftWins || 0; this.nextSRift = d.nextSRift || 0;
     this.guild = d.guild || null; this.tomeFound = !!d.tomeFound; this.ruinsSearched = d.ruinsSearched || 0;
     (d.searched || []).forEach(i => { if (w.tiles[i]) w.tiles[i].searched = true; });
     for (const t of this.towns) t.recount();

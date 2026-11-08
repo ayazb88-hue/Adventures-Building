@@ -289,11 +289,21 @@ const SCENES = {
     return [BG('burg'), CAST(...(h ? [{ n: h, x: 0.35, pose: 'cheer' }] : []), ...(f ? [{ n: f, x: 0.65, face: -1, pose: 'cheer' }] : [])), FX('flash'), SND('triumph'), SHOUT('DIE MAUER STEHT!', '#d8d4cc'),
       N(`Stein auf Stein, Tag für Tag – nun umschließt eine Mauer ${sim.capital.name}.`), ...(f ? [S(f, voice(f, 'jubel'), 'lachen')] : [])];
   },
+  srift(e) {
+    const h = sim.story.hero, aw = sim.npcs.filter(n => n.awakened && n !== h).sort((a, b) => b.level - a.level).slice(0, 2);
+    if (e.phase === 'open') return [BG('riss'), CAST({ kind: e.kind, x: 0.75, face: -1, scale: 2 }, ...(h ? [{ n: h, x: 0.25 }] : [])), FX('shake'), SND('spannung'),
+      SYS(`[ WARNUNG ] Der Riss „${e.gate.name}“ hat RANG S erreicht.`), SHOUT('RANG S', '#ffd34a'), N(`Gold und Schwärze wirbeln im Riss. Dahinter: „${e.name}“. Wird er nicht in drei Tagen bezwungen, bricht er aus.`),
+      ...(h ? [S(h, 'Rang S … das ist kein Riss mehr. Das ist eine Kriegserklärung.', 'schock'), S(h, 'Wir gehen zusammen. Die ganze Gilde.', 'entschlossen')] : [])];
+    if (e.phase === 'break') return [BG('nacht'), CAST({ kind: e.kind, x: 0.7, face: -1, scale: 2.2 }, ...aw.map((n, i) => ({ n, x: 0.2 + i * 0.16, pose: 'fight' }))), FX('flash'), FX('shake'), SND('kampf'),
+      SHOUT('AUSBRUCH!', '#ff5a5a'), N(`Der Riss zerreißt. „${e.name}“ tritt in unsere Welt – und das Morgenlicht kann ihm nichts anhaben.`), ...aw.slice(0, 1).map(n => S(n, 'Alle zu den Waffen! Schützt die Häuser!', 'wut'))];
+    const w = e.hero; if (!w) return null;
+    return [BG('riss'), CAST({ n: w, x: 0.4, pose: 'fight' }), FX('flash'), SND('triumph'), SYS(`S-RANG-RISS GESCHLOSSEN · „${e.name}“ BEZWUNGEN`), SHOUT('S-RANG-BEZWINGER', '#ffd34a'), S(w, voice(w, 'sieg', 'jubel'), 'lachen')];
+  },
   groupRaid(e) {
     const party = e.party.filter(n => !n.inside || e.phase !== 'start'), lead = party[0]; if (!lead) return null;
     if (e.phase === 'start') return [BG('halle'), CAST(...party.slice(0, 4).map((n, i) => ({ n, x: 0.2 + i * 0.2, face: i ? -1 : 1 }))), N(`Morgengrauen in der Gildenhalle. Heute geht niemand allein in den Riss.`),
       S(lead, `Im Riss „${e.gate.name}“ wartet „${e.boss}“. Wir holen ihn uns – zusammen!`, 'entschlossen'), ...party.slice(1, 3).map(n => S(n, voice(n, personaOf(n) === 'rivale' ? 'lager' : 'jubel', 'lager'), 'lachen')), SND('kampf'), SHOUT('AUFBRUCH!', '#8fd3ff')];
-    if (e.phase === 'win') return [BG('riss'), CAST({ kind: 'aschegolem', x: 0.78, face: -1, scale: 1.8 }, ...party.slice(0, 3).map((n, i) => ({ n, x: 0.2 + i * 0.15, pose: 'fight' }))), FX('speed'), SHOUT(`${skillShout(lead)}`), FX('shake'), FX('flash'), ACT(0, { hit: true }),
+    if (e.phase === 'win') return [BG('riss'), CAST({ kind: bossKindOf(e.boss) || 'aschegolem', x: 0.78, face: -1, scale: 1.8 }, ...party.slice(0, 3).map((n, i) => ({ n, x: 0.2 + i * 0.15, pose: 'fight' }))), FX('speed'), SHOUT(`${skillShout(lead)}`), FX('shake'), FX('flash'), ACT(0, { hit: true }),
       SND('triumph'), SYS(`RISS-BOSS „${e.boss}“ BESIEGT · +${e.crystals} 💎`), S(lead, voice(lead, 'sieg', 'jubel'), 'lachen'), ...(e.item ? [SHOUT(e.item.name, RARITIES[e.item.rarity].color)] : [])];
     return [BG('riss'), CAST(...party.slice(0, 3).map((n, i) => ({ n, x: 0.25 + i * 0.2 }))), FX('shake'), SND('traurig'), N(`„${e.boss}“ war zu stark. Blutend und erschöpft taumelt die Gruppe zurück ans Tageslicht.`), S(lead, voice(lead, 'niederlage'), 'traurig'), S(lead, 'Wir trainieren. Und dann kommen wir wieder.', 'entschlossen')];
   },
@@ -590,6 +600,7 @@ function directorEvents(s) {
   });
   s.on('loyal', e => { highlight(`${e.who.name} schwor ${e.smith.name} die Treue.`); playScene(SCENES.loyal(e), 2); });
   s.on('guildLevel', g => playScene(SCENES.guildLevel(g)));
+  s.on('srift', e => { highlight({ open: `Ein Riss erwachte zum S-Rang: „${e.name}“.`, break: `„${e.name}“ brach aus dem Riss aus.`, cleared: `„${e.name}“ wurde bezwungen.` }[e.phase]); playScene(SCENES.srift(e), 2); });
   s.on('groupRaid', e => { if (e.phase !== 'start') highlight(e.phase === 'win' ? `Die Gilde besiegte „${e.boss}“.` : `Die Gilde floh vor „${e.boss}“.`); playScene(SCENES.groupRaid(e), 2); });
   s.on('diplo', e => { if (['war', 'siegeWon', 'vassal', 'alliance'].includes(e.kind)) highlight({ war: `${e.realm.name} erklärte den Krieg.`, siegeWon: `Die Belagerung durch ${e.realm.name} wurde gebrochen.`, vassal: `${e.realm.name} unterwarf sich.`, alliance: `Bündnis mit ${e.realm.name}.` }[e.kind]); playScene(SCENES.diplo(e), e.kind === 'offer' ? 1 : 2); });
   s.on('wallDone', () => { highlight('Die Stadtmauer wurde vollendet.'); playScene(SCENES.wall(), 2); });

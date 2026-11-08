@@ -1432,6 +1432,7 @@ function killMonster(m, n, sim) {
   sim.log(`⚔️ besiegt einen ${M.name}! (+${M.xp} EP${drop ? `, +${drop} 💎` : ''})`, n, true);
   sim.emit('system', `${M.name} besiegt!`);
   sim.emit('monsterKilled', m);
+  if (m.riftBoss) sriftCleared(sim, n, 'break');
   n.kills = (n.kills || 0) + 1;
   n.gainXp('combat', 1);
   n.addXp(sim, M.xp);
@@ -1514,7 +1515,7 @@ defineAction({
   describe: n => n.gateTarget ? `bricht zum ${n.gateTarget.gate.name} auf (Rang ${roman(n.gateTarget.gate.tier)})` : 'bricht zu einem Riss auf',
   plan(n, sim) {
     const maxTier = 1 + Math.floor((n.level - CONFIG.gates.minLevel) / 3);
-    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'gate' && t.gate.tier <= maxTier);
+    const res = sim.world.findAdjacent(n.x, n.y, t => t.type === 'gate' && t.gate.tier <= maxTier && !isSRift(sim, t));
     if (!res) return null;
     const gate = res.target;
     n.gateTarget = gate;
@@ -2059,7 +2060,7 @@ class NPC {
  * 7) SIMULATION: Zeit, Wetter, Wachstum, Ereignisse, Log, Speichern
  * ===================================================================== */
 const TILE_TYPES = Object.keys(TILE_DEFS);
-const SAVE_VERSION = 9; // 6: Geschichte · 7: Folgen und Höhepunkte · 8: Nachbarreich, Diplomatie, Stadtmauer (realm) · 9: Erfolge, Gruppen-Expeditionen
+const SAVE_VERSION = 10; // 10: S-Rang-Risse · 6: Geschichte · 7: Folgen und Höhepunkte · 8: Nachbarreich, Diplomatie, Stadtmauer (realm) · 9: Erfolge, Gruppen-Expeditionen
 // Reihenfolge der Geländearten in älteren Spielständen (dort wurden Kacheln als Nummer gespeichert)
 const BASE_TYPES = ['grass', 'tree', 'stump', 'water', 'bush', 'camp', 'site', 'house', 'rock'];
 const OLD_TYPE_LISTS = {
@@ -2451,8 +2452,8 @@ class Simulation {
     if (this.minutes % 1440 === 6 * 60 && this.monsters.length) {
       const boss = this.monsters.find(m => m.boss);
       if (boss) this.story.bossRetreat(boss);
-      if (this.monsters.some(m => !m.boss)) this.log('☀️ Die Rissmonster zerfallen im Morgenlicht zu Asche.', null, true);
-      this.monsters = [];
+      if (this.monsters.some(m => !m.boss && !m.riftBoss)) this.log('☀️ Die Rissmonster zerfallen im Morgenlicht zu Asche.', null, true);
+      this.monsters = this.monsters.filter(m => m.riftBoss); // Riss-Bosse trotzen dem Licht
     }
     if (this.day >= cfg.fromDay && (h >= 22 || h < 4) && this.minutes % 60 === 0) {
       for (const g of this.world.gates) {
@@ -2592,7 +2593,8 @@ class Simulation {
     this.story.update();
     this.realm.update();
     if (this.minutes % 60 === 15) checkAchievements(this);
-    if (this.minutes % 1440 === 8 * 60 && this.day % 3 === 0 && this.day !== this.lastRaidDay) startGroupRaid(this);
+    sriftTick(this);
+    if (this.minutes % 1440 === 8 * 60 && (this.day % 3 === 0 || (this.srift && !this.srift.broken)) && this.day !== this.lastRaidDay) startGroupRaid(this);
     if (this.expedition && this.minutes - this.expedition.start > 600) { if (!this.expedition.done) finishGroupRaid(this); this.expedition = null; } // Sicherheitsnetz
     this.updateMonsters();
     this.updateTowers();
@@ -2613,7 +2615,7 @@ class Simulation {
     return {
       v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock, items: t.items || [],
         site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work, upgrade: t.site.upgrade ? t.site.upgrade.id : null } })),
-      story: this.story.serialize(), realm: this.realm.serialize(), achievements: this.achievements || [], raidWins: this.raidWins || 0, lastRaidDay: this.lastRaidDay || 0, guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
+      story: this.story.serialize(), realm: this.realm.serialize(), achievements: this.achievements || [], raidWins: this.raidWins || 0, lastRaidDay: this.lastRaidDay || 0, srift: this.srift || null, sriftWins: this.sriftWins || 0, nextSRift: this.nextSRift || 0, guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
       seed: this.seed, minutes: this.minutes, weather: this.weather, firstAwakening: this.firstAwakening,
       gates: this.world.gates.map(g => [g.gate.cleared, g.gate.failed]),
@@ -2698,7 +2700,7 @@ class Simulation {
       if (!tw.site.upgrade) { tw.site.tile.siteRef = null; tw.site = null; }
     }
     this.logEntries = (d.log || []).map(e => ({ ...e, npc: this.npcs.find(n => n.id === e.npc) || null }));
-    this.achievements = d.achievements || []; this.raidWins = d.raidWins || 0; this.lastRaidDay = d.lastRaidDay || 0;
+    this.achievements = d.achievements || []; this.raidWins = d.raidWins || 0; this.lastRaidDay = d.lastRaidDay || 0; this.srift = d.srift || null; this.sriftWins = d.sriftWins || 0; this.nextSRift = d.nextSRift || 0;
     this.guild = d.guild || null; this.tomeFound = !!d.tomeFound; this.ruinsSearched = d.ruinsSearched || 0;
     (d.searched || []).forEach(i => { if (w.tiles[i]) w.tiles[i].searched = true; });
     for (const t of this.towns) t.recount();
@@ -3311,6 +3313,7 @@ const ACHIEVEMENTS = [
   { id: 'risse', icon: '🌀', name: 'Rissgänger', desc: '10 Risse bezwungen.', check: s => s.npcs.reduce((a, n) => a + (n.gatesCleared || 0), 0) >= 10 },
   { id: 'gruppe', icon: '⚔️', name: 'Gemeinsam in die Tiefe', desc: 'Eine Gruppen-Expedition der Gilde war erfolgreich.', check: s => (s.raidWins || 0) > 0 },
   { id: 'reich', icon: '💰', name: 'Volle Schatzkammer', desc: '500 Münzen in der Hauptstadt.', check: s => s.capital.stock.coins >= 500 },
+  { id: 'srang', icon: '🟨', name: 'Jenseits des Rangs', desc: 'Ein S-Rang-Riss wurde bezwungen.', check: s => (s.sriftWins || 0) > 0 },
   { id: 'duell', icon: '🤺', name: 'Underdog', desc: 'Die Hauptfigur gewinnt ein Duell gegen den Rivalen.', check: s => s.story.duel && s.story.duel.heroWins > 0 },
 ];
 function checkAchievements(sim) {
@@ -3334,10 +3337,12 @@ function startGroupRaid(sim) {
   if (!sim.guild || sim.expedition || sim.isNight || sim.monsters.length) return;
   const party = sim.npcs.filter(n => n.awakened && n.level >= 8 && !n.inside && n.hp > n.maxHp * 0.6 && n.energy > 40).sort((a, b) => b.level - a.level).slice(0, 4);
   if (party.length < 3) return;
-  const gate = sim.world.gates.filter(g => !g.gate.red).sort((a, b) => b.gate.tier - a.gate.tier)[0];
+  const sr = sim.srift && !sim.srift.broken ? sim.srift : null;
+  const gate = sr ? sim.world.gates[sr.gate] : sim.world.gates.filter(g => !g.gate.red && !isSRift(sim, g)).sort((a, b) => b.gate.tier - a.gate.tier)[0];
   if (!gate) return;
-  sim.expedition = { gate: sim.world.gates.indexOf(gate), members: party.map(n => n.id), start: sim.minutes, done: false, boss: raidBoss(gate) };
+  sim.expedition = { gate: sim.world.gates.indexOf(gate), members: party.map(n => n.id), start: sim.minutes, done: false, boss: sr ? RIFT_BOSSES[sr.kind].name : raidBoss(gate), s: !!sr };
   for (const n of party) { const steps = ACTIONS.groupRaid.plan(n, sim); if (steps) { if (n.task) n.endTask(sim); n.startTask(ACTIONS.groupRaid, steps, sim); } }
+  sim.lastRaidDay = sim.day;
   sim.log(`⚔️ Die „${sim.guild.name}“ bricht gemeinsam auf: ${party.map(n => n.name).join(', ')} wagen sich in den Riss „${gate.gate.name}“. Dort haust der Riss-Boss „${sim.expedition.boss}“.`, null, true);
   sim.emit('system', `GRUPPEN-EXPEDITION: ${gate.gate.name}`);
   sim.emit('groupRaid', { phase: 'start', party, gate: gate.gate, boss: sim.expedition.boss });
@@ -3346,7 +3351,7 @@ function startGroupRaid(sim) {
 function finishGroupRaid(sim) {
   const ex = sim.expedition; if (!ex || ex.done) return;
   ex.done = true;
-  const gate = sim.world.gates[ex.gate], tier = gate.gate.tier, party = ex.members.map(id => sim.npcs.find(n => n.id === id)).filter(Boolean);
+  const gate = sim.world.gates[ex.gate], tier = ex.s ? 4 : gate.gate.tier, party = ex.members.map(id => sim.npcs.find(n => n.id === id)).filter(Boolean);
   const power = party.reduce((a, n) => a + n.level + n.attack * 0.3, 0), boss = 45 + tier * 18 + sim.day * 2.5;
   const win = sim.rng() < clamp(0.35 + (power - boss) / 80, 0.15, 0.92);
   if (win) {
@@ -3355,7 +3360,8 @@ function finishGroupRaid(sim) {
     for (const n of party) { n.addXp(sim, xp); n.gatesCleared++; n.mood = Math.min(100, n.mood + 25); n.remember(sim, `Hat mit der Gilde „${ex.boss}“ besiegt ⚔️`); n.addTitle(sim, 'Bezwinger der Tiefe'); }
     const roll = sim.rng(), rar = roll < 0.05 ? 4 : roll < 0.4 ? 3 : 2, best = party[0], slot = pick(sim, SLOTS), item = makeItem(slot, rar, best, { name: 'Beute aus dem Riss', level: best.level + 3 }, sim);
     if (!best.gear[slot] || item.power > best.gear[slot].power) { if (best.gear[slot]) sim.capital.storeItem(best.gear[slot]); best.gear[slot] = item; } else sim.capital.storeItem(item);
-    if (sim.guild) guildXp(sim, 200);
+    if (sim.guild) guildXp(sim, ex.s ? 500 : 200);
+    if (ex.s && sim.srift && sim.srift.gate === ex.gate) sriftCleared(sim, party[0], 'raid');
     sim.log(`🏆 Die Gilde besiegt den Riss-Boss „${ex.boss}“! +${crystals} 💎, je +${xp} EP – und ${best.name} erbeutet ${item.name} (${RARITIES[rar].name})!`, null, true);
     sim.emit('system', `RISS-BOSS BESIEGT: ${ex.boss}`);
     if (rar >= 3) sim.emit('legendary', { n: best, item });
@@ -3391,6 +3397,74 @@ defineAction({
   },
   onEnd(n, sim) { if (n.inside && n.inside.group) n.inside = null; if (sim.expedition && sim.expedition.done && !sim.npcs.some(o => o.task && o.task.actionId === 'groupRaid' && o !== n)) sim.expedition = null; },
 });
+
+/* =====================================================================
+ * S-RANG-RISSE: Ein Riss erwacht zum S-Rang. Nur die Gilde gemeinsam darf hinein.
+ * Wird er nicht binnen 3 Tagen bezwungen, bricht der Riss-Boss heraus (Ausbruch).
+ * ===================================================================== */
+const RIFT_BOSSES = {
+  smaragdkoloss:  { name: 'Smaragdkoloss', hp: 700, atk: 12, speed: 0.1, tier: 4, xp: 420, title: 'Riese aus grünem Kristall', lore: 'Jeder Schritt lässt den Boden klingen wie eine Glocke.' },
+  glutwurm:       { name: 'Glutwurm', hp: 560, atk: 15, speed: 0.15, tier: 4, xp: 420, title: 'Wurm aus flüssigem Feuer', lore: 'Wo er kriecht, bleibt schwarzes Glas zurück.' },
+  nebelhirte:     { name: 'Nebelhirte', hp: 520, atk: 13, speed: 0.17, tier: 4, xp: 420, title: 'Hüter der verlorenen Seelen', lore: 'Seine Laterne ruft. Wer ihr folgt, kehrt nie zurück.' },
+  sternenschlund: { name: 'Sternenschlund', hp: 620, atk: 14, speed: 0.12, tier: 4, xp: 420, title: 'Ein Maul voller fremder Sterne', lore: 'Es sieht dich an – mit einem Auge, das größer ist als ein Haus.' },
+};
+Object.assign(MONSTERS, RIFT_BOSSES);
+const bossKindOf = name => Object.keys(RIFT_BOSSES).find(k => RIFT_BOSSES[k].name === name) || null;
+const isSRift = (sim, t) => !!(sim.srift && sim.world.gates[sim.srift.gate] === t);
+
+function sriftTick(sim) {
+  const m = sim.minutes % 1440;
+  // Erwachen: ab Tag 9 mit Gilde, abends um 21 Uhr
+  if (!sim.srift && sim.guild && sim.day >= (sim.nextSRift || 9) && m === 21 * 60 && sim.rng() < 0.5) {
+    const cand = sim.world.gates.map((g, i) => i).filter(i => !sim.world.gates[i].gate.red);
+    if (!cand.length) return;
+    const gi = pick(sim, cand), kind = pick(sim, Object.keys(RIFT_BOSSES)), g = sim.world.gates[gi];
+    sim.srift = { gate: gi, kind, since: sim.day, breakAt: sim.minutes + 3 * 1440, broken: false, hp: 0 };
+    sim.log(`🟨 Der Riss „${g.gate.name}“ bebt und färbt sich gold-schwarz: Er ist zum S-RANG erwacht! Darin wartet „${RIFT_BOSSES[kind].name}“. Nur die Gilde gemeinsam kann ihn bezwingen – sonst bricht er in 3 Tagen aus.`, null, true);
+    sim.emit('system', `WARNUNG: S-RANG-RISS „${g.gate.name}“`);
+    sim.emit('srift', { phase: 'open', gate: g.gate, kind, name: RIFT_BOSSES[kind].name });
+    return;
+  }
+  const sr = sim.srift; if (!sr) return;
+  const g = sim.world.gates[sr.gate]; if (!g) { sim.srift = null; return; }
+  if (!sr.broken && sim.minutes >= sr.breakAt && !(sim.expedition && sim.expedition.gate === sr.gate)) {
+    sr.broken = true; spawnRiftBoss(sim);
+    sim.log(`💥 AUSBRUCH! „${RIFT_BOSSES[sr.kind].name}“ bricht aus dem Riss „${g.gate.name}“ hervor und zieht auf die Siedlung zu!`, null, true);
+    sim.emit('system', `AUSBRUCH: ${RIFT_BOSSES[sr.kind].name}`);
+    sim.emit('srift', { phase: 'break', gate: g.gate, kind: sr.kind, name: RIFT_BOSSES[sr.kind].name });
+  }
+  if (sr.broken) {
+    const b = sim.monsters.find(x => x.riftBoss);
+    if (b) sr.hp = b.hp; else if (sim.minutes % 60 === 30) spawnRiftBoss(sim); // nach dem Laden zurückholen
+  }
+}
+
+function spawnRiftBoss(sim) {
+  const sr = sim.srift, g = sim.world.gates[sr.gate], M = RIFT_BOSSES[sr.kind];
+  const spot = sim.world.bfs(g.x, g.y + 1, (x, y) => sim.world.walkable(x, y), 80); if (!spot) return;
+  const aw = sim.npcs.filter(n => n.awakened), maxHp = Math.round(M.hp * sim.monsterScale * 0.6 + aw.reduce((a, n) => a + n.level * 18, 0));
+  const hp = sr.hp > 0 ? Math.min(sr.hp, maxHp) : maxHp;
+  sim.monsters.push({ id: ++sim.monsterId, kind: sr.kind, riftBoss: true, x: spot.stand.x, y: spot.stand.y, prevX: spot.stand.x, prevY: spot.stand.y, hp, maxHp, path: [], repath: 0, facing: 1, cd: 0 });
+  sr.hp = hp;
+}
+
+/** S-Rang bezwungen (in der Expedition oder nach dem Ausbruch). */
+function sriftCleared(sim, hero, how) {
+  const sr = sim.srift; if (!sr) return;
+  const g = sim.world.gates[sr.gate], name = RIFT_BOSSES[sr.kind].name;
+  sim.srift = null; sim.sriftWins = (sim.sriftWins || 0) + 1; sim.nextSRift = sim.day + 4;
+  sim.capital.stock.crystals += 20;
+  if (hero) {
+    const rar = sim.rng() < 0.3 ? 4 : 3, slot = pick(sim, SLOTS), item = makeItem(slot, rar, hero, { name: `Herz des ${name}`, level: hero.level + 5 }, sim);
+    if (!hero.gear[slot] || item.power > hero.gear[slot].power) { if (hero.gear[slot]) sim.capital.storeItem(hero.gear[slot]); hero.gear[slot] = item; } else sim.capital.storeItem(item);
+    hero.addTitle(sim, 'S-Rang-Bezwinger'); hero.remember(sim, `Hat „${name}“ bezwungen 🟨`);
+    sim.log(`🟨 S-RANG BEZWUNGEN! ${hero.name} erhält „${item.name}“ (${RARITIES[rar].name}) – und die Schatzkammer +20 💎.`, hero, true);
+    sim.emit('legendary', { n: hero, item });
+  }
+  if (g) g.gate.cleared++;
+  sim.emit('system', `S-RANG-RISS GESCHLOSSEN · ${name}`);
+  sim.emit('srift', { phase: 'cleared', gate: g && g.gate, kind: sr.kind, name, hero, how });
+}
 /* =====================================================================
  * 8) DARSTELLUNG (Canvas 2D)
  * Pipeline pro Bild: Boden (zwischengespeichert) → Wasseranimation →
@@ -4496,11 +4570,11 @@ class Renderer {
   }
 
   drawGate(c, t, s, now) {
-    const cx = (t.x + 0.5) * s, cy = (t.y + 0.5) * s, g = t.gate;
-    const col = g.red ? '255,40,30' : ['', '120,200,255', '190,130,255', '255,95,130'][g.tier];
+    const cx = (t.x + 0.5) * s, cy = (t.y + 0.5) * s, g = t.gate, S = isSRift(this.sim, t) && !this.sim.srift.broken;
+    const col = g.red ? '255,40,30' : S ? '255,200,60' : ['', '120,200,255', '190,130,255', '255,95,130'][g.tier];
     c.fillStyle = '#6f6a62';
     for (let k = 0; k < 9; k++) { const a = k / 9 * TAU; c.beginPath(); c.ellipse(cx + Math.cos(a) * s * 0.55, cy + 0.3 * s + Math.sin(a) * s * 0.2, s * 0.08, s * 0.055, 0, 0, TAU); c.fill(); }
-    const big = g.red ? 1.5 : 1, rx = s * 0.32 * big, ry = s * 0.55 * big, pulse = 1 + Math.sin(now / (g.red ? 180 : 400) + t.x) * (g.red ? 0.12 : 0.05), py = cy - s * 0.2 * big;
+    const big = g.red ? 1.5 : S ? 1.4 : 1, rx = s * 0.32 * big, ry = s * 0.55 * big, pulse = 1 + Math.sin(now / (g.red ? 180 : 400) + t.x) * (g.red ? 0.12 : 0.05), py = cy - s * 0.2 * big;
     const grad = c.createRadialGradient(cx, py, 0, cx, py, ry * 1.3 * pulse);
     grad.addColorStop(0, 'rgba(255,255,255,.95)'); grad.addColorStop(0.3, `rgba(${col},.85)`); grad.addColorStop(1, `rgba(${col},0)`);
     c.fillStyle = grad; c.beginPath(); c.ellipse(cx, py, rx * 1.35 * pulse, ry * 1.2 * pulse, 0, 0, TAU); c.fill();
@@ -4510,8 +4584,14 @@ class Renderer {
       c.strokeStyle = `rgba(${col},${0.85 - k * 0.2})`;
       c.beginPath(); c.ellipse(0, 0, rx * (1 - k * 0.25), ry * (1 - k * 0.25), 0, r0, r0 + 4.3); c.stroke();
     }
+    if (S) { // S-Rang: schwarzer Kern, goldene Blitze
+      c.fillStyle = 'rgba(12,6,20,.9)'; c.beginPath(); c.ellipse(0, 0, rx * 0.42 * pulse, ry * 0.55 * pulse, 0, 0, TAU); c.fill();
+      c.strokeStyle = 'rgba(255,225,120,.95)'; c.lineWidth = Math.max(1, s * 0.025);
+      for (let k = 0; k < 3; k++) { const a = now / 700 + k * 2.1, r1 = ry * 0.5, r2 = ry * 1.25; c.beginPath(); c.moveTo(Math.cos(a) * r1 * 0.6, Math.sin(a) * r1); c.lineTo(Math.cos(a + 0.3) * r2 * 0.55, Math.sin(a + 0.3) * r2 * 0.8); c.lineTo(Math.cos(a + 0.15) * r2 * 0.75, Math.sin(a + 0.15) * r2); c.stroke(); }
+      c.fillStyle = '#ffe08a'; c.font = `bold ${Math.round(s * 0.42)}px sans-serif`; c.textAlign = 'center'; c.fillText('S', 0, -ry * 1.35);
+    }
     c.restore();
-    if (Math.random() < 0.12) this.emit('spark', t.x + 0.5 + rand(-0.25, 0.25), t.y + 0.3, { vx: rand(-0.1, 0.1), vy: -rand(0.2, 0.6), life: rand(0.8, 1.6), size: 0.025, rgb: col });
+    if (Math.random() < (S ? 0.4 : 0.12)) this.emit('spark', t.x + 0.5 + rand(-0.25, 0.25), t.y + 0.3, { vx: rand(-0.1, 0.1), vy: -rand(0.2, 0.6), life: rand(0.8, 1.6), size: 0.025, rgb: col });
   }
 
   /** Sichtbare Vorräte vor dem Lagerhaus – wachsen mit dem Bestand. */
@@ -5127,11 +5207,11 @@ class Renderer {
           }
           if (e.cart) { drawCart(c, e.cart, s, now, (e.fx + 0.5) * s, (e.fy + 0.85) * s); continue; }
           if (e.monster) {
-            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s, bs = m.boss ? s * 2.1 : m.kind === 'banditenboss' || m.kind === 'feldherr' ? s * 1.25 : s; // Boss: doppelt so groß
+            const m = e.monster, mx = (e.fx + 0.5) * s, my = (e.fy + 0.85) * s, bs = m.boss || m.riftBoss ? s * 2.1 : m.kind === 'banditenboss' || m.kind === 'feldherr' ? s * 1.25 : s; // Boss: doppelt so groß
             const look = m.boss ? 'aschegolem' : m.kind;
-            if (m.boss) { // rotes Glühen um den Kronenfresser
-              const gl = c.createRadialGradient(mx, my - bs * 0.4, 0, mx, my - bs * 0.4, bs * 0.9);
-              gl.addColorStop(0, 'rgba(255,40,20,.35)'); gl.addColorStop(1, 'rgba(255,40,20,0)');
+            if (m.boss || m.riftBoss) { // Glühen um den Boss: rot (Kronenfresser) bzw. gold (Riss-Boss)
+              const gl = c.createRadialGradient(mx, my - bs * 0.4, 0, mx, my - bs * 0.4, bs * 0.9), gc = m.riftBoss ? '255,200,60' : '255,40,20';
+              gl.addColorStop(0, `rgba(${gc},.35)`); gl.addColorStop(1, `rgba(${gc},0)`);
               c.fillStyle = gl; c.fillRect(mx - bs, my - bs * 1.4, bs * 2, bs * 1.6);
             }
             c.fillStyle = 'rgba(0,0,0,.3)'; c.beginPath(); c.ellipse(mx, my, bs * 0.3, bs * 0.08, 0, 0, TAU); c.fill();
@@ -5140,13 +5220,13 @@ class Renderer {
               if (m.boss) c.filter = 'hue-rotate(-25deg) saturate(1.6) brightness(.85)';
               drawPixelCreature(c, look, mx, my, bs, m.facing, fr, m.attackAt && now - m.attackAt < 300, m.hitAt && now - m.hitAt < 140);
               if (m.boss) c.filter = 'none';
-            } else { c.save(); c.translate(mx, my); drawMonsterShape(c, m.boss ? { ...m, kind: look } : m, bs, now); c.restore(); }
+            } else { c.save(); c.translate(mx, my); drawMonsterShape(c, m.boss || m.riftBoss ? { ...m, kind: 'aschegolem' } : m, bs, now); c.restore(); }
             if (m.bandit && m.loot && Object.values(m.loot).some(v => v > 0)) { // Beutesack auf dem Rücken
               const sx = mx - m.facing * bs * 0.2, sy = my - bs * 0.55;
               c.fillStyle = '#c9b48a'; c.beginPath(); c.ellipse(sx, sy, bs * 0.11, bs * 0.13, 0, 0, TAU); c.fill(); c.strokeStyle = '#5a4428'; c.lineWidth = Math.max(1, s * 0.02); c.stroke();
               c.fillStyle = '#f0c35a'; c.beginPath(); c.arc(sx, sy - bs * 0.13, bs * 0.03, 0, TAU); c.fill();
             }
-            const bw = bs * 0.7, by = my - bs * (look === 'aschegolem' ? 1.15 : m.bandit || m.army ? 1.0 : 0.75);
+            const bw = bs * 0.7, by = my - bs * (look === 'aschegolem' || m.riftBoss ? 1.15 : m.bandit || m.army ? 1.0 : 0.75);
             c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(mx - bw / 2, by, bw, Math.max(3, s * 0.07));
             c.fillStyle = '#e04848'; c.fillRect(mx - bw / 2, by, bw * Math.max(0, m.hp / m.maxHp), Math.max(3, s * 0.07));
             continue;
@@ -5264,7 +5344,7 @@ class Renderer {
       for (const tw of sim.towns) glow((tw.camp.x + 0.58) * s, (tw.camp.y + 0.55) * s, s * 3 * fl, na * 0.5);
       for (const b of sim.allHouses) if (b.residents.length) glow((b.tile.x + 0.5) * s, (b.tile.y + 0.5) * s, s, na * 0.3);
       for (const g of sim.world.gates) {
-        const col = ['', '120,200,255', '190,130,255', '255,95,130'][g.gate.tier], gx = (g.x + 0.5) * s, gy = (g.y + 0.3) * s, r = s * 2.2;
+        const col = isSRift(sim, g) ? '255,200,60' : ['', '120,200,255', '190,130,255', '255,95,130'][g.gate.tier], gx = (g.x + 0.5) * s, gy = (g.y + 0.3) * s, r = s * 2.2;
         const gr = c.createRadialGradient(gx, gy, 0, gx, gy, r); gr.addColorStop(0, `rgba(${col},${na * 0.6})`); gr.addColorStop(1, `rgba(${col},0)`);
         c.fillStyle = gr; c.fillRect(gx - r, gy - r, r * 2, r * 2);
       }
@@ -6397,6 +6477,45 @@ function pixCreature(kind, frame, attack, flash, antlers) {
     for (const [a, b, d, e] of [[-4, -22, 1, -16], [1, -16, -3, -10], [5, -20, 3, -12]]) pl(FX + a, FY + b, FX + d, FY + e, 1, '#ff7a1a');
     pr(FX - 14, FY - 24, 4, 14, '#3e3833');
     if (attack) pr(FX + 10, FY - 34, 4, 12, '#3e3833'); else pr(FX + 10, FY - 24, 4, 14, '#3e3833');
+  } else if (kind === 'smaragdkoloss') { // Riese aus grünem Kristall
+    const st = [0, 1, 0, 1][frame & 3], atk = attack ? -6 : 0;
+    pr(FX - 9, FY - 7, 7, 7 - st, '#1f5a46'); pr(FX + 2, FY - 7, 7, 7 - (1 - st), '#1f5a46');
+    c.fillStyle = '#2f8a66'; for (let y = FY - 27; y < FY - 6; y++) { const w = 11 - Math.round(Math.abs(y - (FY - 18)) / 4); c.fillRect(FX - w, y, w * 2, 1); }
+    pr(FX - 10, FY - 26, 5, 18, '#256f52'); pl(FX - 6, FY - 24, FX + 2, FY - 12, 1, '#7ff0c0'); pl(FX + 4, FY - 25, FX + 7, FY - 15, 1, '#5ad8a6');
+    for (const [x, h] of [[-12, 6], [-9, 8], [8, 7], [11, 5]]) { pr(FX + x, FY - 27 - h, 3, h, '#4ad6a0'); pr(FX + x + 2, FY - 27 - h, 1, h, '#a8ffe0'); pr(FX + x + 1, FY - 28 - h, 1, 1, '#d8fff0'); } // Kristallzacken
+    pr(FX - 4, FY - 33, 9, 7, '#2f8a66'); pr(FX - 4, FY - 33, 3, 7, '#256f52');
+    pr(FX - 1, FY - 31, 2, 2, '#e8fffa'); pr(FX + 3, FY - 31, 2, 2, '#e8fffa'); pr(FX, FY - 30, 1, 1, '#38ffd0'); pr(FX + 4, FY - 30, 1, 1, '#38ffd0');
+    pr(FX - 15, FY - 24, 5, 15, '#256f52'); pr(FX - 15, FY - 11, 6, 4, '#4ad6a0');
+    pr(FX + 11, FY - 24 + atk, 5, 15, '#256f52'); pr(FX + 10, FY - 11 + atk, 7, 5, '#4ad6a0'); pr(FX + 15, FY - 11 + atk, 1, 4, '#a8ffe0');
+  } else if (kind === 'glutwurm') { // Wurm aus flüssigem Feuer, bäumt sich auf
+    const w = [0, 1, 0, -1][frame & 3], atk = attack ? 4 : 0;
+    const seg = [[-14, -3, 5], [-9, -5, 6], [-4, -7, 7], [-1, -12, 7], [1, -18, 6], [3 + w, -23, 6], [6 + w + atk, -27, 7]];
+    for (let i = 0; i < seg.length; i++) { const [x, y, r] = seg[i]; el(FX + x, FY + y, r, r - 1, i % 2 ? '#c8401a' : '#e0601e'); el(FX + x - 1, FY + y + 1, r - 2, r - 3, '#8a2410'); pr(FX + x - 1, FY + y - r + 2, Math.max(2, r - 2), 1, '#ffb040'); }
+    const hx = FX + 6 + w + atk, hy = FY - 27;
+    pr(hx + 2, hy - 2, 2, 2, '#fff2a0'); pr(hx + 3, hy - 1, 1, 1, '#1a0a04');
+    pr(hx + 4, hy + 2, 4, attack ? 4 : 2, '#2a0a04'); pr(hx + 5, hy + 2, 2, attack ? 3 : 1, '#ffd040'); // glühendes Maul
+    pr(hx - 3, hy - 7, 1, 3, '#3a1a10'); pr(hx + 1, hy - 8, 1, 3, '#3a1a10');
+    for (const [x, y] of [[-8, -6], [-2, -10], [2, -20]]) pl(FX + x, FY + y, FX + x + 2, FY + y + 3, 1, '#ffd060');
+  } else if (kind === 'nebelhirte') { // schwebende Gestalt mit Kapuze, Hirtenstab und Seelenlaterne
+    const f = [0, -1, -2, -1][frame & 3], y0 = FY + 1 + f, atk = attack ? 3 : 0;
+    c.fillStyle = '#4a4560'; for (let y = y0 - 26; y < y0 - 2; y++) { const w = 4 + Math.round((y - (y0 - 26)) / 3.2); c.fillRect(FX - w, y, w * 2, 1); }
+    for (let k = -10; k < 10; k += 3) pr(FX + k, y0 - 3 + ((k + frame) & 1), 2, 2 + ((k & 2) ? 1 : 0), '#3a3550'); // zerfranster Saum
+    pr(FX - 3, y0 - 22, 2, 18, '#5c5778'); pr(FX + 2, y0 - 20, 1, 14, '#38334a');
+    el(FX, y0 - 28, 6, 6, '#4a4560'); el(FX + 1, y0 - 27, 4, 4, '#0c0a14');
+    pr(FX, y0 - 28, 1, 1, '#9aff9a'); pr(FX + 3, y0 - 28, 1, 1, '#9aff9a');
+    pl(FX + 7 + atk, y0 - 4, FX + 7 + atk, y0 - 32, 1, '#6b5a40'); pl(FX + 7 + atk, y0 - 32, FX + 11 + atk, y0 - 33, 1, '#6b5a40'); pr(FX + 11 + atk, y0 - 32, 1, 3, '#6b5a40');
+    pl(FX + 3, y0 - 18, FX + 7 + atk, y0 - 16, 2, '#4a4560');
+    pr(FX + 10 + atk, y0 - 29, 3, 4, '#2a3a2a'); pr(FX + 11 + atk, y0 - 28, 1, 2, '#b8ffb0'); pr(FX + 10 + atk, y0 - 30, 3, 1, '#6b5a40');
+    for (const [x, y] of [[-12, -14], [-9, -24], [13, -18]]) pr(FX + x, y0 + y - f, 1, 1, '#c8ffd0');
+  } else if (kind === 'sternenschlund') { // schwebendes Auge mit Sternenmaul und Fangarmen
+    const f = [0, -1, -2, -1][frame & 3], cy = FY - 18 + f;
+    for (const [x, o] of [[-8, 0], [-3, 1], [3, 2], [8, 3]]) { const sw = [0, 2, 0, -2][(frame + o) & 3]; pl(FX + x, cy + 8, FX + x + sw, cy + 15, 2, '#3a1f5a'); pr(FX + x + sw - 1, cy + 15, 2, 2, '#5a2f8a'); }
+    el(FX, cy, 12, 11, '#3a1f5a'); el(FX - 2, cy - 2, 9, 8, '#4f2b7a');
+    for (const [x, y] of [[-8, -6], [6, -8], [-9, 3], [9, 1], [-4, -9]]) pr(FX + x, cy + y, 1, 1, '#fff6c0');
+    el(FX + 1, cy - 3, 6, 5, '#f4f0ff'); el(FX + 2, cy - 3, 3, 4, '#ffcc33'); pr(FX + 2, cy - 5, 1, 4, '#120818'); pr(FX + 3, cy - 5, 1, 1, '#ffffff');
+    const mo = attack ? 4 : 2; pr(FX - 5, cy + 4, 12, mo, '#0c0414');
+    for (let k = 0; k < 6; k++) { pr(FX - 5 + k * 2, cy + 4, 1, 1, '#f0e8d8'); pr(FX - 4 + k * 2, cy + 3 + mo, 1, 1, '#f0e8d8'); }
+    for (let k = 0; k < 3; k++) pr(FX - 3 + k * 4, cy + 5, 1, 1, '#a8c8ff');
   } else if (kind === 'deer') {
     for (const [lx, o] of [[-6, 0], [-4, 2], [4, 2], [6, 0]]) { const off = [0, 1, 0, -1][(frame + o) & 3]; pl(FX + lx, FY - 7, FX + lx + off, FY - 1, 1, '#6b4a2c'); }
     el(FX, FY - 10, 8, 3, '#9a6a3c'); el(FX - 1, FY - 9, 7, 1, '#7a5230'); pr(FX - 9, FY - 11, 2, 2, '#f3e6d0');
@@ -6681,8 +6800,9 @@ function drawRift(now) {
   // --- Kampf und Bewegung (nur Anzeige) ---
   const sp = ui.speed || 1;
   if (!R.mob && now > R.nextMob) {
-    const boss = p > 0.8 && !R.bossDone, kind = RIFT_MOBS[Math.min(3, g.tier + (boss ? 1 : 0))] || 'aschegolem';
-    R.mob = { x: W + s * 0.6, kind, boss, hp: boss ? 9 : 2 + g.tier, maxHp: boss ? 9 : 2 + g.tier, hitAt: 0, atkAt: 0, nextAtk: now + 900, dead: false };
+    const boss = p > 0.8 && !R.bossDone, ex = n.inside.group && sim.expedition, named = boss && ex ? bossKindOf(ex.boss) : null;
+    const kind = named || RIFT_MOBS[Math.min(3, g.tier + (boss ? 1 : 0))] || 'aschegolem';
+    R.mob = { x: W + s * 0.6, kind, boss, named: boss && ex ? ex.boss : null, hp: boss ? 9 : 2 + g.tier, maxHp: boss ? 9 : 2 + g.tier, hitAt: 0, atkAt: 0, nextAtk: now + 900, dead: false };
   }
   const m = R.mob;
   let walking = !m || m.x > hx + s * 1.5, fighting = false;
@@ -6784,13 +6904,13 @@ function drawRift(now) {
     const ms = m.boss ? s * 1.9 : s * (m.kind === 'aschegolem' ? 1.1 : 1);
     c.globalAlpha = m.dead ? Math.max(0, 1 - (now - m.deadAt) / 700) : 1;
     c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(m.x, gy + s * 0.02, ms * 0.3, ms * 0.07, 0, 0, TAU); c.fill();
-    if (m.boss) c.filter = 'hue-rotate(-30deg) saturate(1.5)';
+    if (m.boss && !RIFT_BOSSES[m.kind]) c.filter = 'hue-rotate(-30deg) saturate(1.5)';
     drawPixelCreature(c, m.kind, m.x, gy, ms, -1, m.dead ? 0 : Math.floor(now / 150) & 3, now - m.atkAt < 300, now - m.hitAt < 120);
     c.filter = 'none'; c.globalAlpha = 1;
     if (!m.dead) {
-      const bw = ms * 0.6, by = gy - ms * (m.kind === 'aschegolem' ? 1.25 : 0.8);
+      const bw = ms * 0.6, by = gy - ms * (m.kind === 'aschegolem' || RIFT_BOSSES[m.kind] ? 1.25 : 0.8);
       c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(m.x - bw / 2, by, bw, 5); c.fillStyle = '#e04848'; c.fillRect(m.x - bw / 2, by, bw * m.hp / m.maxHp, 5);
-      if (m.boss) { c.font = 'bold 12px sans-serif'; c.textAlign = 'center'; c.fillStyle = '#ff9a9a'; c.fillText('Wächter des Risses', m.x, by - 6); }
+      if (m.boss) { c.font = 'bold 12px sans-serif'; c.textAlign = 'center'; c.fillStyle = '#ff9a9a'; c.fillText(m.named ? `Riss-Boss „${m.named}“` : 'Wächter des Risses', m.x, by - 6); }
     }
   }
   // Partikel und Zahlen
@@ -7104,11 +7224,21 @@ const SCENES = {
     return [BG('burg'), CAST(...(h ? [{ n: h, x: 0.35, pose: 'cheer' }] : []), ...(f ? [{ n: f, x: 0.65, face: -1, pose: 'cheer' }] : [])), FX('flash'), SND('triumph'), SHOUT('DIE MAUER STEHT!', '#d8d4cc'),
       N(`Stein auf Stein, Tag für Tag – nun umschließt eine Mauer ${sim.capital.name}.`), ...(f ? [S(f, voice(f, 'jubel'), 'lachen')] : [])];
   },
+  srift(e) {
+    const h = sim.story.hero, aw = sim.npcs.filter(n => n.awakened && n !== h).sort((a, b) => b.level - a.level).slice(0, 2);
+    if (e.phase === 'open') return [BG('riss'), CAST({ kind: e.kind, x: 0.75, face: -1, scale: 2 }, ...(h ? [{ n: h, x: 0.25 }] : [])), FX('shake'), SND('spannung'),
+      SYS(`[ WARNUNG ] Der Riss „${e.gate.name}“ hat RANG S erreicht.`), SHOUT('RANG S', '#ffd34a'), N(`Gold und Schwärze wirbeln im Riss. Dahinter: „${e.name}“. Wird er nicht in drei Tagen bezwungen, bricht er aus.`),
+      ...(h ? [S(h, 'Rang S … das ist kein Riss mehr. Das ist eine Kriegserklärung.', 'schock'), S(h, 'Wir gehen zusammen. Die ganze Gilde.', 'entschlossen')] : [])];
+    if (e.phase === 'break') return [BG('nacht'), CAST({ kind: e.kind, x: 0.7, face: -1, scale: 2.2 }, ...aw.map((n, i) => ({ n, x: 0.2 + i * 0.16, pose: 'fight' }))), FX('flash'), FX('shake'), SND('kampf'),
+      SHOUT('AUSBRUCH!', '#ff5a5a'), N(`Der Riss zerreißt. „${e.name}“ tritt in unsere Welt – und das Morgenlicht kann ihm nichts anhaben.`), ...aw.slice(0, 1).map(n => S(n, 'Alle zu den Waffen! Schützt die Häuser!', 'wut'))];
+    const w = e.hero; if (!w) return null;
+    return [BG('riss'), CAST({ n: w, x: 0.4, pose: 'fight' }), FX('flash'), SND('triumph'), SYS(`S-RANG-RISS GESCHLOSSEN · „${e.name}“ BEZWUNGEN`), SHOUT('S-RANG-BEZWINGER', '#ffd34a'), S(w, voice(w, 'sieg', 'jubel'), 'lachen')];
+  },
   groupRaid(e) {
     const party = e.party.filter(n => !n.inside || e.phase !== 'start'), lead = party[0]; if (!lead) return null;
     if (e.phase === 'start') return [BG('halle'), CAST(...party.slice(0, 4).map((n, i) => ({ n, x: 0.2 + i * 0.2, face: i ? -1 : 1 }))), N(`Morgengrauen in der Gildenhalle. Heute geht niemand allein in den Riss.`),
       S(lead, `Im Riss „${e.gate.name}“ wartet „${e.boss}“. Wir holen ihn uns – zusammen!`, 'entschlossen'), ...party.slice(1, 3).map(n => S(n, voice(n, personaOf(n) === 'rivale' ? 'lager' : 'jubel', 'lager'), 'lachen')), SND('kampf'), SHOUT('AUFBRUCH!', '#8fd3ff')];
-    if (e.phase === 'win') return [BG('riss'), CAST({ kind: 'aschegolem', x: 0.78, face: -1, scale: 1.8 }, ...party.slice(0, 3).map((n, i) => ({ n, x: 0.2 + i * 0.15, pose: 'fight' }))), FX('speed'), SHOUT(`${skillShout(lead)}`), FX('shake'), FX('flash'), ACT(0, { hit: true }),
+    if (e.phase === 'win') return [BG('riss'), CAST({ kind: bossKindOf(e.boss) || 'aschegolem', x: 0.78, face: -1, scale: 1.8 }, ...party.slice(0, 3).map((n, i) => ({ n, x: 0.2 + i * 0.15, pose: 'fight' }))), FX('speed'), SHOUT(`${skillShout(lead)}`), FX('shake'), FX('flash'), ACT(0, { hit: true }),
       SND('triumph'), SYS(`RISS-BOSS „${e.boss}“ BESIEGT · +${e.crystals} 💎`), S(lead, voice(lead, 'sieg', 'jubel'), 'lachen'), ...(e.item ? [SHOUT(e.item.name, RARITIES[e.item.rarity].color)] : [])];
     return [BG('riss'), CAST(...party.slice(0, 3).map((n, i) => ({ n, x: 0.25 + i * 0.2 }))), FX('shake'), SND('traurig'), N(`„${e.boss}“ war zu stark. Blutend und erschöpft taumelt die Gruppe zurück ans Tageslicht.`), S(lead, voice(lead, 'niederlage'), 'traurig'), S(lead, 'Wir trainieren. Und dann kommen wir wieder.', 'entschlossen')];
   },
@@ -7405,6 +7535,7 @@ function directorEvents(s) {
   });
   s.on('loyal', e => { highlight(`${e.who.name} schwor ${e.smith.name} die Treue.`); playScene(SCENES.loyal(e), 2); });
   s.on('guildLevel', g => playScene(SCENES.guildLevel(g)));
+  s.on('srift', e => { highlight({ open: `Ein Riss erwachte zum S-Rang: „${e.name}“.`, break: `„${e.name}“ brach aus dem Riss aus.`, cleared: `„${e.name}“ wurde bezwungen.` }[e.phase]); playScene(SCENES.srift(e), 2); });
   s.on('groupRaid', e => { if (e.phase !== 'start') highlight(e.phase === 'win' ? `Die Gilde besiegte „${e.boss}“.` : `Die Gilde floh vor „${e.boss}“.`); playScene(SCENES.groupRaid(e), 2); });
   s.on('diplo', e => { if (['war', 'siegeWon', 'vassal', 'alliance'].includes(e.kind)) highlight({ war: `${e.realm.name} erklärte den Krieg.`, siegeWon: `Die Belagerung durch ${e.realm.name} wurde gebrochen.`, vassal: `${e.realm.name} unterwarf sich.`, alliance: `Bündnis mit ${e.realm.name}.` }[e.kind]); playScene(SCENES.diplo(e), e.kind === 'offer' ? 1 : 2); });
   s.on('wallDone', () => { highlight('Die Stadtmauer wurde vollendet.'); playScene(SCENES.wall(), 2); });
@@ -7504,7 +7635,8 @@ function tileInfo(t) {
   if (t.type === 'gate') {
     const g = t.gate; rank = g.red ? 'S' : GATE_RANK[g.tier]; top = 'DUNGEON';
     fx = g.red ? 'Boss: <b>Kronenfresser</b> · Gefahr: <b>tödlich</b>' : `Monster: <b>${GATE_MON[g.tier]}</b> · Beute: <b>Mana-Kristalle</b>`;
-    lore = g.red ? 'Er pulsiert wie ein Herz. Etwas Uraltes wartet dahinter – und es hat Hunger.' : 'Ein Spalt zwischen den Welten. Wer hineingeht, kommt stärker zurück – oder gar nicht.';
+    if (isSRift(sim, t)) { const B = RIFT_BOSSES[sim.srift.kind]; rank = 'S'; fx = sim.srift.broken ? `Boss <b>${B.name}</b> ist ausgebrochen!` : `Boss: <b>${B.name}</b> · nur für die Gilde · Ausbruch in <b>${Math.max(0, Math.ceil((sim.srift.breakAt - sim.minutes) / 60))} h</b>`; }
+    lore = isSRift(sim, t) ? 'Gold und Schwärze wirbeln umeinander. Der Riss hat einen Rang erreicht, den es nicht geben dürfte.' : g.red ? 'Er pulsiert wie ein Herz. Etwas Uraltes wartet dahinter – und es hat Hunger.' : 'Ein Spalt zwischen den Welten. Wer hineingeht, kommt stärker zurück – oder gar nicht.';
   }
   if (t.type === 'ruin' && t.searched) { rank = 'E'; fx = 'Bereits durchsucht'; }
   if (t.type === 'camp' && sim.kingdom && (t.town || sim.capital).capital) rank = 'A';
@@ -7514,7 +7646,7 @@ function tileInfo(t) {
     const eff = { house: `${b.beds} Betten`, smithy: 'bessere Seltenheiten', tower: `Reichweite ${CONFIG.buildings.tower.range + L - 1}, Schaden +${(L - 1) * 40} %`, temple: `Heilung ×${L}`, market: `Markterlös +${(L - 1) * 50} %`, tavern: 'gemütlicher' }[b.type] || '';
     fx = `Stufe <b>${roman(L)}</b> / III${eff ? ' · ' + eff : ''}` + (up ? ` · <b>Ausbau läuft: ${Math.floor(t.siteRef.progress / t.siteRef.work * 100)} %</b>` : L < 3 ? ' · ausbaubar' : ' · höchste Stufe') + (fx ? '<br>✦ ' + fx : '');
   }
-  return sysCard(top, rank, tileBody(t), fx, lore, t.type === 'gate' && t.gate.red ? 'red' : t.type === 'castle' ? 'gold' : '');
+  return sysCard(top, rank, tileBody(t), fx, lore, t.type === 'gate' && (t.gate.red || isSRift(sim, t)) ? 'red' : t.type === 'castle' ? 'gold' : '');
 }
 
 const MON_CARD = {
@@ -7525,19 +7657,20 @@ const MON_CARD = {
   banditenboss: ['B', 'Der Hauptmann der Rotschal-Bande. Man sagt, er habe noch nie einen Kampf fair begonnen – und noch nie einen Sack Münzen liegen lassen.'],
   ritter: ['C', 'Gepanzert, diszipliniert, gehorsam. Ein Dornritter stellt keine Fragen – er marschiert.'],
   feldherr: ['A', 'Der Feldherr des Nachbarreichs. Wer ihn fällt, bricht die Belagerung.'],
+  smaragdkoloss: ['S', RIFT_BOSSES.smaragdkoloss.lore], glutwurm: ['S', RIFT_BOSSES.glutwurm.lore], nebelhirte: ['S', RIFT_BOSSES.nebelhirte.lore], sternenschlund: ['S', RIFT_BOSSES.sternenschlund.lore],
   kronenfresser: ['S', 'Der Herr des roten Risses. Er frisst keine Menschen. Er frisst Königreiche.'],
 };
 function monsterInfo(m) {
   const M = MONSTERS[m.kind], [rank, lore] = MON_CARD[m.kind] || ['?', ''], atk = Math.round(M.atk * sim.monsterScale);
   const top = sim.npcs.filter(n => n.awakened).sort((a, b) => b.attack - a.attack)[0];
-  const danger = !top ? 'unbekannt' : m.boss ? 'tödlich' : atk * 4 > top.maxHp * 0.5 ? 'hoch' : atk * 4 > top.maxHp * 0.25 ? 'mittel' : 'gering';
+  const danger = !top ? 'unbekannt' : m.boss || m.riftBoss ? 'tödlich' : atk * 4 > top.maxHp * 0.5 ? 'hoch' : atk * 4 > top.maxHp * 0.25 ? 'mittel' : 'gering';
   const loot = m.bandit ? lootText(m.loot) : '';
-  return sysCard(m.boss ? 'BOSS' : m.bandit ? 'FEIND · BANDIT' : m.army ? 'FEIND · HEER' : 'MONSTER', rank,
-    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : m.bandit ? '🗡️' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : m.bandit ? `Rotschal-Bande · ${m.state === 'flee' ? 'flieht!' : `will ins Lager von ${esc(m.town.name)}`}` : m.army ? `Heer von ${esc(sim.realm.rival ? sim.realm.rival.name : 'fernem Land')} · belagert ${esc(sim.capital.name)}` : 'Kreatur aus dem Riss'}</div></div></div>`
+  return sysCard(m.boss ? 'BOSS' : m.riftBoss ? 'RISS-BOSS · AUSBRUCH' : m.bandit ? 'FEIND · BANDIT' : m.army ? 'FEIND · HEER' : 'MONSTER', rank,
+    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : m.riftBoss ? '🟨' : m.bandit ? '🗡️' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : m.riftBoss ? esc(RIFT_BOSSES[m.kind].title) : m.bandit ? `Rotschal-Bande · ${m.state === 'flee' ? 'flieht!' : `will ins Lager von ${esc(m.town.name)}`}` : m.army ? `Heer von ${esc(sim.realm.rival ? sim.realm.rival.name : 'fernem Land')} · belagert ${esc(sim.capital.name)}` : 'Kreatur aus dem Riss'}</div></div></div>`
     + (m.bandit ? `<div class="muted small">💰 Beute im Sack: <b>${loot || 'noch nichts'}</b></div>` : '')
     + `<div class="lbl"><span>Leben</span><span>${Math.max(0, Math.round(m.hp))} / ${m.maxHp}</span></div><div class="bar"><i style="width:${Math.max(0, m.hp / m.maxHp * 100)}%;background:#e04848"></i></div>`
     + `<div class="stats"><span><small>Angriff</small><b>${atk}</b></span><span><small>Tempo</small><b>${M.speed >= 0.3 ? 'schnell' : M.speed >= 0.2 ? 'mittel' : 'langsam'}</b></span><span><small>EP</small><b>${M.xp}</b></span><span><small>Gefahr</small><b>${danger}</b></span></div>`,
-    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : m.bandit ? 'Wer ihn besiegt, holt die Beute zurück' : m.army ? 'Zieht sich bei Nacht zurück · ist das ganze Heer besiegt, ist die Belagerung gebrochen' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
+    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : m.riftBoss ? 'Trotzt dem Morgenlicht · wer ihn fällt, schließt den S-Rang-Riss' : m.bandit ? 'Wer ihn besiegt, holt die Beute zurück' : m.army ? 'Zieht sich bei Nacht zurück · ist das ganze Heer besiegt, ist die Belagerung gebrochen' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
 }
 
 const ITEM_LORE = [
@@ -8054,6 +8187,7 @@ function startSim(s) {
   for (const ev of ['awaken', 'levelup', 'npcAdded']) sim.on(ev, n => setPoi(n));
   sim.on('legendary', e => setPoi(e.n)); sim.on('tamed', e => setPoi(e.n)); sim.on('gateDone', e => setPoi(e.n)); sim.on('loyal', e => setPoi(e.who));
   sim.on('duel', e => setPoi(e.a)); sim.on('groupRaid', e => e.party[0] && setPoi(e.party[0]));
+  sim.on('srift', e => { const m = e.phase === 'break' && sim.monsters.find(x => x.riftBoss); if (m) setPoi(m); else if (e.hero) setPoi(e.hero); else { const g = sim.world.gates.find(t => t.gate === e.gate); if (g) setPoi(null, g.x, g.y); } });
   sim.on('achievement', () => sound.on && sound.chime());
   directorEvents(sim);
   // im Anime-Modus übernimmt die Szene das Kapitel

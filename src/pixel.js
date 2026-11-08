@@ -624,6 +624,45 @@ function pixCreature(kind, frame, attack, flash, antlers) {
     for (const [a, b, d, e] of [[-4, -22, 1, -16], [1, -16, -3, -10], [5, -20, 3, -12]]) pl(FX + a, FY + b, FX + d, FY + e, 1, '#ff7a1a');
     pr(FX - 14, FY - 24, 4, 14, '#3e3833');
     if (attack) pr(FX + 10, FY - 34, 4, 12, '#3e3833'); else pr(FX + 10, FY - 24, 4, 14, '#3e3833');
+  } else if (kind === 'smaragdkoloss') { // Riese aus grünem Kristall
+    const st = [0, 1, 0, 1][frame & 3], atk = attack ? -6 : 0;
+    pr(FX - 9, FY - 7, 7, 7 - st, '#1f5a46'); pr(FX + 2, FY - 7, 7, 7 - (1 - st), '#1f5a46');
+    c.fillStyle = '#2f8a66'; for (let y = FY - 27; y < FY - 6; y++) { const w = 11 - Math.round(Math.abs(y - (FY - 18)) / 4); c.fillRect(FX - w, y, w * 2, 1); }
+    pr(FX - 10, FY - 26, 5, 18, '#256f52'); pl(FX - 6, FY - 24, FX + 2, FY - 12, 1, '#7ff0c0'); pl(FX + 4, FY - 25, FX + 7, FY - 15, 1, '#5ad8a6');
+    for (const [x, h] of [[-12, 6], [-9, 8], [8, 7], [11, 5]]) { pr(FX + x, FY - 27 - h, 3, h, '#4ad6a0'); pr(FX + x + 2, FY - 27 - h, 1, h, '#a8ffe0'); pr(FX + x + 1, FY - 28 - h, 1, 1, '#d8fff0'); } // Kristallzacken
+    pr(FX - 4, FY - 33, 9, 7, '#2f8a66'); pr(FX - 4, FY - 33, 3, 7, '#256f52');
+    pr(FX - 1, FY - 31, 2, 2, '#e8fffa'); pr(FX + 3, FY - 31, 2, 2, '#e8fffa'); pr(FX, FY - 30, 1, 1, '#38ffd0'); pr(FX + 4, FY - 30, 1, 1, '#38ffd0');
+    pr(FX - 15, FY - 24, 5, 15, '#256f52'); pr(FX - 15, FY - 11, 6, 4, '#4ad6a0');
+    pr(FX + 11, FY - 24 + atk, 5, 15, '#256f52'); pr(FX + 10, FY - 11 + atk, 7, 5, '#4ad6a0'); pr(FX + 15, FY - 11 + atk, 1, 4, '#a8ffe0');
+  } else if (kind === 'glutwurm') { // Wurm aus flüssigem Feuer, bäumt sich auf
+    const w = [0, 1, 0, -1][frame & 3], atk = attack ? 4 : 0;
+    const seg = [[-14, -3, 5], [-9, -5, 6], [-4, -7, 7], [-1, -12, 7], [1, -18, 6], [3 + w, -23, 6], [6 + w + atk, -27, 7]];
+    for (let i = 0; i < seg.length; i++) { const [x, y, r] = seg[i]; el(FX + x, FY + y, r, r - 1, i % 2 ? '#c8401a' : '#e0601e'); el(FX + x - 1, FY + y + 1, r - 2, r - 3, '#8a2410'); pr(FX + x - 1, FY + y - r + 2, Math.max(2, r - 2), 1, '#ffb040'); }
+    const hx = FX + 6 + w + atk, hy = FY - 27;
+    pr(hx + 2, hy - 2, 2, 2, '#fff2a0'); pr(hx + 3, hy - 1, 1, 1, '#1a0a04');
+    pr(hx + 4, hy + 2, 4, attack ? 4 : 2, '#2a0a04'); pr(hx + 5, hy + 2, 2, attack ? 3 : 1, '#ffd040'); // glühendes Maul
+    pr(hx - 3, hy - 7, 1, 3, '#3a1a10'); pr(hx + 1, hy - 8, 1, 3, '#3a1a10');
+    for (const [x, y] of [[-8, -6], [-2, -10], [2, -20]]) pl(FX + x, FY + y, FX + x + 2, FY + y + 3, 1, '#ffd060');
+  } else if (kind === 'nebelhirte') { // schwebende Gestalt mit Kapuze, Hirtenstab und Seelenlaterne
+    const f = [0, -1, -2, -1][frame & 3], y0 = FY + 1 + f, atk = attack ? 3 : 0;
+    c.fillStyle = '#4a4560'; for (let y = y0 - 26; y < y0 - 2; y++) { const w = 4 + Math.round((y - (y0 - 26)) / 3.2); c.fillRect(FX - w, y, w * 2, 1); }
+    for (let k = -10; k < 10; k += 3) pr(FX + k, y0 - 3 + ((k + frame) & 1), 2, 2 + ((k & 2) ? 1 : 0), '#3a3550'); // zerfranster Saum
+    pr(FX - 3, y0 - 22, 2, 18, '#5c5778'); pr(FX + 2, y0 - 20, 1, 14, '#38334a');
+    el(FX, y0 - 28, 6, 6, '#4a4560'); el(FX + 1, y0 - 27, 4, 4, '#0c0a14');
+    pr(FX, y0 - 28, 1, 1, '#9aff9a'); pr(FX + 3, y0 - 28, 1, 1, '#9aff9a');
+    pl(FX + 7 + atk, y0 - 4, FX + 7 + atk, y0 - 32, 1, '#6b5a40'); pl(FX + 7 + atk, y0 - 32, FX + 11 + atk, y0 - 33, 1, '#6b5a40'); pr(FX + 11 + atk, y0 - 32, 1, 3, '#6b5a40');
+    pl(FX + 3, y0 - 18, FX + 7 + atk, y0 - 16, 2, '#4a4560');
+    pr(FX + 10 + atk, y0 - 29, 3, 4, '#2a3a2a'); pr(FX + 11 + atk, y0 - 28, 1, 2, '#b8ffb0'); pr(FX + 10 + atk, y0 - 30, 3, 1, '#6b5a40');
+    for (const [x, y] of [[-12, -14], [-9, -24], [13, -18]]) pr(FX + x, y0 + y - f, 1, 1, '#c8ffd0');
+  } else if (kind === 'sternenschlund') { // schwebendes Auge mit Sternenmaul und Fangarmen
+    const f = [0, -1, -2, -1][frame & 3], cy = FY - 18 + f;
+    for (const [x, o] of [[-8, 0], [-3, 1], [3, 2], [8, 3]]) { const sw = [0, 2, 0, -2][(frame + o) & 3]; pl(FX + x, cy + 8, FX + x + sw, cy + 15, 2, '#3a1f5a'); pr(FX + x + sw - 1, cy + 15, 2, 2, '#5a2f8a'); }
+    el(FX, cy, 12, 11, '#3a1f5a'); el(FX - 2, cy - 2, 9, 8, '#4f2b7a');
+    for (const [x, y] of [[-8, -6], [6, -8], [-9, 3], [9, 1], [-4, -9]]) pr(FX + x, cy + y, 1, 1, '#fff6c0');
+    el(FX + 1, cy - 3, 6, 5, '#f4f0ff'); el(FX + 2, cy - 3, 3, 4, '#ffcc33'); pr(FX + 2, cy - 5, 1, 4, '#120818'); pr(FX + 3, cy - 5, 1, 1, '#ffffff');
+    const mo = attack ? 4 : 2; pr(FX - 5, cy + 4, 12, mo, '#0c0414');
+    for (let k = 0; k < 6; k++) { pr(FX - 5 + k * 2, cy + 4, 1, 1, '#f0e8d8'); pr(FX - 4 + k * 2, cy + 3 + mo, 1, 1, '#f0e8d8'); }
+    for (let k = 0; k < 3; k++) pr(FX - 3 + k * 4, cy + 5, 1, 1, '#a8c8ff');
   } else if (kind === 'deer') {
     for (const [lx, o] of [[-6, 0], [-4, 2], [4, 2], [6, 0]]) { const off = [0, 1, 0, -1][(frame + o) & 3]; pl(FX + lx, FY - 7, FX + lx + off, FY - 1, 1, '#6b4a2c'); }
     el(FX, FY - 10, 8, 3, '#9a6a3c'); el(FX - 1, FY - 9, 7, 1, '#7a5230'); pr(FX - 9, FY - 11, 2, 2, '#f3e6d0');

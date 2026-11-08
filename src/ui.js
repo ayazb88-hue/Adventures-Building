@@ -91,7 +91,8 @@ function tileInfo(t) {
   if (t.type === 'gate') {
     const g = t.gate; rank = g.red ? 'S' : GATE_RANK[g.tier]; top = 'DUNGEON';
     fx = g.red ? 'Boss: <b>Kronenfresser</b> · Gefahr: <b>tödlich</b>' : `Monster: <b>${GATE_MON[g.tier]}</b> · Beute: <b>Mana-Kristalle</b>`;
-    lore = g.red ? 'Er pulsiert wie ein Herz. Etwas Uraltes wartet dahinter – und es hat Hunger.' : 'Ein Spalt zwischen den Welten. Wer hineingeht, kommt stärker zurück – oder gar nicht.';
+    if (isSRift(sim, t)) { const B = RIFT_BOSSES[sim.srift.kind]; rank = 'S'; fx = sim.srift.broken ? `Boss <b>${B.name}</b> ist ausgebrochen!` : `Boss: <b>${B.name}</b> · nur für die Gilde · Ausbruch in <b>${Math.max(0, Math.ceil((sim.srift.breakAt - sim.minutes) / 60))} h</b>`; }
+    lore = isSRift(sim, t) ? 'Gold und Schwärze wirbeln umeinander. Der Riss hat einen Rang erreicht, den es nicht geben dürfte.' : g.red ? 'Er pulsiert wie ein Herz. Etwas Uraltes wartet dahinter – und es hat Hunger.' : 'Ein Spalt zwischen den Welten. Wer hineingeht, kommt stärker zurück – oder gar nicht.';
   }
   if (t.type === 'ruin' && t.searched) { rank = 'E'; fx = 'Bereits durchsucht'; }
   if (t.type === 'camp' && sim.kingdom && (t.town || sim.capital).capital) rank = 'A';
@@ -101,7 +102,7 @@ function tileInfo(t) {
     const eff = { house: `${b.beds} Betten`, smithy: 'bessere Seltenheiten', tower: `Reichweite ${CONFIG.buildings.tower.range + L - 1}, Schaden +${(L - 1) * 40} %`, temple: `Heilung ×${L}`, market: `Markterlös +${(L - 1) * 50} %`, tavern: 'gemütlicher' }[b.type] || '';
     fx = `Stufe <b>${roman(L)}</b> / III${eff ? ' · ' + eff : ''}` + (up ? ` · <b>Ausbau läuft: ${Math.floor(t.siteRef.progress / t.siteRef.work * 100)} %</b>` : L < 3 ? ' · ausbaubar' : ' · höchste Stufe') + (fx ? '<br>✦ ' + fx : '');
   }
-  return sysCard(top, rank, tileBody(t), fx, lore, t.type === 'gate' && t.gate.red ? 'red' : t.type === 'castle' ? 'gold' : '');
+  return sysCard(top, rank, tileBody(t), fx, lore, t.type === 'gate' && (t.gate.red || isSRift(sim, t)) ? 'red' : t.type === 'castle' ? 'gold' : '');
 }
 
 const MON_CARD = {
@@ -112,19 +113,20 @@ const MON_CARD = {
   banditenboss: ['B', 'Der Hauptmann der Rotschal-Bande. Man sagt, er habe noch nie einen Kampf fair begonnen – und noch nie einen Sack Münzen liegen lassen.'],
   ritter: ['C', 'Gepanzert, diszipliniert, gehorsam. Ein Dornritter stellt keine Fragen – er marschiert.'],
   feldherr: ['A', 'Der Feldherr des Nachbarreichs. Wer ihn fällt, bricht die Belagerung.'],
+  smaragdkoloss: ['S', RIFT_BOSSES.smaragdkoloss.lore], glutwurm: ['S', RIFT_BOSSES.glutwurm.lore], nebelhirte: ['S', RIFT_BOSSES.nebelhirte.lore], sternenschlund: ['S', RIFT_BOSSES.sternenschlund.lore],
   kronenfresser: ['S', 'Der Herr des roten Risses. Er frisst keine Menschen. Er frisst Königreiche.'],
 };
 function monsterInfo(m) {
   const M = MONSTERS[m.kind], [rank, lore] = MON_CARD[m.kind] || ['?', ''], atk = Math.round(M.atk * sim.monsterScale);
   const top = sim.npcs.filter(n => n.awakened).sort((a, b) => b.attack - a.attack)[0];
-  const danger = !top ? 'unbekannt' : m.boss ? 'tödlich' : atk * 4 > top.maxHp * 0.5 ? 'hoch' : atk * 4 > top.maxHp * 0.25 ? 'mittel' : 'gering';
+  const danger = !top ? 'unbekannt' : m.boss || m.riftBoss ? 'tödlich' : atk * 4 > top.maxHp * 0.5 ? 'hoch' : atk * 4 > top.maxHp * 0.25 ? 'mittel' : 'gering';
   const loot = m.bandit ? lootText(m.loot) : '';
-  return sysCard(m.boss ? 'BOSS' : m.bandit ? 'FEIND · BANDIT' : m.army ? 'FEIND · HEER' : 'MONSTER', rank,
-    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : m.bandit ? '🗡️' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : m.bandit ? `Rotschal-Bande · ${m.state === 'flee' ? 'flieht!' : `will ins Lager von ${esc(m.town.name)}`}` : m.army ? `Heer von ${esc(sim.realm.rival ? sim.realm.rival.name : 'fernem Land')} · belagert ${esc(sim.capital.name)}` : 'Kreatur aus dem Riss'}</div></div></div>`
+  return sysCard(m.boss ? 'BOSS' : m.riftBoss ? 'RISS-BOSS · AUSBRUCH' : m.bandit ? 'FEIND · BANDIT' : m.army ? 'FEIND · HEER' : 'MONSTER', rank,
+    `<div class="insp-head"><span class="big-ic">${m.boss ? '👹' : m.riftBoss ? '🟨' : m.bandit ? '🗡️' : '👾'}</span><div><b>${esc(M.name)}</b><div class="muted">${m.boss ? 'Herr des roten Risses' : m.riftBoss ? esc(RIFT_BOSSES[m.kind].title) : m.bandit ? `Rotschal-Bande · ${m.state === 'flee' ? 'flieht!' : `will ins Lager von ${esc(m.town.name)}`}` : m.army ? `Heer von ${esc(sim.realm.rival ? sim.realm.rival.name : 'fernem Land')} · belagert ${esc(sim.capital.name)}` : 'Kreatur aus dem Riss'}</div></div></div>`
     + (m.bandit ? `<div class="muted small">💰 Beute im Sack: <b>${loot || 'noch nichts'}</b></div>` : '')
     + `<div class="lbl"><span>Leben</span><span>${Math.max(0, Math.round(m.hp))} / ${m.maxHp}</span></div><div class="bar"><i style="width:${Math.max(0, m.hp / m.maxHp * 100)}%;background:#e04848"></i></div>`
     + `<div class="stats"><span><small>Angriff</small><b>${atk}</b></span><span><small>Tempo</small><b>${M.speed >= 0.3 ? 'schnell' : M.speed >= 0.2 ? 'mittel' : 'langsam'}</b></span><span><small>EP</small><b>${M.xp}</b></span><span><small>Gefahr</small><b>${danger}</b></span></div>`,
-    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : m.bandit ? 'Wer ihn besiegt, holt die Beute zurück' : m.army ? 'Zieht sich bei Nacht zurück · ist das ganze Heer besiegt, ist die Belagerung gebrochen' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
+    m.boss ? 'Zieht sich bei Sonnenaufgang verwundet zurück' : m.riftBoss ? 'Trotzt dem Morgenlicht · wer ihn fällt, schließt den S-Rang-Riss' : m.bandit ? 'Wer ihn besiegt, holt die Beute zurück' : m.army ? 'Zieht sich bei Nacht zurück · ist das ganze Heer besiegt, ist die Belagerung gebrochen' : 'Zerfällt im Morgenlicht zu Asche', lore, 'red');
 }
 
 const ITEM_LORE = [
@@ -641,6 +643,7 @@ function startSim(s) {
   for (const ev of ['awaken', 'levelup', 'npcAdded']) sim.on(ev, n => setPoi(n));
   sim.on('legendary', e => setPoi(e.n)); sim.on('tamed', e => setPoi(e.n)); sim.on('gateDone', e => setPoi(e.n)); sim.on('loyal', e => setPoi(e.who));
   sim.on('duel', e => setPoi(e.a)); sim.on('groupRaid', e => e.party[0] && setPoi(e.party[0]));
+  sim.on('srift', e => { const m = e.phase === 'break' && sim.monsters.find(x => x.riftBoss); if (m) setPoi(m); else if (e.hero) setPoi(e.hero); else { const g = sim.world.gates.find(t => t.gate === e.gate); if (g) setPoi(null, g.x, g.y); } });
   sim.on('achievement', () => sound.on && sound.chime());
   directorEvents(sim);
   // im Anime-Modus übernimmt die Szene das Kapitel
