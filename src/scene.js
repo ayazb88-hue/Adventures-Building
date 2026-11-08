@@ -213,6 +213,56 @@ const SCENES = {
       SHOUT('KRONENBRECHER!', '#ffd76a'), N('Der Kronenfresser zerfällt zu glühender Asche. Der rote Riss schließt sich mit einem Seufzer.'),
       ...(f ? [S(f, voice(f, 'jubel'), 'lachen')] : []), ...(k ? [S(k, 'Wir … haben es wirklich geschafft. Zusammen.', 'lachen')] : [])];
   },
+  loyal({ who, smith, item }) {
+    return [BG('schmiede'), CAST({ n: smith, x: 0.35 }, { n: who, x: 0.68, face: -1 }), N(`${smith.name} reicht ${who.name} ${item.name}. Das Metall ist noch warm.`),
+      S(who, `Das … hast du für mich geschmiedet? Für mich?`, 'schock'), ACT(1, { pose: 'pray' }), FX('flash', 500), SND('triumph'),
+      S(who, `Ab heute folge ich dir, ${smith.name}. Wohin du auch gehst.`, 'entschlossen'), S(smith, 'Steh auf. Wir sind Gefährten – keine Diener.', 'lachen'),
+      SYS(`TREUE GEWONNEN: ${who.name} → ${smith.name}`)];
+  },
+  guild() {
+    const g = sim.guild, team = sim.npcs.filter(n => n.awakened && !n.inside).sort((a, b) => b.level - a.level).slice(0, 4); if (!g || team.length < 2) return null;
+    const [lead, ...rest] = team, gate = sim.world.gates.filter(t => !t.gate.red).sort((a, b) => b.gate.tier - a.gate.tier)[0];
+    return [BG('halle'), CAST(...team.map((n, i) => ({ n, x: 0.2 + i * 0.2, face: i ? -1 : 1 }))), N(`Abend in der Gildenhalle der „${g.name}“. Kerzen flackern über der langen Tafel.`),
+      S(lead, gate ? `Morgen gehen wir zusammen in den ${gate.gate.name}. Niemand geht allein.` : 'Wir sind stärker geworden. Aber das reicht noch nicht.', 'entschlossen'),
+      ...rest.slice(0, 2).map(n => S(n, voice(n, personaOf(n) === 'rivale' ? 'lager' : 'jubel', 'lager'), personaOf(n) === 'rivale' ? 'spott' : 'lachen')),
+      SYS(`Gilden-Stufe ${g.level || 1} · Mitglieder: ${sim.npcs.filter(n => n.awakened).length}`)];
+  },
+  guildLevel(g) {
+    const lead = sim.npcs.filter(n => n.awakened && !n.inside).sort((a, b) => b.level - a.level)[0]; if (!lead) return null;
+    return [BG('halle'), CAST({ n: lead, x: 0.5, pose: 'cheer' }), FX('flash'), SND('triumph'), SHOUT(`GILDE STUFE ${g.level}!`, '#8fd3ff'), SYS('Alle Mitglieder erhalten mehr Erfahrung.'), S(lead, `Die „${g.name}“ wächst. Und wir mit ihr!`, 'lachen')];
+  },
+  diary() {
+    const h = sim.story.hero; if (!h || !h.diary || !h.diary.length || h.diary[0].day !== sim.day) return null;
+    const mood = h.mood >= 70 ? 'lachen' : h.mood >= 45 ? 'normal' : 'traurig';
+    return [BG('nacht'), CAST({ n: h, x: 0.3 }), N(`Spät in der Nacht. ${h.name} schreibt im Kerzenschein.`), S(h, `„Tag ${sim.day}. ${h.diary[0].text}“`, mood), SND('lager')];
+  },
+  tamed({ n, pet }) {
+    const P = PETS[pet.kind];
+    return [BG('wald'), CAST({ n, x: 0.35 }, { kind: 'pet_' + pet.kind, x: 0.62, face: -1, scale: 1.4 }), N(`Im Unterholz raschelt es. Zwei leuchtende Augen beobachten ${n.name}.`),
+      S(n, 'Ganz ruhig … ich tu dir nichts. Komm her.', 'normal'), FX('flash', 400), SND('triumph'), SYS(`ZÄHMUNG ERFOLGREICH: ${P.icon} ${P.name}`),
+      S(n, `Ich nenne dich „${pet.name}“. Ab jetzt sind wir ein Team!`, 'lachen')];
+  },
+  gateReturn({ n, gate, ok, crystals }) {
+    const f = friendOf(n);
+    if (ok) return [BG('riss'), CAST({ n, x: 0.4, pose: 'cheer' }, ...(f ? [{ n: f, x: 0.7, face: -1 }] : [])), N(`Der ${gate.name} spuckt eine erschöpfte Gestalt aus – mit leuchtender Beute.`), SND('triumph'),
+      SYS(`RISS BEZWUNGEN · +${crystals} 💎`), S(n, voice(n, 'sieg', 'jubel'), 'lachen'), ...(f ? [S(f, voice(f, 'jubel'), 'lachen')] : [])];
+    return [BG('riss'), CAST({ n, x: 0.45, pose: 'none' }, ...(f ? [{ n: f, x: 0.72, face: -1 }] : [])), FX('shake'), N(`${n.name} taumelt aus dem ${gate.name}. Blut, Staub – und keine Beute.`), SND('traurig'),
+      ...(f ? [S(f, voice(f, 'angst'), 'schock')] : []), S(n, voice(n, 'niederlage'), 'traurig'), S(n, 'Aber ich komme wieder. Stärker.', 'entschlossen')];
+  },
+  crown() {
+    const k = sim.kingdom, r = sim.npcs.find(n => n.id === k.regentId) || sim.story.hero, crowd = others(r, 4);
+    return [BG('burg'), CAST({ n: r, x: 0.5 }, ...crowd.map((n, i) => ({ n, x: [0.15, 0.3, 0.7, 0.85][i], face: i < 2 ? 1 : -1, pose: 'cheer' }))),
+      N(`Der ganze Ort hat sich versammelt. Alle Augen ruhen auf ${r.name}.`), S(r, `Von heute an sind wir nicht mehr nur ein Dorf. Wir sind ${k.name}!`, 'entschlossen'),
+      FX('flash'), SND('triumph'), SHOUT(`ES LEBE ${k.name.toUpperCase()}!`, '#ffd76a'), ...crowd.slice(0, 2).map(n => S(n, voice(n, 'jubel'), 'lachen'))];
+  },
+  captainFall() {
+    const st = sim.story, k = sim.npcs.find(n => n.id === st.captainKiller) || st.hero; if (!k) return null;
+    return [BG('dorf'), CAST({ n: k, x: 0.35, pose: 'fight' }, { kind: 'banditenboss', x: 0.68, face: -1 }), FX('speed'), SHOUT(skillShout(k)), FX('shake'), FX('flash'),
+      ACT(1, { hit: true, tx: 0.75 }), S('Hauptmann Varn', pickL(LINES.hauptmann.niederlage), 'wut'), S(k, 'Sag deinen Leuten: Dieses Lager gehört dem Volk.', 'entschlossen'), SND('triumph')];
+  },
+  milestone(n) {
+    return [BG('wald'), CAST({ n, x: 0.5, pose: 'cheer' }), FX('flash'), FX('speed'), SND('triumph'), SHOUT(`LEVEL ${n.level}!`, '#8fd3ff'), SYS(`Alle Werte steigen · ${n.titles[n.titles.length - 1] || 'Erwachte Seele'}`), S(n, voice(n, 'entschlossen', 'jubel'), 'entschlossen')];
+  },
   bund() {
     const st = sim.story, h = st.hero, r = st.rival; if (!h || !r) return null;
     return [BG('lager'), CAST({ n: h, x: 0.35 }, { n: r, x: 0.65, face: -1 }), S(r, voice(r, 'respekt'), 'normal'), S(h, 'Heißt das … wir sind jetzt Freunde?', 'lachen'),
@@ -228,6 +278,9 @@ function chapterScene(ch) {
     case 'buch': { const f = sim.npcs.find(n => n.id === st.smithId) || h; return f ? [...head, ...SCENES.book(f)] : null; }
     case 'bund': { const b = SCENES.bund(); return b ? [...head, ...b] : null; }
     case 'sieg': return [...head, ...SCENES.bossWin()];
+    case 'krone': return sim.kingdom ? [...head, ...SCENES.crown()] : null;
+    case 'hauptmann': { const c = SCENES.captainFall(); return c ? [...head, ...c] : null; }
+    case 'treue': return null; // eigene Szene über das Treue-Ereignis
     case 'kronenfresser': case 'banditen': return null; // eigene Szenen kommen über die Ereignisse
   }
   const steps = [...head, BG(ch.id === 'krone' ? 'burg' : ch.id === 'roterRiss' ? 'riss' : ch.id === 'legende' ? 'schmiede' : ch.id === 'fluestern' ? 'ruine' : ch.id === 'rissnacht' ? 'riss' : 'dorf')];
@@ -300,6 +353,7 @@ function drawFace(cv, n, who, mood) {
   if (n) {
     const f = pixFrame(n, { arms: 'none', moving: false, facing: 1, view: 'down' }, 0, performance.now());
     c.drawImage(f, 9, 3, 22, 22, 0, 0, W, W);
+    drawExpression(c, n, mood, W / 22);
   } else if (who) {
     const kind = who === 'Kronenfresser' ? 'aschegolem' : 'banditenboss';
     c.save(); if (who === 'Kronenfresser') c.filter = 'hue-rotate(-30deg) saturate(1.5)';
@@ -307,6 +361,36 @@ function drawFace(cv, n, who, mood) {
   } else { c.font = `${W * 0.55}px serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('📖', W / 2, W / 2 + 2); }
   if (sym) { c.font = `${W * 0.32}px serif`; c.textAlign = 'right'; c.textBaseline = 'top'; c.fillText(sym, W - 2, 2); }
   if (mood === 'traurig') { c.fillStyle = 'rgba(120,180,255,.5)'; for (let k = 0; k < 6; k++) c.fillRect(k * W / 6 + 3, (performance.now() / 20 + k * 13) % W, 1.5, 7); }
+}
+
+/** Gefühle direkt im Pixel-Gesicht: Brauen, Augen, Mund, Tränen, Röte (Gesicht liegt bei x 14…25, y 8…18). */
+function drawExpression(c, n, mood, k) {
+  if (!mood || mood === 'normal') return;
+  const P = pixPalette(n), px = (x, y, col, w = 1, h = 1) => { c.fillStyle = col; c.fillRect((x - 9) * k, (y - 3) * k, w * k, h * k); };
+  const ink = '#2a1810', blush = 'rgba(255,90,110,.55)';
+  const closeEyes = () => { px(16, 12, P.SK, 3, 4); px(21, 12, P.SK, 3, 4); };
+  const mouthClear = () => px(18, 16, P.SK, 4, 2);
+  if (mood === 'wut') {
+    px(15, 10, ink); px(16, 11, ink, 2); px(18, 12, ink); px(21, 12, ink); px(22, 11, ink, 2); px(24, 10, ink);
+    mouthClear(); px(18, 17, ink); px(19, 16, ink, 2); px(21, 17, ink);
+  } else if (mood === 'lachen') {
+    closeEyes(); px(16, 14, ink); px(17, 13, ink); px(18, 14, ink); px(21, 14, ink); px(22, 13, ink); px(23, 14, ink);
+    mouthClear(); px(18, 16, '#7a1a1a', 4); px(19, 17, '#ff8a9a', 2); px(15, 15, blush, 2); px(23, 15, blush, 2);
+  } else if (mood === 'traurig') {
+    px(16, 11, ink); px(17, 11, ink); px(18, 10, ink); px(21, 10, ink); px(22, 11, ink); px(23, 11, ink);
+    mouthClear(); px(19, 17, ink, 2); px(18, 16, ink); px(21, 16, ink);
+    const t = (performance.now() / 120) % 4; px(17, 16 + Math.floor(t) * 0.5, '#7ac8ff', 1, 2); px(22, 16 + Math.floor(t) * 0.5, '#7ac8ff', 1, 2);
+  } else if (mood === 'entschlossen') {
+    px(15, 11, ink, 4); px(21, 11, ink, 4); px(16, 12, P.SK, 3); px(21, 12, P.SK, 3); // halb geschlossene, scharfe Augen
+    mouthClear(); px(18, 16, ink, 4);
+  } else if (mood === 'spott') {
+    px(16, 11, ink, 3); px(21, 10, ink, 2); px(23, 11, ink);
+    px(16, 12, P.SK, 3); mouthClear(); px(19, 16, ink, 2); px(21, 15, ink);
+  } else if (mood === 'schock') {
+    px(16, 10, ink, 3); px(21, 10, ink, 3);
+    px(16, 13, '#ffffff', 3, 3); px(21, 13, '#ffffff', 3, 3); px(17, 14, ink); px(22, 14, ink);
+    mouthClear(); px(19, 16, ink, 2, 2);
+  }
 }
 
 function sceneTap() {
@@ -373,7 +457,7 @@ function drawScene(now) {
 }
 
 function drawStage(c, bg, W, H, gy, s, now) {
-  const hour = sim.hourFloat, night = bg === 'lager' || bg === 'riss' || (bg !== 'schmiede' && sim.isNight), eve = !night && hour > 17;
+  const hour = sim.hourFloat, inside = bg === 'schmiede' || bg === 'halle' || bg === 'nacht', night = bg === 'lager' || bg === 'riss' || (!inside && sim.isNight), eve = !night && !inside && hour > 17;
   const sky = c.createLinearGradient(0, 0, 0, gy);
   if (bg === 'schmiede') { sky.addColorStop(0, '#1a0e0a'); sky.addColorStop(1, '#3a1c10'); }
   else if (bg === 'riss') { sky.addColorStop(0, '#12040a'); sky.addColorStop(1, '#4a0c18'); }
@@ -381,7 +465,7 @@ function drawStage(c, bg, W, H, gy, s, now) {
   else if (eve) { sky.addColorStop(0, '#2a3a6a'); sky.addColorStop(1, '#f0a060'); }
   else { sky.addColorStop(0, '#5aa0e0'); sky.addColorStop(1, '#cfe8f6'); }
   c.fillStyle = sky; c.fillRect(-20, -20, W + 40, H + 40);
-  if (night && bg !== 'schmiede') for (let k = 0; k < 60; k++) { c.fillStyle = `rgba(255,255,255,${0.4 + Math.sin(now / 500 + k) * 0.3})`; c.fillRect(rh(k, 1) * W, rh(k, 2) * gy * 0.7, 1.5, 1.5); }
+  if (night && !inside) for (let k = 0; k < 60; k++) { c.fillStyle = `rgba(255,255,255,${0.4 + Math.sin(now / 500 + k) * 0.3})`; c.fillRect(rh(k, 1) * W, rh(k, 2) * gy * 0.7, 1.5, 1.5); }
   const hill = (col, h0, amp, seed) => { c.fillStyle = col; c.beginPath(); c.moveTo(0, gy); for (let x = 0; x <= W; x += 20) c.lineTo(x, gy - h0 - Math.sin(x / 90 + seed) * amp - Math.sin(x / 37 + seed * 2) * amp * 0.4); c.lineTo(W, gy); c.fill(); };
   if (bg === 'schmiede') {
     c.fillStyle = '#2a1810'; c.fillRect(0, 0, W, gy);
@@ -391,6 +475,24 @@ function drawStage(c, bg, W, H, gy, s, now) {
     c.fillStyle = '#4a3a30'; c.fillRect(fx - s * 0.35, gy - s * 0.9, s * 0.7, s * 0.9); c.fillStyle = '#ff9a3a'; c.fillRect(fx - s * 0.2, gy - s * 0.5, s * 0.4, s * 0.3);
     c.fillStyle = '#3a3a40'; c.fillRect(W * 0.62, gy - s * 0.32, s * 0.4, s * 0.12); c.fillRect(W * 0.62 + s * 0.12, gy - s * 0.2, s * 0.16, s * 0.2);
     for (let k = 0; k < 12; k++) { const t = (now / 900 + rh(k, 3)) % 1; c.fillStyle = `rgba(255,${180 + k * 5},80,${1 - t})`; c.fillRect(fx + (rh(k, 4) - 0.5) * s * 0.6, gy - s * 0.5 - t * s * 1.5, 2, 2); }
+  } else if (bg === 'halle' || bg === 'nacht') {
+    const hall = bg === 'halle';
+    c.fillStyle = hall ? '#3a2a1c' : '#1a1622'; c.fillRect(0, 0, W, gy);
+    c.strokeStyle = 'rgba(0,0,0,.35)'; for (let x = 0; x < W; x += 26) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, gy); c.stroke(); }
+    if (hall) {
+      for (const x of [0.15, 0.5, 0.85]) { c.fillStyle = '#2c4fa8'; c.fillRect(W * x - s * 0.12, gy * 0.12, s * 0.24, s * 0.7); c.fillStyle = '#f0c35a'; star5(c, W * x, gy * 0.12 + s * 0.3, s * 0.08); }
+      c.fillStyle = '#6b4526'; c.fillRect(W * 0.08, gy - s * 0.32, W * 0.84, s * 0.08); c.fillRect(W * 0.12, gy - s * 0.24, s * 0.06, s * 0.24); c.fillRect(W * 0.86, gy - s * 0.24, s * 0.06, s * 0.24);
+      for (const x of [0.25, 0.5, 0.75]) { const f = 0.7 + Math.sin(now / 90 + x * 10) * 0.2; c.fillStyle = '#efe4cc'; c.fillRect(W * x - 3, gy - s * 0.45, 6, s * 0.13); c.fillStyle = `rgba(255,200,90,${f})`; c.beginPath(); c.ellipse(W * x, gy - s * 0.48, 4, 7, 0, 0, TAU); c.fill();
+        const gl = c.createRadialGradient(W * x, gy - s * 0.48, 0, W * x, gy - s * 0.48, s * 0.6); gl.addColorStop(0, `rgba(255,190,90,${f * 0.35})`); gl.addColorStop(1, 'rgba(255,190,90,0)'); c.fillStyle = gl; c.fillRect(0, 0, W, H); }
+    } else { // Kammer bei Nacht: Fenster mit Mond, Kerze auf dem Tisch
+      c.fillStyle = '#0a1028'; c.fillRect(W * 0.62, gy * 0.18, s * 0.6, s * 0.6); c.fillStyle = '#f0f0d8'; c.beginPath(); c.arc(W * 0.62 + s * 0.4, gy * 0.18 + s * 0.2, s * 0.09, 0, TAU); c.fill();
+      c.strokeStyle = '#4a3a2a'; c.lineWidth = 4; c.strokeRect(W * 0.62, gy * 0.18, s * 0.6, s * 0.6); c.beginPath(); c.moveTo(W * 0.62 + s * 0.3, gy * 0.18); c.lineTo(W * 0.62 + s * 0.3, gy * 0.18 + s * 0.6); c.stroke();
+      c.fillStyle = '#5a3a20'; c.fillRect(W * 0.08, gy - s * 0.3, W * 0.4, s * 0.06);
+      const f = 0.75 + Math.sin(now / 70) * 0.2, cx = W * 0.4, cy = gy - s * 0.42;
+      c.fillStyle = '#efe4cc'; c.fillRect(cx - 3, cy + 4, 6, s * 0.08); c.fillStyle = `rgba(255,200,90,${f})`; c.beginPath(); c.ellipse(cx, cy, 4, 7, 0, 0, TAU); c.fill();
+      const gl = c.createRadialGradient(cx, cy, 0, cx, cy, s * 1.1); gl.addColorStop(0, `rgba(255,180,80,${f * 0.4})`); gl.addColorStop(1, 'rgba(255,180,80,0)'); c.fillStyle = gl; c.fillRect(0, 0, W, H);
+      c.fillStyle = '#e8dcc0'; c.fillRect(W * 0.18, gy - s * 0.34, s * 0.22, s * 0.04); // offenes Tagebuch
+    }
   } else if (bg === 'riss') {
     hill('#1a0a12', s * 0.5, s * 0.15, 2);
     const rx = W * 0.75, ry = gy - s * 0.9, pulse = 1 + Math.sin(now / 200) * 0.06, gl = c.createRadialGradient(rx, ry, 0, rx, ry, s * 1.4 * pulse);
@@ -409,7 +511,7 @@ function drawStage(c, bg, W, H, gy, s, now) {
     if (bg === 'ruine') for (let k = 0; k < 5; k++) { const x = (k + 0.5) * W / 5, h = s * (0.5 + rh(k, 8) * 0.9); c.fillStyle = '#8a8478'; c.fillRect(x - s * 0.08, gy - h, s * 0.16, h); c.fillStyle = '#a49e92'; c.fillRect(x - s * 0.12, gy - h - s * 0.05, s * 0.24, s * 0.06); c.fillStyle = '#3f7a3a'; c.fillRect(x - s * 0.08, gy - h * 0.4, s * 0.05, h * 0.3); }
     if (bg === 'burg') { c.fillStyle = night ? '#2a2a34' : '#b8b4aa'; c.fillRect(W * 0.3, gy - s * 1.4, W * 0.4, s * 1.4); for (const x of [0.28, 0.66]) { c.fillRect(W * x, gy - s * 1.9, W * 0.08, s * 1.9); c.fillStyle = '#3d4a66'; c.beginPath(); c.moveTo(W * x - 4, gy - s * 1.9); c.lineTo(W * (x + 0.04), gy - s * 2.3); c.lineTo(W * (x + 0.08) + 4, gy - s * 1.9); c.fill(); c.fillStyle = night ? '#2a2a34' : '#b8b4aa'; } }
   }
-  c.fillStyle = bg === 'schmiede' ? '#1e120c' : bg === 'riss' ? '#20080e' : night ? '#14201a' : '#4a8a40'; c.fillRect(-20, gy, W + 40, H - gy + 20);
+  c.fillStyle = bg === 'schmiede' ? '#1e120c' : bg === 'riss' ? '#20080e' : bg === 'halle' ? '#4a3220' : bg === 'nacht' ? '#2a1e18' : night ? '#14201a' : '#4a8a40'; c.fillRect(-20, gy, W + 40, H - gy + 20);
   if (bg === 'lager') { // Lagerfeuer in der Mitte
     const fx = W * 0.5, fl = 0.75 + Math.sin(now / 80) * 0.15, gl = c.createRadialGradient(fx, gy, 0, fx, gy, s * 1.6);
     gl.addColorStop(0, `rgba(255,170,60,${fl * 0.6})`); gl.addColorStop(1, 'rgba(255,90,20,0)'); c.fillStyle = gl; c.fillRect(0, 0, W, H);
@@ -437,7 +539,9 @@ function directorTick() {
   const st = sim.story, m = sim.minutes % 1440;
   if (m === 6 * 60 + 5 && st.episode !== sim.day) { st.episode = sim.day; playScene(SCENES.episode(sim.day), 2); }
   if (m === 13 * 60 && sim.minutes - scn.lastAt > 300) playScene(SCENES.training()); // ruhiger Tag → Trainingsszene
+  if (m === 19 * 60 + 30 && sim.capital.gildenhalle && sim.day % 3 === 0) playScene(SCENES.guild());
   if (m === 21 * 60 + 30) playScene(SCENES.campfire(), 2);
+  if (m === 23 * 60 && sim.day % 2 === 0) playScene(SCENES.diary());
 }
 function directorEvents(s) {
   s.on('chapter', ch => { if (!ch.recap) { highlight(`${ch.title}.`); playScene(chapterScene(ch), 2); } });
@@ -445,5 +549,13 @@ function directorEvents(s) {
   s.on('legendary', e => { highlight(`${e.n.name} schmiedete ${e.item.name}.`); playScene(SCENES.legend(e), 2); });
   s.on('raid', e => { highlight(`Die Rotschal-Bande überfiel ${e.town.name}.`); playScene(SCENES.raid(e), 2); });
   s.on('boss', () => playScene(SCENES.boss(), 2));
-  s.on('levelup', n => { if (n === s.story.hero && n.level === CONFIG.levels.classLevel && n.cls) playScene(SCENES.classUp(n)); });
+  s.on('levelup', n => {
+    if (n !== s.story.hero) return;
+    if (n.level === CONFIG.levels.classLevel && n.cls) playScene(SCENES.classUp(n));
+    else if (n.level % 5 === 0) { highlight(`${n.name} erreichte Level ${n.level}.`); playScene(SCENES.milestone(n)); }
+  });
+  s.on('loyal', e => { highlight(`${e.who.name} schwor ${e.smith.name} die Treue.`); playScene(SCENES.loyal(e), 2); });
+  s.on('guildLevel', g => playScene(SCENES.guildLevel(g)));
+  s.on('tamed', e => { if (e.n === s.story.hero || sim.minutes - scn.lastAt > 240) { highlight(`${e.n.name} zähmte ${PETS[e.pet.kind].name} „${e.pet.name}“.`); playScene(SCENES.tamed(e)); } });
+  s.on('gateDone', e => { if (e.n === s.story.hero) { highlight(`${e.n.name} ${e.ok ? 'bezwang' : 'floh aus'} dem ${e.gate.name}.`); playScene(SCENES.gateReturn(e)); } });
 }

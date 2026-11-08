@@ -373,6 +373,7 @@ defineAction({
         const pet = givePet(n, kind, sim), P = PETS[kind];
         sim.log(`🐾 zähmt ${kind === 'eule' || kind === 'katze' ? 'eine' : 'einen'} ${P.name} und nennt das Tier „${pet.name}“! (${P.bonus})`, n, true);
         sim.emit('system', `ZÄHMUNG ERFOLGREICH: ${P.name} „${pet.name}“`);
+        sim.emit('tamed', { n, pet });
         n.remember(sim, `Hat ${P.name} „${pet.name}“ gezähmt ${P.icon}`);
         n.mood = Math.min(100, n.mood + 20); n.addXp(sim, 20);
         if (kind === 'drache') n.addTitle(sim, 'Drachenfreund');
@@ -459,6 +460,7 @@ function guildXp(sim, amount) {
     g.xp -= need; g.level++;
     sim.log(`🛡️ Die „${g.name}“ steigt auf Gilden-Stufe ${g.level}! Alle Mitglieder bekommen mehr Erfahrung.`, null, true);
     sim.emit('system', `GILDE STUFE ${g.level}: ${g.name}`);
+    sim.emit('guildLevel', g);
   }
 }
 
@@ -478,7 +480,7 @@ function forgeItem(n, sim) {
     if (o !== n) {
       changeRelation(n, o, n.hasSkill('seelenschmied') ? 60 : 20, sim);
       o.remember(sim, `Hat von ${n.name} ${item.name} bekommen 🎁`);
-      if (n.hasSkill('seelenschmied')) o.loyalTo = n.id;
+      if (n.hasSkill('seelenschmied')) { if (o.loyalTo !== n.id) sim.emit('loyal', { who: o, smith: n, item }); o.loyalTo = n.id; }
     }
   } else { sim.capital.storeItem(item); sim.log(`⚒️ schmiedet ${item.name} (${R.name}) – schwächer als das Alte, es wandert ins Lager.`, n); }
   sim.emit('system', rarity >= 3 ? `${R.name.toUpperCase()}ER GEGENSTAND! ${item.name}` : `Geschmiedet: ${item.name} (${R.name})`);
@@ -679,6 +681,7 @@ function finishGate(n, gate, sim) {
     n.town.stock.crystals += crystals; g.cleared++; n.gatesCleared++;
     sim.log(`💎 kehrt siegreich aus dem ${g.name} zurück: +${crystals} Mana-Kristalle, +${xp} EP!`, n, true);
     sim.emit('system', `Riss bezwungen! Beute: ${crystals} Mana-Kristalle`);
+    sim.emit('gateDone', { n, gate: g, ok: true, crystals });
     sim.float(gate.x, gate.y, `💎 +${crystals}`, '#c9b6ff');
     n.remember(sim, `Hat den ${g.name} bezwungen 💎`);
     n.mood = Math.min(100, n.mood + 20);
@@ -688,6 +691,7 @@ function finishGate(n, gate, sim) {
     n.energy = 5; n.hunger = Math.min(100, n.hunger + 25); n.mood = Math.max(0, n.mood - 25);
     sim.log(`🩸 kehrt verwundet aus dem ${g.name} zurück …`, n, true);
     sim.emit('system', `${n.name} musste aus dem Riss fliehen.`);
+    sim.emit('gateDone', { n, gate: g, ok: false });
     n.remember(sim, `Musste verwundet aus dem ${g.name} fliehen 🩸`);
     n.addXp(sim, 10 * g.tier);
   }

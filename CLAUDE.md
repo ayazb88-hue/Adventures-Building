@@ -51,6 +51,6 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
 3. ✅ Stein und neue Gebäude: Steinmetze und Steinbruch, Wachtürme (schießen auf Monster), Taverne (Abendtreff, Musik, kostet Münzen), Tempel (Heilung, Laune). Offen: Stadtmauer
 3b. ✅ Handlung (Kapitel, Hauptfigur, Rivale, roter Riss, Boss), Info-Fenster im Anime-Stil, Riss-Welten, Gebäude-Stufen I–III, Verstärkung +1…+10, Forsthaus, Bauernhof, Gildenhalle (Gilden-Stufe), Haustiere und Zähmen, Erzähler-Kamera
 4. 🔶 Banditen ✅ (Rotschal-Bande überfällt das Lager, Hauptmann ab Tag 12), Handel mit Lagerwaren ✅. Offen: rivalisierende Königreiche, Diplomatie, Belagerung
-4b. ✅ Anime-Modus: Folgen mit Titel/Rückblick/Cliffhanger, Szenen mit Porträt-Dialogen und Effekten, Regisseur, Persönlichkeiten, Musik-Motive, Hauptfigur von Anfang an. Ideen: mehr Szenen (Treue-Schwur, Gilden-Versammlung, Tagebuch-Monolog), Gesichtsausdrücke direkt im Pixel-Gesicht, Vorspann-Lied
+4b. ✅ Anime-Modus: Folgen mit Titel/Rückblick/Cliffhanger, Szenen mit Porträt-Dialogen und Effekten, Regisseur, Persönlichkeiten, Musik-Motive, Hauptfigur von Anfang an. Dazu Szenen für Treue-Schwur, Gildenversammlung, Tagebuch-Monolog, Zähmung, Riss-Rückkehr, Krönung, Fall des Hauptmanns, Level-Meilensteine; Gesichtsausdrücke im Pixel-Gesicht (`drawExpression`); Rivale mit silbernem Haar. Ideen: Vorspann-Lied
 5. Bosse aus Rissen höheren Rangs, Gruppen-Expeditionen der Gilde
 6. Optional: wenige Erwachte denken mit einem echten Sprachmodell (nur mit API-Schlüssel, sparsam)

@@ -325,7 +325,8 @@ const HAIR_BACK_TPL = [
 /** Farbpalette eines Siedlers mit farbverschobenen Schatten (violett) und Lichtern (gold). */
 function pixPalette(n) {
   const sh = (rgb, d) => { const k = Math.min(1, Math.abs(d) / 120), tgt = d < 0 ? [45, 32, 80] : [255, 240, 205]; return `rgb(${rgb.map((v, i) => Math.round(v * (1 - k) + tgt[i] * k)).join(',')})`; };
-  const skin = pixHex(SKIN[n.id % SKIN.length]), hair = pixHex(HAIR[(n.id * 7) % HAIR.length]), shirt = pixHex(n.color);
+  const rival = n.sim && n.sim.story && n.sim.story.rivalId === n.id; // der Rivale: silbernes Haar, dunkle Kleidung
+  const skin = pixHex(SKIN[n.id % SKIN.length]), hair = pixHex(rival ? '#dfe4ee' : HAIR[(n.id * 7) % HAIR.length]), shirt = pixHex(rival ? '#2a2838' : n.color);
   const pants = pixHex(n.awakened ? '#2c2a33' : ['#5a4632', '#4a5236', '#3d4a5c'][n.id % 3]), iris = pixHex(EYES[(n.id * 3) % EYES.length]);
   return { SK: sh(skin, 0), SKD: sh(skin, -48), HR: sh(hair, 0), HRD: sh(hair, -60), HRL: sh(hair, 55), SH: sh(shirt, 0), SHD: sh(shirt, -55), SHL: sh(shirt, 40),
     PA: sh(pants, 0), PAD: sh(pants, -40), IR: sh(iris, 0), sh };

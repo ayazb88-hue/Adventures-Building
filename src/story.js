@@ -247,7 +247,7 @@ class Story {
     n.stats.geschick += 3; n.level = L; n.cls = 'waldlaeufer'; n.ambition = 'staerke';
     for (const [id, sk] of Object.entries(SKILLS)) if (sk.cls === n.cls && sk.lvl <= L && !n.hasSkill(id)) n.unlocked.push(id);
     const smith = { name: 'einer fernen Schmiede', level: L };
-    n.gear.weapon = makeItem('weapon', 2, n, smith, sim); n.gear.armor = makeItem('armor', 1, n, smith, sim);
+    n.gear.weapon = makeItem('weapon', 2, n, smith, sim); n.gear.armor = makeItem('armor', 1, n, smith, sim); n.gear.cape = makeItem('cape', 2, n, smith, sim);
     n.hp = n.maxHp;
     n.relations[h.id] = -25; h.relations[n.id] = -25;
     n.addTitle(sim, 'Stolz des Nordens');
