@@ -588,8 +588,8 @@ function drawPortrait(cv, n) {
   c.fillStyle = g; c.fillRect(0, 0, 72, 72);
   c.fillStyle = col; c.globalAlpha = 0.35; c.beginPath(); c.arc(36, 40, 30, 0, TAU); c.fill(); c.globalAlpha = 1;
   const f = pixFrame(n, { arms: 'none', moving: false, facing: 1, view: 'down' }, 0, performance.now());
-  c.imageSmoothingEnabled = false;
-  c.drawImage(f, 8, 2, 24, 24, 0, 0, 72, 72);
+  c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+  c.drawImage(pixHD(f), 32, 8, 96, 96, 0, 0, 72, 72); // HD-Porträt
 }
 
 /** Kleines Fenster für Sichern/Laden (ohne prompt/alert). */

@@ -386,8 +386,10 @@ function drawFace(cv, n, who, mood, faceKind = null) {
   c.imageSmoothingEnabled = false;
   if (n) {
     const f = pixFrame(n, { arms: 'none', moving: false, facing: 1, view: 'down' }, 0, performance.now());
-    c.drawImage(f, 9, 3, 22, 22, 0, 0, W, W);
-    drawExpression(c, n, mood, W / 22);
+    const tmp = document.createElement('canvas'); tmp.width = PIX.W; tmp.height = PIX.H;
+    const tc = tmp.getContext('2d'); tc.drawImage(f, 0, 0); tc.translate(9, 3); drawExpression(tc, n, mood, 1); // Gefühl vor dem Hochrechnen
+    c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+    c.drawImage(pixHDRaw(tmp), 36, 12, 88, 88, 0, 0, W, W);
   } else if (who) {
     const kind = faceKind || (who === 'Kronenfresser' ? 'aschegolem' : 'banditenboss');
     c.save(); if (who === 'Kronenfresser') c.filter = 'hue-rotate(-30deg) saturate(1.5)';

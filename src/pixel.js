@@ -446,9 +446,40 @@ function pixOutline(c) {
   c.putImageData(img, 0, 0);
 }
 
+/* ---- HD-Figuren: Scale2x zweimal (40×40 → 160×160) mit runden Kanten, dazu Licht und Schatten ---- */
+const pixHDCache = new WeakMap(), HD_FROM = 34; // ab dieser Kachelgröße werden HD-Figuren gezeigt
+function scale2x(src, w, h) {
+  const dst = new Uint32Array(w * h * 4), W2 = w * 2;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const P = src[y * w + x], A = y > 0 ? src[(y - 1) * w + x] : P, B = x < w - 1 ? src[y * w + x + 1] : P, C = x > 0 ? src[y * w + x - 1] : P, D = y < h - 1 ? src[(y + 1) * w + x] : P;
+    const o = y * 2 * W2 + x * 2;
+    dst[o] = C === A && C !== D && A !== B ? A : P;
+    dst[o + 1] = A === B && A !== C && B !== D ? B : P;
+    dst[o + W2] = D === C && D !== B && C !== A ? C : P;
+    dst[o + W2 + 1] = B === D && B !== A && D !== C ? D : P;
+  }
+  return dst;
+}
+/** Vierfache Auflösung mit geglätteten Kanten; Figur bekommt Licht von oben links und Schatten unten rechts. */
+function pixHDRaw(cv) {
+  const w0 = cv.width, h0 = cv.height, img = cv.getContext('2d').getImageData(0, 0, w0, h0);
+  let d = new Uint32Array(img.data.buffer.slice(0));
+  d = scale2x(d, w0, h0); d = scale2x(d, w0 * 2, h0 * 2);
+  const hd = document.createElement('canvas'); hd.width = w0 * 4; hd.height = h0 * 4;
+  const x = hd.getContext('2d');
+  x.putImageData(new ImageData(new Uint8ClampedArray(d.buffer), w0 * 4, h0 * 4), 0, 0);
+  x.globalCompositeOperation = 'source-atop';
+  const g = x.createLinearGradient(hd.width * 0.25, hd.height * 0.2, hd.width * 0.7, hd.height);
+  g.addColorStop(0, 'rgba(255,245,225,.16)'); g.addColorStop(0.45, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(30,15,50,.22)');
+  x.fillStyle = g; x.fillRect(0, 0, hd.width, hd.height);
+  x.globalCompositeOperation = 'source-over';
+  return hd;
+}
+function pixHD(cv) { let hd = pixHDCache.get(cv); if (!hd) { hd = pixHDRaw(cv); pixHDCache.set(cv, hd); } return hd; }
+
 /** Pixel-Figur ins Bild setzen (scharf vergrößert), plus Aura, Schimmer und Pfeile. */
 Renderer.prototype.drawSettlerPixel = function (c, n, px, py, s, now, pose, phase) {
-  const cv = pixFrame(n, pose, phase, now), k = (0.66 * s) / 26, t = now / 1000 + n.id * 0.37;
+  const base = pixFrame(n, pose, phase, now), hd = s >= HD_FROM, cv = hd ? pixHD(base) : base, f = cv.width / PIX.W, k = (0.66 * s) / 26 / f, t = now / 1000 + n.id * 0.37;
   const fx = px, fy = py + s * 0.38;
   if (n.awakened && !n.sleeping) { // Aura
     const col = n.cls ? CLASSES[n.cls].color : '#8fd3ff', gr = c.createRadialGradient(fx, fy, 0, fx, fy, s * 0.36);
@@ -457,9 +488,9 @@ Renderer.prototype.drawSettlerPixel = function (c, n, px, py, s, now, pose, phas
   }
   const g = n.gear || {}, topR = SLOTS.reduce((m, sl) => Math.max(m, g[sl] ? g[sl].rarity : -1), -1);
   if (topR >= 3 && !n.sleeping) { const gc = RARITIES[topR].color, gr = c.createRadialGradient(fx, fy - s * 0.3, 0, fx, fy - s * 0.3, s * 0.5); gr.addColorStop(0, gc + '50'); gr.addColorStop(1, gc + '00'); c.fillStyle = gr; c.fillRect(fx - s * 0.5, fy - s * 0.85, s, s); }
-  c.save(); c.imageSmoothingEnabled = false;
+  c.save(); c.imageSmoothingEnabled = hd; c.imageSmoothingQuality = 'high';
   c.translate(fx, fy); c.scale((pose.view && pose.view !== 'side' ? 1 : pose.facing) * k, k);
-  c.drawImage(cv, -PIX.FX, -PIX.FY);
+  c.drawImage(cv, -PIX.FX * f, -PIX.FY * f);
   c.restore();
   // Fernkampf: Pfeil oder Zauberkugel fliegt
   const wpn = g.weapon, fightT = (t / 0.75) % 1;
@@ -621,6 +652,6 @@ function pixPet(kind, frame, pr, pl, el, FX, FY) {
 }
 
 function drawPixelCreature(c, kind, x, y, s, facing, frame, attack, flash, antlers) {
-  const cv = pixCreature(kind, frame, attack, flash, antlers), k = (0.66 * s) / 26;
-  c.save(); c.imageSmoothingEnabled = false; c.translate(x, y); c.scale(facing * k, k); c.drawImage(cv, -PIX.FX, -PIX.FY); c.restore();
+  const base = pixCreature(kind, frame, attack, flash, antlers), hd = s >= HD_FROM, cv = hd ? pixHD(base) : base, f = cv.width / PIX.W, k = (0.66 * s) / 26 / f;
+  c.save(); c.imageSmoothingEnabled = hd; c.imageSmoothingQuality = 'high'; c.translate(x, y); c.scale(facing * k, k); c.drawImage(cv, -PIX.FX * f, -PIX.FY * f); c.restore();
 }
