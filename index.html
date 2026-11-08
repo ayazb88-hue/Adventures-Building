@@ -1425,6 +1425,14 @@ class NPC {
 
   // --- Erweiterungspunkte -------------------------------------------
   hasSkill(id) { return this.unlocked.includes(id); }
+  unstick(sim) {
+    const w = sim.world, c = this.town.camp;
+    let best = null, bd = Infinity;
+    w.bfs(c.x, c.y + 1, (x, y) => { const d = Math.hypot(x - this.x, y - this.y); if (d < bd && (x !== Math.round(this.x) || y !== Math.round(this.y))) { bd = d; best = { x, y }; } return null; }, 8000);
+    if (!best) return;
+    if (this.task) this.endTask(sim);
+    this.x = this.prevX = best.x; this.y = this.prevY = best.y;
+  }
   get maxHp() { return 100 + (this.awakened ? this.level * 8 + this.stats.ausdauer * 3 : 0); }
   get attack() { return this.awakened ? 6 + this.level * 2 + this.stats.kraft + (this.gear.weapon ? this.gear.weapon.power : 0) : 2; }
   get defense() { return gearPower(this, ['armor', 'helmet', 'boots', 'cape']); }
@@ -1569,6 +1577,8 @@ class NPC {
         if (steps) { this.endTask(sim); this.startTask(urgent, steps, sim); }
       }
     }
+    // eingesperrt (z. B. durch ein neues Feld rundherum)? Dann zum nächsten freien Weg klettern
+    if (sim.minutes % 30 === this.id % 30 && !this.inside && !DIRS.some(([dx, dy]) => sim.world.walkable(Math.round(this.x) + dx, Math.round(this.y) + dy))) this.unstick(sim);
     if (!this.task) this.decide(sim);
     if (this.task) this.runTask(sim);
     if (this.awakened && sim.minutes % 30 === 0) {
