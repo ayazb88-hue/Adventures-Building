@@ -7,6 +7,29 @@ const ACTIONS = {};
 function defineAction(def) { ACTIONS[def.id] = { interruptible: true, ...def }; }
 
 const move = path => ({ kind: 'move', path });
+/** Freie Sicht zwischen zwei Punkten (mit etwas Abstand zu Hindernissen)? Liefert die überquerten Kacheln. */
+function lineTiles(w, x0, y0, x1, y1) {
+  const d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(d * 4)), nx = -(y1 - y0) / (d || 1) * 0.28, ny = (x1 - x0) / (d || 1) * 0.28, out = [];
+  for (let k = 1; k <= n; k++) {
+    const x = x0 + (x1 - x0) * k / n, y = y0 + (y1 - y0) * k / n;
+    for (const o of [-1, 1]) if (!w.walkable(Math.round(x + nx * o), Math.round(y + ny * o))) return null;
+    const t = w.tile(Math.round(x), Math.round(y)); if (!t || !TILE_DEFS[t.type].walkable) return null;
+    if (out[out.length - 1] !== t) out.push(t);
+  }
+  return out;
+}
+/** Kachelweg → Wegpunkte in beliebiger Richtung (Sichtlinie bis 6 Kacheln voraus). Endpunkt bleibt exakt. */
+function smoothPath(w, x, y, path) {
+  if (path.length < 3) return path;
+  const out = []; let cx = x, cy = y, i = 0;
+  while (i < path.length) {
+    let j = i, via = null;
+    for (let k = Math.min(path.length - 1, i + 6); k > i; k--) { const v = lineTiles(w, cx, cy, path[k].x, path[k].y); if (v) { j = k; via = v; break; } }
+    const p = path[j]; out.push({ x: p.x, y: p.y, via: via || [w.tile(p.x, p.y)] });
+    cx = p.x; cy = p.y; i = j + 1;
+  }
+  return out;
+}
 const act = (tick, opts = {}) => ({ kind: 'act', tick, t: 0, ...opts });
 const pick = (sim, arr) => arr[Math.floor(sim.rng() * arr.length)];
 const houseCost = () => CONFIG.buildings.house.cost.wood;
@@ -1189,17 +1212,18 @@ class NPC {
   }
 
   moveAlong(step, sim) {
+    if (!step.smooth) { step.smooth = true; step.path = smoothPath(sim.world, this.x, this.y, step.path); }
     let budget = this.speed;
     while (budget > 0 && step.path.length) {
       const next = step.path[0];
       if (!sim.world.walkable(next.x, next.y)) return 'fail'; // Weg verbaut → neu planen
       const dx = next.x - this.x, dy = next.y - this.y, d = Math.hypot(dx, dy);
       if (Math.abs(dx) > 0.01) this.facing = dx > 0 ? 1 : -1;
-      this.dirV = Math.abs(dy) > Math.abs(dx) ? (dy > 0 ? 'down' : 'up') : 'side';
+      this.dirV = Math.abs(dy) > Math.abs(dx) * 1.2 ? (dy > 0 ? 'down' : 'up') : 'side';
       if (d <= budget) {
         this.x = next.x; this.y = next.y; budget -= d; step.path.shift();
-        const t = sim.world.tile(next.x, next.y);
-        if (t.traffic < 400) { t.traffic++; if (t.traffic % 8 === 0 && t.traffic <= 64) sim.world.dirtyTiles.add(t); } // Trampelpfade
+        for (const t of next.via || [sim.world.tile(next.x, next.y)]) // Trampelpfade dort, wo wirklich gelaufen wird
+          if (t.traffic < 400) { t.traffic++; if (t.traffic % 8 === 0 && t.traffic <= 64) sim.world.dirtyTiles.add(t); }
       } else { this.x += dx / d * budget; this.y += dy / d * budget; budget = 0; }
     }
     return step.path.length ? undefined : 'done';
