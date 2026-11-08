@@ -25,6 +25,7 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
   | `src/core.js` | `CONFIG`, Klassen, Fähigkeiten, Ausrüstung, Welt + Kartengenerierung, `Settlement` |
   | `src/logic.js` | Aktionen (Utility-KI), NPC, Simulation (Monster, Königreich, Speichern) |
   | `src/realm.js` | Nachbarreich (Feste, Diplomatie mit Wahl, Krieg, Belagerung, Vasall/Bündnis) und Stadtmauer |
+  | `src/guild.js` | Erfolge (`ACHIEVEMENTS`, stündlich geprüft) und Gruppen-Expeditionen der Gilde (Riss-Boss, Beute) |
   | `src/render.js` | Grafik: Sprites, Gebäude, Licht, Partikel, Minikarte (gezeichnete Figuren als Alternative) |
   | `src/iso.js` | Isometrische Gebäude: Bausteine (`isoKit`: Wände, Satteldach, Walmdach, Rundturm, Zinnen, Fenster, Türen, Fachwerk, Mauerwerk) und alle Gebäude (`isoHouse`, `isoCastle`, `isoSmithy` …). Ursprung = Mitte der Grundfläche |
   | `src/pixel.js` | Pixel-Art-Figuren (Standard): Posen auf 40×40-Raster, Kopf-/Haar-Vorlagen, Umriss, Bild-Cache |
@@ -55,5 +56,5 @@ Inspiration (nur Stimmung, **nichts kopieren** – keine Namen, Figuren, Grafike
 3b. ✅ Handlung (Kapitel, Hauptfigur, Rivale, roter Riss, Boss), Info-Fenster im Anime-Stil, Riss-Welten, Gebäude-Stufen I–III, Verstärkung +1…+10, Forsthaus, Bauernhof, Gildenhalle (Gilden-Stufe), Haustiere und Zähmen, Erzähler-Kamera
 4. ✅ Banditen (Rotschal-Bande), Handel mit Lagerwaren, Nachbarreich mit Diplomatie (Spieler wählt, sonst Regentschaft), Krieg und Belagerung, Vasall/Bündnis, Stadtmauer; Brücken über Furten, Boote
 4b. ✅ Anime-Modus: Folgen mit Titel/Rückblick/Cliffhanger, Szenen mit Porträt-Dialogen und Effekten, Regisseur, Persönlichkeiten, Musik-Motive, Hauptfigur von Anfang an. Dazu Szenen für Treue-Schwur, Gildenversammlung, Tagebuch-Monolog, Zähmung, Riss-Rückkehr, Krönung, Fall des Hauptmanns, Level-Meilensteine; Gesichtsausdrücke im Pixel-Gesicht (`drawExpression`); Rivale mit silbernem Haar. Ideen: Vorspann-Lied
-5. Bosse aus Rissen höheren Rangs, Gruppen-Expeditionen der Gilde
+5. 🔶 Gruppen-Expeditionen der Gilde mit Riss-Boss ✅, Erfolge ✅, „📍 Hinspringen“ bei Meldungen ✅, Log antippbar ✅. Offen: Risse höheren Rangs (S-Rang), Boss-Arten mit eigenem Aussehen
 6. Optional: wenige Erwachte denken mit einem echten Sprachmodell (nur mit API-Schlüssel, sparsam)

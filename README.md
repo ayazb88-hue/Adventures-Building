@@ -71,6 +71,9 @@ Die Karte wird **isometrisch** gezeigt – als Rautenraster wie in klassischen A
 - **Nachbarreich:** Nach der Königreichsgründung erhebt sich am Kartenrand eine fremde Feste (Dornwacht, Grauhafen oder Aschenthal – jedes mit eigenem Temperament). Gesandte kommen mit Anliegen – **du wählst** im Fenster „Diplomatie“: Bündnis anbieten, Geschenke senden, Tribut fordern oder ablehnen (sonst entscheidet die Regentschaft nach ihrem Charakter). Gute Beziehungen führen zum Bündnis (täglicher Handelszug), schlechte zum Krieg: Ein Heer aus Dornrittern mit Feldherr belagert die Hauptstadt. Zweimal abgewehrt, wird das Nachbarreich zum Vasallen und zahlt Abgaben.
 - **Stadtmauer:** Die Hauptstadt bekommt Stück für Stück eine Mauer mit Türmen und Toren (kostet Stein und Holz) – sie schützt bei Belagerungen.
 - **Brücken und Boote:** Über die Furten führen Brücken, auf den Seen segeln Boote.
+- **Gruppen-Expeditionen:** Alle drei Tage zieht die Gilde (3–4 Erwachte ab Level 8) gemeinsam in den stärksten Riss und kämpft gegen einen Riss-Boss – mit Szene vorher und nachher und viel Beute. In der Riss-Welt sieht man die ganze Gruppe kämpfen.
+- **Erfolge (🏆):** 25 Erfolge vom ersten Dach bis zum Vasallen-Reich.
+- **📍 Hinspringen:** System-Meldung antippen springt zum Ort des Geschehens; eine Zeile im Log antippen wählt den Siedler aus.
 - **Tiere:** Erwachte zähmen Gefährten (Wolfswelpe, Fuchs, Eule, Kristallhase, selten Mini-Drache) mit Boni; manche Arbeiter bringen Hund oder Katze mit. Die Tiere laufen ihren Menschen hinterher.
 - **Tempo:** ⏸ / 1x / 2x / 5x. Bei 1x dauert ein Spieltag 6 Minuten.
 

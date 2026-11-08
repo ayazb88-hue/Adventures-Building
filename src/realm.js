@@ -35,7 +35,7 @@ class Realm {
   update() {
     const sim = this.sim, m = sim.minutes % 1440;
     if (!this.rival && sim.kingdom && sim.day >= sim.kingdom.founded + 1 && m === 9 * 60) this.foundRival();
-    if (m === 9 * 60 + 30) this.growWall();
+    if (m === 9 * 60 + 30 || m === 15 * 60 + 30) this.growWall(); // zweimal am Tag wird gemauert
     const r = this.rival; if (!r) return;
     if (r.pending && sim.minutes >= r.pending.until) this.choose(this.regentChoice(), true); // keine Wahl → Regentschaft entscheidet
     if (m === 10 * 60 && !r.pending) this.dailyDiplomacy();

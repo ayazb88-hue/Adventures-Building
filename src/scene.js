@@ -289,6 +289,14 @@ const SCENES = {
     return [BG('burg'), CAST(...(h ? [{ n: h, x: 0.35, pose: 'cheer' }] : []), ...(f ? [{ n: f, x: 0.65, face: -1, pose: 'cheer' }] : [])), FX('flash'), SND('triumph'), SHOUT('DIE MAUER STEHT!', '#d8d4cc'),
       N(`Stein auf Stein, Tag für Tag – nun umschließt eine Mauer ${sim.capital.name}.`), ...(f ? [S(f, voice(f, 'jubel'), 'lachen')] : [])];
   },
+  groupRaid(e) {
+    const party = e.party.filter(n => !n.inside || e.phase !== 'start'), lead = party[0]; if (!lead) return null;
+    if (e.phase === 'start') return [BG('halle'), CAST(...party.slice(0, 4).map((n, i) => ({ n, x: 0.2 + i * 0.2, face: i ? -1 : 1 }))), N(`Morgengrauen in der Gildenhalle. Heute geht niemand allein in den Riss.`),
+      S(lead, `Im Riss „${e.gate.name}“ wartet „${e.boss}“. Wir holen ihn uns – zusammen!`, 'entschlossen'), ...party.slice(1, 3).map(n => S(n, voice(n, personaOf(n) === 'rivale' ? 'lager' : 'jubel', 'lager'), 'lachen')), SND('kampf'), SHOUT('AUFBRUCH!', '#8fd3ff')];
+    if (e.phase === 'win') return [BG('riss'), CAST({ kind: 'aschegolem', x: 0.78, face: -1, scale: 1.8 }, ...party.slice(0, 3).map((n, i) => ({ n, x: 0.2 + i * 0.15, pose: 'fight' }))), FX('speed'), SHOUT(`${skillShout(lead)}`), FX('shake'), FX('flash'), ACT(0, { hit: true }),
+      SND('triumph'), SYS(`RISS-BOSS „${e.boss}“ BESIEGT · +${e.crystals} 💎`), S(lead, voice(lead, 'sieg', 'jubel'), 'lachen'), ...(e.item ? [SHOUT(e.item.name, RARITIES[e.item.rarity].color)] : [])];
+    return [BG('riss'), CAST(...party.slice(0, 3).map((n, i) => ({ n, x: 0.25 + i * 0.2 }))), FX('shake'), SND('traurig'), N(`„${e.boss}“ war zu stark. Blutend und erschöpft taumelt die Gruppe zurück ans Tageslicht.`), S(lead, voice(lead, 'niederlage'), 'traurig'), S(lead, 'Wir trainieren. Und dann kommen wir wieder.', 'entschlossen')];
+  },
   bund() {
     const st = sim.story, h = st.hero, r = st.rival; if (!h || !r) return null;
     return [BG('lager'), CAST({ n: h, x: 0.35 }, { n: r, x: 0.65, face: -1 }), S(r, voice(r, 'respekt'), 'normal'), S(h, 'Heißt das … wir sind jetzt Freunde?', 'lachen'),
@@ -361,7 +369,7 @@ function advance() {
 function showSay({ who, text, mood, kind }) {
   const S0 = scn.cur, n = who && typeof who === 'object' ? who : null, name = n ? n.name : who || 'Erzähler';
   $('sceneBox').hidden = false;
-  $('sceneName').textContent = name; $('sceneName').style.color = n ? n.color : who ? '#ff9a9a' : '#f0b54a';
+  $('sceneName').textContent = name; $('sceneName').style.color = n ? (n.color.startsWith('#') ? shadeHex(n.color, 45) : n.color) : who ? '#ff9a9a' : '#f0b54a'; // dunkle Farben aufhellen
   $('sceneText').textContent = '';
   $('sceneBox').classList.toggle('narr', !who);
   drawFace($('sceneFace'), n, who, mood, kind);
@@ -582,6 +590,7 @@ function directorEvents(s) {
   });
   s.on('loyal', e => { highlight(`${e.who.name} schwor ${e.smith.name} die Treue.`); playScene(SCENES.loyal(e), 2); });
   s.on('guildLevel', g => playScene(SCENES.guildLevel(g)));
+  s.on('groupRaid', e => { if (e.phase !== 'start') highlight(e.phase === 'win' ? `Die Gilde besiegte „${e.boss}“.` : `Die Gilde floh vor „${e.boss}“.`); playScene(SCENES.groupRaid(e), 2); });
   s.on('diplo', e => { if (['war', 'siegeWon', 'vassal', 'alliance'].includes(e.kind)) highlight({ war: `${e.realm.name} erklärte den Krieg.`, siegeWon: `Die Belagerung durch ${e.realm.name} wurde gebrochen.`, vassal: `${e.realm.name} unterwarf sich.`, alliance: `Bündnis mit ${e.realm.name}.` }[e.kind]); playScene(SCENES.diplo(e), e.kind === 'offer' ? 1 : 2); });
   s.on('wallDone', () => { highlight('Die Stadtmauer wurde vollendet.'); playScene(SCENES.wall(), 2); });
   s.on('tamed', e => { if (e.n === s.story.hero || sim.minutes - scn.lastAt > 240) { highlight(`${e.n.name} zähmte ${PETS[e.pet.kind].name} „${e.pet.name}“.`); playScene(SCENES.tamed(e)); } });

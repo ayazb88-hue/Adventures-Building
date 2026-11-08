@@ -16,7 +16,7 @@ function store(key, val) { try { if (val === undefined) return localStorage.getI
 function renderLog() {
   $('log').innerHTML = sim.logEntries.slice(0, 40).map(e => {
     const who = e.npc ? `<span class="who" style="color:${e.npc.color}">${esc(e.npc.name)}</span> ` : '';
-    return `<li class="${e.event ? 'event' : ''}"><span class="t">T${e.day} ${e.clock}</span>${who}${esc(e.text)}</li>`;
+    return `<li class="${e.event ? 'event' : ''}"${e.npc ? ` data-npc="${e.npc.id}"` : ''}><span class="t">T${e.day} ${e.clock}</span>${who}${esc(e.text)}</li>`;
   }).join('');
 }
 
@@ -420,6 +420,24 @@ function updateNarrator(now) {
 }
 const cineMoment = n => { if (n && n.name) ui.cineEvent = { n, at: performance.now() }; };
 
+/** Ort des letzten wichtigen Ereignisses (Person, Monster oder Kachel) – für „Hinspringen“. */
+function setPoi(ent, x, y) { ui.poi = { ent, x: ent ? ent.x : x, y: ent ? ent.y : y, at: performance.now() }; }
+function jumpToPoi() {
+  const p = ui.poi; if (!p) return;
+  if (ui.cine) ui.cineHold = performance.now() + 20000;
+  if (p.ent && sim.npcs.includes(p.ent)) { ui.selected = null; select(p.ent); return; }
+  if (p.ent && sim.monsters.includes(p.ent)) { selectMonster(p.ent); return; }
+  renderer.follow = null; renderer.centerOn(p.x + 0.5, p.y + 0.5);
+}
+
+/** Erfolge: freigeschaltet bunt, gesperrt grau mit Hinweis. */
+function openAchievements() {
+  const got = sim.achievements || [];
+  $('modalTitle').textContent = `🏆 Erfolge (${got.length}/${ACHIEVEMENTS.length})`; $('modalText').textContent = '';
+  $('modalHtml').innerHTML = `<div class="ach">${ACHIEVEMENTS.map(a => `<div class="${got.includes(a.id) ? '' : 'locked'}"><span>${a.icon}</span><b>${esc(a.name)}</b>${esc(a.desc)}</div>`).join('')}</div>`;
+  $('modalHtml').hidden = false; $('modalArea').hidden = true; $('modalOk').hidden = true; $('modal').hidden = false;
+}
+
 function bindLinks(box) {
   box.querySelectorAll('[data-npc]').forEach(b => b.addEventListener('click', () => select(sim.npcs.find(x => x.id === Number(b.dataset.npc)))));
 }
@@ -431,7 +449,8 @@ function showSystem(now) {
   if (now < ui.sysUntil) return;
   const msg = ui.sysQueue.shift();
   if (!msg) { box.hidden = true; return; }
-  box.innerHTML = `<div class="sys-title">[ SYSTEM ]</div><div>${esc(msg)}</div>`;
+  const p = ui.poi && performance.now() - ui.poi.at < 20000 ? ui.poi : null;
+  box.innerHTML = `<div class="sys-title">[ SYSTEM ]</div><div>${esc(msg)}</div>${p ? '<div class="sys-jump">📍 antippen = hinspringen</div>' : ''}`;
   box.hidden = false; box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
   ui.sysUntil = now + 2600;
 }
@@ -615,6 +634,14 @@ function startSim(s) {
   sim.on('legendary', ({ n }) => { renderer.burst(n, 'legendary'); sound.levelUp(); setTimeout(() => sound.levelUp(), 250); });
   sim.on('awaken', n => { n.cheerUntil = performance.now() + 2200; renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
   sim.on('npcAdded', buildRoster);
+  // Orte wichtiger Ereignisse merken (für „📍 Hinspringen“)
+  sim.on('raid', e => setPoi(null, e.town.camp.x, e.town.camp.y));
+  sim.on('boss', m => setPoi(m));
+  sim.on('diplo', e => { if (e.kind === 'siege') { const m = sim.monsters.find(x => x.kind === 'feldherr'); if (m) setPoi(m); } else if (e.realm) setPoi(null, e.realm.x, e.realm.y); });
+  for (const ev of ['awaken', 'levelup', 'npcAdded']) sim.on(ev, n => setPoi(n));
+  sim.on('legendary', e => setPoi(e.n)); sim.on('tamed', e => setPoi(e.n)); sim.on('gateDone', e => setPoi(e.n)); sim.on('loyal', e => setPoi(e.who));
+  sim.on('duel', e => setPoi(e.a)); sim.on('groupRaid', e => e.party[0] && setPoi(e.party[0]));
+  sim.on('achievement', () => sound.on && sound.chime());
   directorEvents(sim);
   // im Anime-Modus übernimmt die Szene das Kapitel
   sim.on('chapter', ch => { if (scn.on && !ch.recap) return; if (ui.catchingUp && !ch.recap) { ui.chapters = [...(ui.chapters || []), ch]; return; } if (!$('chapter').hidden) (ui.chapters ||= []).push(ch); else showChapter(ch); cineMoment(sim.story.hero); });
@@ -691,6 +718,9 @@ $('exportBtn').addEventListener('click', exportGame);
 $('importBtn').addEventListener('click', importGame);
 $('modalClose').addEventListener('click', () => { $('modal').hidden = true; });
 $('chronikBtn').addEventListener('click', openChronik);
+$('achBtn').addEventListener('click', openAchievements);
+$('sysWin').addEventListener('click', jumpToPoi);
+$('log').addEventListener('click', e => { const li = e.target.closest('li[data-npc]'); if (li) { const n = sim.npcs.find(x => x.id === Number(li.dataset.npc)); if (n) { ui.selected = null; select(n); } } });
 $('riftClose').addEventListener('click', () => closeRift(true));
 $('scene').addEventListener('click', e => { if (e.target.id !== 'sceneSkip') sceneTap(); });
 $('sceneSkip').addEventListener('click', () => { scn.q = []; scn.cur = null; $('scene').hidden = true; });

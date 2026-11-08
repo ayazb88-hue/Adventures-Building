@@ -59,6 +59,13 @@
   #chapter .ch-text { max-width: 440px; font: italic 15px/1.55 Georgia, serif; color: #e8dcc0; }
   #chapter .ch-tap { margin-top: 16px; font-size: 11px; color: #ffffff66; }
   @keyframes chIn { from { opacity: 0; } to { opacity: 1; } }
+  #sysWin .sys-jump { margin-top: 3px; font-size: 11px; color: #8fd3ff; }
+  #log li[data-npc] { cursor: pointer; }
+  .ach { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
+  .ach div { padding: 7px 8px; border-radius: 9px; border: 1px solid #f0b54a66; background: #2a1c0c; font-size: 12px; }
+  .ach div.locked { opacity: .45; border-color: #ffffff22; background: #121a15; filter: grayscale(1); }
+  .ach b { display: block; font-size: 13px; }
+  .ach span { font-size: 20px; }
   #diplo { position: absolute; left: 8px; right: 56px; bottom: 8px; z-index: 6; padding: 10px 12px; border-radius: 12px; border: 1px solid #f0b54acc;
     background: linear-gradient(180deg, #2a1c0cf0, #140c06f4); color: #f3ead6; box-shadow: 0 6px 24px #000a; font-size: 13px; }
   #diplo[hidden] { display: none; }
@@ -129,7 +136,7 @@
     background: #0008; image-rendering: pixelated; box-shadow: 0 2px 10px #0008; cursor: pointer; }
   #sysWin { position: absolute; left: 114px; right: 56px; top: 8px; padding: 8px 12px;
     background: linear-gradient(180deg, #0e2a4acc, #0a1a33dd); border: 1px solid #6fc3ff; border-radius: 6px; color: #dff2ff;
-    font-size: 13px; text-align: center; box-shadow: 0 0 18px #3aa0ff88, inset 0 0 12px #3aa0ff44; pointer-events: none; }
+    font-size: 13px; text-align: center; box-shadow: 0 0 18px #3aa0ff88, inset 0 0 12px #3aa0ff44; cursor: pointer; z-index: 4; }
   #sysWin .sys-title { font-weight: 800; letter-spacing: .2em; font-size: 11px; color: #8fd3ff; margin-bottom: 2px; }
   #sysWin.pop { animation: pop .35s ease-out; }
   @keyframes pop { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
@@ -236,6 +243,7 @@
     <button id="soundBtn" aria-label="Ton ein/aus">🔇</button>
     <button id="chronikBtn" class="mapBtn" style="top:56px" aria-label="Chronik der Geschichte">📖</button>
     <button id="cineBtn" class="mapBtn" style="top:104px" aria-label="Erzähler-Modus">🎬</button>
+    <button id="achBtn" class="mapBtn" style="top:152px" aria-label="Erfolge">🏆</button>
     <div id="narr" hidden></div>
     <div id="diplo" hidden></div>
     <div id="scene" hidden>
@@ -2051,7 +2059,7 @@ class NPC {
  * 7) SIMULATION: Zeit, Wetter, Wachstum, Ereignisse, Log, Speichern
  * ===================================================================== */
 const TILE_TYPES = Object.keys(TILE_DEFS);
-const SAVE_VERSION = 8; // 6: Geschichte · 7: Folgen und Höhepunkte · 8: Nachbarreich, Diplomatie, Stadtmauer (realm)
+const SAVE_VERSION = 9; // 6: Geschichte · 7: Folgen und Höhepunkte · 8: Nachbarreich, Diplomatie, Stadtmauer (realm) · 9: Erfolge, Gruppen-Expeditionen
 // Reihenfolge der Geländearten in älteren Spielständen (dort wurden Kacheln als Nummer gespeichert)
 const BASE_TYPES = ['grass', 'tree', 'stump', 'water', 'bush', 'camp', 'site', 'house', 'rock'];
 const OLD_TYPE_LISTS = {
@@ -2583,6 +2591,9 @@ class Simulation {
     for (const npc of this.npcs) npc.update(this);
     this.story.update();
     this.realm.update();
+    if (this.minutes % 60 === 15) checkAchievements(this);
+    if (this.minutes % 1440 === 8 * 60 && this.day % 3 === 0 && this.day !== this.lastRaidDay) startGroupRaid(this);
+    if (this.expedition && this.minutes - this.expedition.start > 600) { if (!this.expedition.done) finishGroupRaid(this); this.expedition = null; } // Sicherheitsnetz
     this.updateMonsters();
     this.updateTowers();
     this.updateTrade();
@@ -2602,7 +2613,7 @@ class Simulation {
     return {
       v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock, items: t.items || [],
         site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work, upgrade: t.site.upgrade ? t.site.upgrade.id : null } })),
-      story: this.story.serialize(), realm: this.realm.serialize(), guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
+      story: this.story.serialize(), realm: this.realm.serialize(), achievements: this.achievements || [], raidWins: this.raidWins || 0, lastRaidDay: this.lastRaidDay || 0, guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
       seed: this.seed, minutes: this.minutes, weather: this.weather, firstAwakening: this.firstAwakening,
       gates: this.world.gates.map(g => [g.gate.cleared, g.gate.failed]),
@@ -2687,6 +2698,7 @@ class Simulation {
       if (!tw.site.upgrade) { tw.site.tile.siteRef = null; tw.site = null; }
     }
     this.logEntries = (d.log || []).map(e => ({ ...e, npc: this.npcs.find(n => n.id === e.npc) || null }));
+    this.achievements = d.achievements || []; this.raidWins = d.raidWins || 0; this.lastRaidDay = d.lastRaidDay || 0;
     this.guild = d.guild || null; this.tomeFound = !!d.tomeFound; this.ruinsSearched = d.ruinsSearched || 0;
     (d.searched || []).forEach(i => { if (w.tiles[i]) w.tiles[i].searched = true; });
     for (const t of this.towns) t.recount();
@@ -3063,7 +3075,7 @@ class Realm {
   update() {
     const sim = this.sim, m = sim.minutes % 1440;
     if (!this.rival && sim.kingdom && sim.day >= sim.kingdom.founded + 1 && m === 9 * 60) this.foundRival();
-    if (m === 9 * 60 + 30) this.growWall();
+    if (m === 9 * 60 + 30 || m === 15 * 60 + 30) this.growWall(); // zweimal am Tag wird gemauert
     const r = this.rival; if (!r) return;
     if (r.pending && sim.minutes >= r.pending.until) this.choose(this.regentChoice(), true); // keine Wahl → Regentschaft entscheidet
     if (m === 10 * 60 && !r.pending) this.dailyDiplomacy();
@@ -3270,6 +3282,115 @@ function defeatSoldier(m, n, sim) {
   sim.emit('monsterKilled', m);
   if (!sim.monsters.some(x => x.army && x !== m && x.hp > 0 && !x.gone)) sim.realm.armyDefeated();
 }
+
+/* =====================================================================
+ * 16) ERFOLGE und GRUPPEN-EXPEDITIONEN DER GILDE
+ * ===================================================================== */
+const ACHIEVEMENTS = [
+  { id: 'dach', icon: '🏠', name: 'Das erste Dach', desc: 'Das erste Haus steht.', check: s => s.allHouses.some(b => b.type === 'house') },
+  { id: 'stadt', icon: '🏘️', name: 'Kleine Stadt', desc: '10 Häuser in einem Ort.', check: s => s.towns.some(t => t.houses.length >= 10) },
+  { id: 'metropole', icon: '🌆', name: 'Metropole', desc: '40 Häuser im ganzen Reich.', check: s => s.allHouses.filter(b => b.type === 'house').length >= 40 },
+  { id: 'volk', icon: '👥', name: 'Ein ganzes Volk', desc: '50 Siedler.', check: s => s.npcs.length >= 50 },
+  { id: 'licht', icon: '✨', name: 'Das Licht', desc: 'Jemand ist erwacht.', check: s => s.npcs.some(n => n.awakened) },
+  { id: 'lv10', icon: '⬆️', name: 'Zweistellig', desc: 'Jemand erreicht Level 10.', check: s => s.npcs.some(n => n.level >= 10) },
+  { id: 'lv20', icon: '🌟', name: 'Aufsteigender Stern', desc: 'Jemand erreicht Level 20.', check: s => s.npcs.some(n => n.level >= 20) },
+  { id: 'legende', icon: '🟡', name: 'Legendär', desc: 'Ein legendärer Gegenstand wurde geschmiedet.', check: s => s.npcs.some(n => Object.values(n.gear).some(i => i && i.rarity >= 3)) },
+  { id: 'mythisch', icon: '🔴', name: 'Mythisch', desc: 'Ein mythischer Gegenstand existiert.', check: s => s.npcs.some(n => Object.values(n.gear).some(i => i && i.rarity >= 4)) },
+  { id: 'plus10', icon: '💠', name: 'Perfekt verstärkt', desc: 'Ein Gegenstand +10.', check: s => s.npcs.some(n => Object.values(n.gear).some(i => i && i.plus >= 10)) },
+  { id: 'gilde', icon: '🛡️', name: 'Niemand kämpft allein', desc: 'Eine Gilde wurde gegründet.', check: s => !!s.guild },
+  { id: 'gilde5', icon: '🏅', name: 'Berühmte Gilde', desc: 'Gilden-Stufe 5.', check: s => s.guild && (s.guild.level || 1) >= 5 },
+  { id: 'krone', icon: '👑', name: 'Eine Krone', desc: 'Das Königreich wurde ausgerufen.', check: s => !!s.kingdom },
+  { id: 'burg', icon: '🏰', name: 'Die Burg', desc: 'Die Burg der Hauptstadt steht.', check: s => !!s.capital.castle },
+  { id: 'mauer', icon: '🧱', name: 'Hinter Mauern', desc: 'Die Stadtmauer ist vollendet.', check: s => s.realm && s.realm.wallDone },
+  { id: 'kronenfresser', icon: '👹', name: 'Kronenbrecher', desc: 'Der Kronenfresser ist besiegt.', check: s => s.story.bossDead },
+  { id: 'hauptmann', icon: '🗡️', name: 'Schluss mit den Rotschals', desc: 'Der Bandenhauptmann ist gefallen.', check: s => (s.story.captainKills || 0) > 0 },
+  { id: 'belagerung', icon: '🏆', name: 'Standhaft', desc: 'Eine Belagerung abgewehrt.', check: s => s.realm && s.realm.siegeWins > 0 },
+  { id: 'vasall', icon: '🙇', name: 'Gebeugte Krone', desc: 'Das Nachbarreich ist Vasall.', check: s => s.realm && s.realm.rival && s.realm.rival.state === 'vassal' },
+  { id: 'buendnis', icon: '🤝', name: 'Freunde über die Wälder', desc: 'Bündnis mit dem Nachbarreich.', check: s => s.realm && s.realm.rival && s.realm.rival.state === 'allied' },
+  { id: 'drache', icon: '🐉', name: 'Drachenfreund', desc: 'Ein Mini-Drache wurde gezähmt.', check: s => s.npcs.some(n => n.pet && n.pet.kind === 'drache') },
+  { id: 'risse', icon: '🌀', name: 'Rissgänger', desc: '10 Risse bezwungen.', check: s => s.npcs.reduce((a, n) => a + (n.gatesCleared || 0), 0) >= 10 },
+  { id: 'gruppe', icon: '⚔️', name: 'Gemeinsam in die Tiefe', desc: 'Eine Gruppen-Expedition der Gilde war erfolgreich.', check: s => (s.raidWins || 0) > 0 },
+  { id: 'reich', icon: '💰', name: 'Volle Schatzkammer', desc: '500 Münzen in der Hauptstadt.', check: s => s.capital.stock.coins >= 500 },
+  { id: 'duell', icon: '🤺', name: 'Underdog', desc: 'Die Hauptfigur gewinnt ein Duell gegen den Rivalen.', check: s => s.story.duel && s.story.duel.heroWins > 0 },
+];
+function checkAchievements(sim) {
+  sim.achievements ||= [];
+  for (const a of ACHIEVEMENTS) {
+    if (sim.achievements.includes(a.id)) continue;
+    let ok = false; try { ok = a.check(sim); } catch (e) { ok = false; }
+    if (!ok) continue;
+    sim.achievements.push(a.id);
+    sim.log(`🏆 Erfolg freigeschaltet: ${a.icon} ${a.name}`, null, true);
+    sim.emit('system', `🏆 ERFOLG: ${a.name}`);
+    sim.emit('achievement', a);
+  }
+}
+
+/* ---- Gruppen-Expedition: die Gilde zieht gemeinsam in den stärksten Riss ---- */
+const RAID_BOSSES = ['Smaragdkoloss', 'Glutwurm', 'Sternenschlund', 'Nebelhirte', 'Aschenwächter'];
+const raidBoss = gate => RAID_BOSSES[gate.gate.name.length % RAID_BOSSES.length];
+
+function startGroupRaid(sim) {
+  if (!sim.guild || sim.expedition || sim.isNight || sim.monsters.length) return;
+  const party = sim.npcs.filter(n => n.awakened && n.level >= 8 && !n.inside && n.hp > n.maxHp * 0.6 && n.energy > 40).sort((a, b) => b.level - a.level).slice(0, 4);
+  if (party.length < 3) return;
+  const gate = sim.world.gates.filter(g => !g.gate.red).sort((a, b) => b.gate.tier - a.gate.tier)[0];
+  if (!gate) return;
+  sim.expedition = { gate: sim.world.gates.indexOf(gate), members: party.map(n => n.id), start: sim.minutes, done: false, boss: raidBoss(gate) };
+  for (const n of party) { const steps = ACTIONS.groupRaid.plan(n, sim); if (steps) { if (n.task) n.endTask(sim); n.startTask(ACTIONS.groupRaid, steps, sim); } }
+  sim.log(`⚔️ Die „${sim.guild.name}“ bricht gemeinsam auf: ${party.map(n => n.name).join(', ')} wagen sich in den Riss „${gate.gate.name}“. Dort haust der Riss-Boss „${sim.expedition.boss}“.`, null, true);
+  sim.emit('system', `GRUPPEN-EXPEDITION: ${gate.gate.name}`);
+  sim.emit('groupRaid', { phase: 'start', party, gate: gate.gate, boss: sim.expedition.boss });
+}
+
+function finishGroupRaid(sim) {
+  const ex = sim.expedition; if (!ex || ex.done) return;
+  ex.done = true;
+  const gate = sim.world.gates[ex.gate], tier = gate.gate.tier, party = ex.members.map(id => sim.npcs.find(n => n.id === id)).filter(Boolean);
+  const power = party.reduce((a, n) => a + n.level + n.attack * 0.3, 0), boss = 45 + tier * 18 + sim.day * 2.5;
+  const win = sim.rng() < clamp(0.35 + (power - boss) / 80, 0.15, 0.92);
+  if (win) {
+    const crystals = 6 + tier * 4, xp = 120 * tier;
+    sim.capital.stock.crystals += crystals; sim.raidWins = (sim.raidWins || 0) + 1;
+    for (const n of party) { n.addXp(sim, xp); n.gatesCleared++; n.mood = Math.min(100, n.mood + 25); n.remember(sim, `Hat mit der Gilde „${ex.boss}“ besiegt ⚔️`); n.addTitle(sim, 'Bezwinger der Tiefe'); }
+    const roll = sim.rng(), rar = roll < 0.05 ? 4 : roll < 0.4 ? 3 : 2, best = party[0], slot = pick(sim, SLOTS), item = makeItem(slot, rar, best, { name: 'Beute aus dem Riss', level: best.level + 3 }, sim);
+    if (!best.gear[slot] || item.power > best.gear[slot].power) { if (best.gear[slot]) sim.capital.storeItem(best.gear[slot]); best.gear[slot] = item; } else sim.capital.storeItem(item);
+    if (sim.guild) guildXp(sim, 200);
+    sim.log(`🏆 Die Gilde besiegt den Riss-Boss „${ex.boss}“! +${crystals} 💎, je +${xp} EP – und ${best.name} erbeutet ${item.name} (${RARITIES[rar].name})!`, null, true);
+    sim.emit('system', `RISS-BOSS BESIEGT: ${ex.boss}`);
+    if (rar >= 3) sim.emit('legendary', { n: best, item });
+    sim.emit('groupRaid', { phase: 'win', party, gate: gate.gate, boss: ex.boss, item, crystals });
+  } else {
+    for (const n of party) { n.hp = Math.round(n.maxHp * 0.2); n.energy = 10; n.mood = Math.max(0, n.mood - 25); n.addXp(sim, 30 * tier); n.remember(sim, `Musste vor „${ex.boss}“ fliehen 🩸`); }
+    sim.log(`🩸 „${ex.boss}“ war zu stark. Die Gilde flieht verwundet aus dem Riss „${gate.gate.name}“.`, null, true);
+    sim.emit('system', 'Die Gruppen-Expedition ist gescheitert …');
+    sim.emit('groupRaid', { phase: 'lose', party, gate: gate.gate, boss: ex.boss });
+  }
+  sim.lastRaidDay = sim.day;
+}
+
+defineAction({
+  id: 'groupRaid', label: 'ist auf Gruppen-Expedition', short: 'Gilde', start: 'zieht mit der Gilde los', icon: '⚔️',
+  interruptible: false,
+  score: () => 0, // startet nur über die Gilde
+  think: (n, sim) => sim.expedition ? `Heute stellen wir uns „${sim.expedition.boss}“. Zusammen.` : 'Auf zur Expedition!',
+  describe: (n, sim) => sim.expedition ? `zieht mit der Gilde zum Riss „${sim.world.gates[sim.expedition.gate].gate.name}“` : 'zieht mit der Gilde los',
+  plan(n, sim) {
+    const ex = sim.expedition; if (!ex) return null;
+    const gate = sim.world.gates[ex.gate], res = sim.world.findAdjacent(n.x, n.y, t => t === gate, 9000);
+    if (!res) return null;
+    return [move(res.path), act((n, sim, s) => {
+      const ex = sim.expedition;
+      if (!ex || ex.done) return 'done';
+      if (s.t === 1) { n.inside = { tile: gate, gate: true, group: true }; n.lastGate = sim.minutes; }
+      n.energy = Math.max(0, n.energy - 0.08);
+      if (s.t < 240) return;
+      finishGroupRaid(sim);
+      return 'done';
+    }, { face: gate })];
+  },
+  onEnd(n, sim) { if (n.inside && n.inside.group) n.inside = null; if (sim.expedition && sim.expedition.done && !sim.npcs.some(o => o.task && o.task.actionId === 'groupRaid' && o !== n)) sim.expedition = null; },
+});
 /* =====================================================================
  * 8) DARSTELLUNG (Canvas 2D)
  * Pipeline pro Bild: Boden (zwischengespeichert) → Wasseranimation →
@@ -6462,6 +6583,12 @@ function drawRift(now) {
   c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(hx, gy + s * 0.02, s * 0.28, s * 0.07, 0, 0, TAU); c.fill();
   if (hurt) c.filter = 'brightness(1.8) saturate(.4)';
   const foe = n.foe, inv = n.inventory; n.foe = null; n.inventory = { wood: 0, stone: 0 }; // im Riss: Waffe statt Holz
+  const party = sim.npcs.filter(o => o !== n && o.inside && o.inside.tile === R.gate).slice(0, 3);
+  party.forEach((o, i) => { // Gefährten der Gilde hinter der ausgewählten Person
+    const ox = hx - s * (0.45 + i * 0.38), oinv = o.inventory, of = o.foe; o.inventory = { wood: 0, stone: 0 }; o.foe = null;
+    renderer.drawSettler(c, o, ox, gy - s * 0.42, s * 0.9, now + i * 170, pose, now / 1000 * 3 + i);
+    o.inventory = oinv; o.foe = of;
+  });
   renderer.drawSettler(c, n, hx, gy - s * 0.38, s, now, pose, now / 1000 * 3);
   n.foe = foe; n.inventory = inv; c.filter = 'none';
   if (n.pet) { const fly = n.pet.kind === 'eule' || n.pet.kind === 'drache'; drawPixelCreature(c, 'pet_' + n.pet.kind, hx - s * 0.55, gy - (fly ? s * 0.55 + Math.sin(now / 300) * s * 0.05 : 0), s * 0.85, 1, walking || fly ? Math.floor(now / 130) & 3 : 0, false, false); }
@@ -6793,6 +6920,14 @@ const SCENES = {
     return [BG('burg'), CAST(...(h ? [{ n: h, x: 0.35, pose: 'cheer' }] : []), ...(f ? [{ n: f, x: 0.65, face: -1, pose: 'cheer' }] : [])), FX('flash'), SND('triumph'), SHOUT('DIE MAUER STEHT!', '#d8d4cc'),
       N(`Stein auf Stein, Tag für Tag – nun umschließt eine Mauer ${sim.capital.name}.`), ...(f ? [S(f, voice(f, 'jubel'), 'lachen')] : [])];
   },
+  groupRaid(e) {
+    const party = e.party.filter(n => !n.inside || e.phase !== 'start'), lead = party[0]; if (!lead) return null;
+    if (e.phase === 'start') return [BG('halle'), CAST(...party.slice(0, 4).map((n, i) => ({ n, x: 0.2 + i * 0.2, face: i ? -1 : 1 }))), N(`Morgengrauen in der Gildenhalle. Heute geht niemand allein in den Riss.`),
+      S(lead, `Im Riss „${e.gate.name}“ wartet „${e.boss}“. Wir holen ihn uns – zusammen!`, 'entschlossen'), ...party.slice(1, 3).map(n => S(n, voice(n, personaOf(n) === 'rivale' ? 'lager' : 'jubel', 'lager'), 'lachen')), SND('kampf'), SHOUT('AUFBRUCH!', '#8fd3ff')];
+    if (e.phase === 'win') return [BG('riss'), CAST({ kind: 'aschegolem', x: 0.78, face: -1, scale: 1.8 }, ...party.slice(0, 3).map((n, i) => ({ n, x: 0.2 + i * 0.15, pose: 'fight' }))), FX('speed'), SHOUT(`${skillShout(lead)}`), FX('shake'), FX('flash'), ACT(0, { hit: true }),
+      SND('triumph'), SYS(`RISS-BOSS „${e.boss}“ BESIEGT · +${e.crystals} 💎`), S(lead, voice(lead, 'sieg', 'jubel'), 'lachen'), ...(e.item ? [SHOUT(e.item.name, RARITIES[e.item.rarity].color)] : [])];
+    return [BG('riss'), CAST(...party.slice(0, 3).map((n, i) => ({ n, x: 0.25 + i * 0.2 }))), FX('shake'), SND('traurig'), N(`„${e.boss}“ war zu stark. Blutend und erschöpft taumelt die Gruppe zurück ans Tageslicht.`), S(lead, voice(lead, 'niederlage'), 'traurig'), S(lead, 'Wir trainieren. Und dann kommen wir wieder.', 'entschlossen')];
+  },
   bund() {
     const st = sim.story, h = st.hero, r = st.rival; if (!h || !r) return null;
     return [BG('lager'), CAST({ n: h, x: 0.35 }, { n: r, x: 0.65, face: -1 }), S(r, voice(r, 'respekt'), 'normal'), S(h, 'Heißt das … wir sind jetzt Freunde?', 'lachen'),
@@ -6865,7 +7000,7 @@ function advance() {
 function showSay({ who, text, mood, kind }) {
   const S0 = scn.cur, n = who && typeof who === 'object' ? who : null, name = n ? n.name : who || 'Erzähler';
   $('sceneBox').hidden = false;
-  $('sceneName').textContent = name; $('sceneName').style.color = n ? n.color : who ? '#ff9a9a' : '#f0b54a';
+  $('sceneName').textContent = name; $('sceneName').style.color = n ? (n.color.startsWith('#') ? shadeHex(n.color, 45) : n.color) : who ? '#ff9a9a' : '#f0b54a'; // dunkle Farben aufhellen
   $('sceneText').textContent = '';
   $('sceneBox').classList.toggle('narr', !who);
   drawFace($('sceneFace'), n, who, mood, kind);
@@ -7086,6 +7221,7 @@ function directorEvents(s) {
   });
   s.on('loyal', e => { highlight(`${e.who.name} schwor ${e.smith.name} die Treue.`); playScene(SCENES.loyal(e), 2); });
   s.on('guildLevel', g => playScene(SCENES.guildLevel(g)));
+  s.on('groupRaid', e => { if (e.phase !== 'start') highlight(e.phase === 'win' ? `Die Gilde besiegte „${e.boss}“.` : `Die Gilde floh vor „${e.boss}“.`); playScene(SCENES.groupRaid(e), 2); });
   s.on('diplo', e => { if (['war', 'siegeWon', 'vassal', 'alliance'].includes(e.kind)) highlight({ war: `${e.realm.name} erklärte den Krieg.`, siegeWon: `Die Belagerung durch ${e.realm.name} wurde gebrochen.`, vassal: `${e.realm.name} unterwarf sich.`, alliance: `Bündnis mit ${e.realm.name}.` }[e.kind]); playScene(SCENES.diplo(e), e.kind === 'offer' ? 1 : 2); });
   s.on('wallDone', () => { highlight('Die Stadtmauer wurde vollendet.'); playScene(SCENES.wall(), 2); });
   s.on('tamed', e => { if (e.n === s.story.hero || sim.minutes - scn.lastAt > 240) { highlight(`${e.n.name} zähmte ${PETS[e.pet.kind].name} „${e.pet.name}“.`); playScene(SCENES.tamed(e)); } });
@@ -7109,7 +7245,7 @@ function store(key, val) { try { if (val === undefined) return localStorage.getI
 function renderLog() {
   $('log').innerHTML = sim.logEntries.slice(0, 40).map(e => {
     const who = e.npc ? `<span class="who" style="color:${e.npc.color}">${esc(e.npc.name)}</span> ` : '';
-    return `<li class="${e.event ? 'event' : ''}"><span class="t">T${e.day} ${e.clock}</span>${who}${esc(e.text)}</li>`;
+    return `<li class="${e.event ? 'event' : ''}"${e.npc ? ` data-npc="${e.npc.id}"` : ''}><span class="t">T${e.day} ${e.clock}</span>${who}${esc(e.text)}</li>`;
   }).join('');
 }
 
@@ -7513,6 +7649,24 @@ function updateNarrator(now) {
 }
 const cineMoment = n => { if (n && n.name) ui.cineEvent = { n, at: performance.now() }; };
 
+/** Ort des letzten wichtigen Ereignisses (Person, Monster oder Kachel) – für „Hinspringen“. */
+function setPoi(ent, x, y) { ui.poi = { ent, x: ent ? ent.x : x, y: ent ? ent.y : y, at: performance.now() }; }
+function jumpToPoi() {
+  const p = ui.poi; if (!p) return;
+  if (ui.cine) ui.cineHold = performance.now() + 20000;
+  if (p.ent && sim.npcs.includes(p.ent)) { ui.selected = null; select(p.ent); return; }
+  if (p.ent && sim.monsters.includes(p.ent)) { selectMonster(p.ent); return; }
+  renderer.follow = null; renderer.centerOn(p.x + 0.5, p.y + 0.5);
+}
+
+/** Erfolge: freigeschaltet bunt, gesperrt grau mit Hinweis. */
+function openAchievements() {
+  const got = sim.achievements || [];
+  $('modalTitle').textContent = `🏆 Erfolge (${got.length}/${ACHIEVEMENTS.length})`; $('modalText').textContent = '';
+  $('modalHtml').innerHTML = `<div class="ach">${ACHIEVEMENTS.map(a => `<div class="${got.includes(a.id) ? '' : 'locked'}"><span>${a.icon}</span><b>${esc(a.name)}</b>${esc(a.desc)}</div>`).join('')}</div>`;
+  $('modalHtml').hidden = false; $('modalArea').hidden = true; $('modalOk').hidden = true; $('modal').hidden = false;
+}
+
 function bindLinks(box) {
   box.querySelectorAll('[data-npc]').forEach(b => b.addEventListener('click', () => select(sim.npcs.find(x => x.id === Number(b.dataset.npc)))));
 }
@@ -7524,7 +7678,8 @@ function showSystem(now) {
   if (now < ui.sysUntil) return;
   const msg = ui.sysQueue.shift();
   if (!msg) { box.hidden = true; return; }
-  box.innerHTML = `<div class="sys-title">[ SYSTEM ]</div><div>${esc(msg)}</div>`;
+  const p = ui.poi && performance.now() - ui.poi.at < 20000 ? ui.poi : null;
+  box.innerHTML = `<div class="sys-title">[ SYSTEM ]</div><div>${esc(msg)}</div>${p ? '<div class="sys-jump">📍 antippen = hinspringen</div>' : ''}`;
   box.hidden = false; box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
   ui.sysUntil = now + 2600;
 }
@@ -7708,6 +7863,14 @@ function startSim(s) {
   sim.on('legendary', ({ n }) => { renderer.burst(n, 'legendary'); sound.levelUp(); setTimeout(() => sound.levelUp(), 250); });
   sim.on('awaken', n => { n.cheerUntil = performance.now() + 2200; renderer.burst(n, 'awaken'); sound.levelUp(); buildRoster(); });
   sim.on('npcAdded', buildRoster);
+  // Orte wichtiger Ereignisse merken (für „📍 Hinspringen“)
+  sim.on('raid', e => setPoi(null, e.town.camp.x, e.town.camp.y));
+  sim.on('boss', m => setPoi(m));
+  sim.on('diplo', e => { if (e.kind === 'siege') { const m = sim.monsters.find(x => x.kind === 'feldherr'); if (m) setPoi(m); } else if (e.realm) setPoi(null, e.realm.x, e.realm.y); });
+  for (const ev of ['awaken', 'levelup', 'npcAdded']) sim.on(ev, n => setPoi(n));
+  sim.on('legendary', e => setPoi(e.n)); sim.on('tamed', e => setPoi(e.n)); sim.on('gateDone', e => setPoi(e.n)); sim.on('loyal', e => setPoi(e.who));
+  sim.on('duel', e => setPoi(e.a)); sim.on('groupRaid', e => e.party[0] && setPoi(e.party[0]));
+  sim.on('achievement', () => sound.on && sound.chime());
   directorEvents(sim);
   // im Anime-Modus übernimmt die Szene das Kapitel
   sim.on('chapter', ch => { if (scn.on && !ch.recap) return; if (ui.catchingUp && !ch.recap) { ui.chapters = [...(ui.chapters || []), ch]; return; } if (!$('chapter').hidden) (ui.chapters ||= []).push(ch); else showChapter(ch); cineMoment(sim.story.hero); });
@@ -7784,6 +7947,9 @@ $('exportBtn').addEventListener('click', exportGame);
 $('importBtn').addEventListener('click', importGame);
 $('modalClose').addEventListener('click', () => { $('modal').hidden = true; });
 $('chronikBtn').addEventListener('click', openChronik);
+$('achBtn').addEventListener('click', openAchievements);
+$('sysWin').addEventListener('click', jumpToPoi);
+$('log').addEventListener('click', e => { const li = e.target.closest('li[data-npc]'); if (li) { const n = sim.npcs.find(x => x.id === Number(li.dataset.npc)); if (n) { ui.selected = null; select(n); } } });
 $('riftClose').addEventListener('click', () => closeRift(true));
 $('scene').addEventListener('click', e => { if (e.target.id !== 'sceneSkip') sceneTap(); });
 $('sceneSkip').addEventListener('click', () => { scn.q = []; scn.cur = null; $('scene').hidden = true; });

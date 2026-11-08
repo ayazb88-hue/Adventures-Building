@@ -1200,7 +1200,7 @@ class NPC {
  * 7) SIMULATION: Zeit, Wetter, Wachstum, Ereignisse, Log, Speichern
  * ===================================================================== */
 const TILE_TYPES = Object.keys(TILE_DEFS);
-const SAVE_VERSION = 8; // 6: Geschichte · 7: Folgen und Höhepunkte · 8: Nachbarreich, Diplomatie, Stadtmauer (realm)
+const SAVE_VERSION = 9; // 6: Geschichte · 7: Folgen und Höhepunkte · 8: Nachbarreich, Diplomatie, Stadtmauer (realm) · 9: Erfolge, Gruppen-Expeditionen
 // Reihenfolge der Geländearten in älteren Spielständen (dort wurden Kacheln als Nummer gespeichert)
 const BASE_TYPES = ['grass', 'tree', 'stump', 'water', 'bush', 'camp', 'site', 'house', 'rock'];
 const OLD_TYPE_LISTS = {
@@ -1732,6 +1732,9 @@ class Simulation {
     for (const npc of this.npcs) npc.update(this);
     this.story.update();
     this.realm.update();
+    if (this.minutes % 60 === 15) checkAchievements(this);
+    if (this.minutes % 1440 === 8 * 60 && this.day % 3 === 0 && this.day !== this.lastRaidDay) startGroupRaid(this);
+    if (this.expedition && this.minutes - this.expedition.start > 600) { if (!this.expedition.done) finishGroupRaid(this); this.expedition = null; } // Sicherheitsnetz
     this.updateMonsters();
     this.updateTowers();
     this.updateTrade();
@@ -1751,7 +1754,7 @@ class Simulation {
     return {
       v: SAVE_VERSION, types: TILE_TYPES, kingdom: this.kingdom, towns: this.towns.map(t => ({ name: t.name, capital: t.capital, color: t.color, leader: t.leader, founded: t.founded, x: t.camp.x, y: t.camp.y, stock: t.stock, items: t.items || [],
         site: t.site && { type: t.site.type, x: t.site.tile.x, y: t.site.tile.y, progress: t.site.progress, work: t.site.work, upgrade: t.site.upgrade ? t.site.upgrade.id : null } })),
-      story: this.story.serialize(), realm: this.realm.serialize(), guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
+      story: this.story.serialize(), realm: this.realm.serialize(), achievements: this.achievements || [], raidWins: this.raidWins || 0, lastRaidDay: this.lastRaidDay || 0, guild: this.guild, tomeFound: this.tomeFound, ruinsSearched: this.ruinsSearched,
       searched: this.world.tiles.filter(t => t.searched).map(t => t.y * this.world.w + t.x),
       seed: this.seed, minutes: this.minutes, weather: this.weather, firstAwakening: this.firstAwakening,
       gates: this.world.gates.map(g => [g.gate.cleared, g.gate.failed]),
@@ -1836,6 +1839,7 @@ class Simulation {
       if (!tw.site.upgrade) { tw.site.tile.siteRef = null; tw.site = null; }
     }
     this.logEntries = (d.log || []).map(e => ({ ...e, npc: this.npcs.find(n => n.id === e.npc) || null }));
+    this.achievements = d.achievements || []; this.raidWins = d.raidWins || 0; this.lastRaidDay = d.lastRaidDay || 0;
     this.guild = d.guild || null; this.tomeFound = !!d.tomeFound; this.ruinsSearched = d.ruinsSearched || 0;
     (d.searched || []).forEach(i => { if (w.tiles[i]) w.tiles[i].searched = true; });
     for (const t of this.towns) t.recount();

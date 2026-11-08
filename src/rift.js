@@ -131,6 +131,12 @@ function drawRift(now) {
   c.fillStyle = 'rgba(0,0,0,.35)'; c.beginPath(); c.ellipse(hx, gy + s * 0.02, s * 0.28, s * 0.07, 0, 0, TAU); c.fill();
   if (hurt) c.filter = 'brightness(1.8) saturate(.4)';
   const foe = n.foe, inv = n.inventory; n.foe = null; n.inventory = { wood: 0, stone: 0 }; // im Riss: Waffe statt Holz
+  const party = sim.npcs.filter(o => o !== n && o.inside && o.inside.tile === R.gate).slice(0, 3);
+  party.forEach((o, i) => { // Gefährten der Gilde hinter der ausgewählten Person
+    const ox = hx - s * (0.45 + i * 0.38), oinv = o.inventory, of = o.foe; o.inventory = { wood: 0, stone: 0 }; o.foe = null;
+    renderer.drawSettler(c, o, ox, gy - s * 0.42, s * 0.9, now + i * 170, pose, now / 1000 * 3 + i);
+    o.inventory = oinv; o.foe = of;
+  });
   renderer.drawSettler(c, n, hx, gy - s * 0.38, s, now, pose, now / 1000 * 3);
   n.foe = foe; n.inventory = inv; c.filter = 'none';
   if (n.pet) { const fly = n.pet.kind === 'eule' || n.pet.kind === 'drache'; drawPixelCreature(c, 'pet_' + n.pet.kind, hx - s * 0.55, gy - (fly ? s * 0.55 + Math.sin(now / 300) * s * 0.05 : 0), s * 0.85, 1, walking || fly ? Math.floor(now / 130) & 3 : 0, false, false); }
